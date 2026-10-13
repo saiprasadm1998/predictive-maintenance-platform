@@ -16,12 +16,10 @@ The build runs in 10 phases (0 to 9), each split into sub-phases, and nothing mo
 
 **Assumptions**
 
-- One developer working with AI assistance, delivery by the end of next month. The week split below is a proposal, not a commitment.
-- Backend and front end come first, and the prediction model comes after (per the boss). Until then a simple placeholder detector, which predicts each sensor as its training median, sits behind the detector plug-in contract (ARC §8.1). The whole pipeline and every screen can be built and demoed on it, and the real AAKR model replaces it in Phase 7 without changes elsewhere. Scores before Phase 7 are for demonstration only and do not indicate real anomalies.
+- Delivery by the end of next month. The week split below is a proposal, not a commitment.
+- Backend and front end come first, and the prediction model comes after. Until then a simple placeholder detector, which predicts each sensor as its training median, sits behind the detector plug-in contract (ARC §8.1). The whole pipeline and every screen can be built and demoed on it, and the real AAKR model replaces it in Phase 7 without changes elsewhere. Scores before Phase 7 are for demonstration only and do not indicate real anomalies.
 - The scoring formulas (residual, relative deviation, standardised residual, Deviation Index, Health Score) are plain maths and are built early, not deferred with the model.
-- Release 1 is the priority. Release 2 starts only when the prediction model is done, so with a one-month target it may be only partly delivered.
 - The sandbox has no PostgreSQL or Docker, so logic is built and tested against portable code first, and TimescaleDB-specific parts (hypertables, compression) are kept in migrations and verified in the Docker/CI environment.
-- Demo data is synthetic and industrial: compressors and pumps with healthy, drifting and faulty behaviour, until the pilot data arrives.
 
 | Phase | Goal | Release | Proposed week |
 | --- | --- | --- | --- |
@@ -260,7 +258,7 @@ Phase 9 proves the system works under real conditions and hands it over in a sta
 
 - Build: the gateway interface control document (OI-01), a runbook, a short user guide, and release notes.
 - Test: someone who has not worked on the project follows the runbook and the guide without help.
-- Done when: the documents are reviewed by the boss.
+- Done when: the documents are reviewed.
 
 ## Questions to confirm
 
