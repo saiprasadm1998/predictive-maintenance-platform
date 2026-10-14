@@ -1,0 +1,75 @@
+# Predictive Maintenance Platform (PMP)
+
+PMP learns the normal behaviour of plant equipment from sensor data, compares live values with that behaviour, and turns the difference into a Deviation Index and a 0–100 Health Score. It raises managed alerts before fixed alarm limits are reached, explains which sensors and failure modes are involved, forecasts time to a limit, and carries the response through a case to a recorded outcome.
+
+Architecture: a modular monolith (Python back end, React front end, PostgreSQL with TimescaleDB), one container image running a web role and a worker role. The specification pack is PMP-PRD-001, PMP-UCS-001, PMP-PDS-001, PMP-ARC-001 and PMP-GAP-001 (Rev A). Build progress follows [`docs/implementation-plan.md`](docs/implementation-plan.md).
+
+## Repository layout
+
+```
+backend/    Python 3.12 package `pmp` (13 modules + api), tests
+frontend/   React, TypeScript and Vite app (from phase 6)
+deploy/     Dockerfile, compose files, proxy configuration (from phase 0.3)
+docs/       implementation plan and project documents
+```
+
+## Prerequisites
+
+- [uv](https://docs.astral.sh/uv/) (installs and manages Python 3.12)
+- Docker Desktop (PostgreSQL 16 with TimescaleDB, from phase 0.2)
+- Node.js (front end, from phase 6)
+
+## Getting started
+
+Docker Desktop must be running.
+
+```
+cd backend
+uv sync                      # creates backend/.venv with Python 3.12 and all tools
+cp .env.example .env         # local settings (never committed)
+cd ..
+make db-up                   # PostgreSQL 16 + TimescaleDB on localhost:5433
+make check                   # lint, format, types, import contracts, unit + integration tests
+```
+
+| Command | What it does |
+| --- | --- |
+| `make check-unit` | All checks except the integration tests (no database needed) |
+| `make format` | Apply Ruff formatting and safe lint fixes |
+| `make migrate` | Upgrade the dev database to the latest migration |
+| `make web` | Run the web role on http://127.0.0.1:8000 (`/healthz`, `/api/v1/docs`) |
+| `make worker` | Run the worker role (job queue) |
+| `make db-down` / `make db-reset` | Stop the database / wipe and restart it |
+
+## Running the full stack in containers
+
+One image runs both roles (`pmp web`, `pmp worker`). To run database, web and worker together:
+
+```
+cp deploy/.env.example deploy/.env   # once
+make up                              # builds the image and starts everything
+curl http://127.0.0.1:8000/healthz
+make logs                            # follow the logs; Ctrl+C to stop following
+make down
+```
+
+`make image` builds the image on its own (`pmp:local`).
+
+## Continuous integration
+
+GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
+lint, format check, type check, import contracts, unit and integration tests against a
+TimescaleDB service container, the 80% coverage gate on the analytics modules, a
+dependency audit (`make audit`), then builds the image and smoke-tests `/healthz`.
+
+## Module boundaries
+
+Back-end modules talk to each other only through each module's public `__init__.py` (PMP-ARC-001 §4.1). The rules are enforced with import-linter (`make contracts`) and run in CI:
+
+- `core` is the bottom layer and imports no feature module.
+- Feature modules (ingestion, registry, dataquality, modelling, scoring, alerting, diagnostics, prognostics, advisory, cases, notifications, reporting) may use each other's public interfaces only.
+- `api` sits on top; nothing imports it.
+
+## Editor
+
+VS Code settings and recommended extensions are in `.vscode/`. After `uv sync`, select the interpreter `backend/.venv/bin/python` (Cmd+Shift+P › "Python: Select Interpreter").
