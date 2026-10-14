@@ -1,0 +1,21 @@
+# Only backend/pmp, backend/migrations and the lock files go into the image.
+**/.venv
+**/__pycache__
+**/*.py[cod]
+**/.mypy_cache
+**/.ruff_cache
+**/.pytest_cache
+**/.hypothesis
+**/.coverage
+**/.env
+**/.env.*
+**/node_modules
+**/.DS_Store
+.git
+.github
+.idea
+.vscode
+docs
+frontend
+backend/tests
+backend/.artefacts
