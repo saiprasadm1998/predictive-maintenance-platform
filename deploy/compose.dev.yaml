@@ -1,0 +1,24 @@
+# Development database only: PostgreSQL 16 with TimescaleDB (ARC-001 §10.1).
+# Start with `make db-up`. Application services are added in sub-phase 0.3.
+name: pmp-dev
+
+services:
+  db:
+    # Pinned to the image digest verified on 14-Oct-2026 (PostgreSQL 16.15).
+    image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
+    environment:
+      POSTGRES_USER: pmp
+      POSTGRES_PASSWORD: pmp
+      POSTGRES_DB: pmp
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmp -d pmp"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+volumes:
+  pgdata:

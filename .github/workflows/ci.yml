@@ -1,0 +1,97 @@
+# Continuous integration (ARC-001 §12.2). Runs on every push and pull request.
+# Front-end build and npm audit join in sub-phase 6.1; image scan and SBOM in 9.1.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend checks and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      db:
+        # Same pinned image as deploy/compose.dev.yaml.
+        image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
+        env:
+          POSTGRES_USER: pmp
+          POSTGRES_PASSWORD: pmp
+          POSTGRES_DB: pmp
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U pmp -d pmp"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.13.0"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install Python 3.12 and dependencies
+        working-directory: backend
+        run: uv sync --frozen
+
+      - name: Lint
+        run: make lint
+
+      - name: Format check
+        run: make format-check
+
+      - name: Type check
+        run: make types
+
+      - name: Import contracts
+        run: make contracts
+
+      - name: Unit and integration tests, coverage gate
+        env:
+          PMP_TEST_DATABASE_URL: postgresql+psycopg://pmp:pmp@localhost:5433/pmp
+        run: make test
+
+      - name: Dependency audit
+        run: make audit
+
+  image:
+    name: Container image and smoke test
+    runs-on: ubuntu-latest
+    needs: backend
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Prepare settings
+        run: cp deploy/.env.example deploy/.env
+
+      - name: Build image and start the stack
+        run: make up
+
+      - name: Smoke test /healthz
+        run: |
+          curl --fail --silent --show-error --retry 10 --retry-delay 2 --retry-all-errors \
+            http://127.0.0.1:8000/healthz
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose -f deploy/compose.yaml logs
+
+      - name: Stop the stack
+        if: always()
+        run: make down

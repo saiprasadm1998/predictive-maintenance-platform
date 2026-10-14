@@ -1,0 +1,57 @@
+"""Integration tests run against the development database (make db-up).
+
+A fresh `pmp_test` database is created once per test run and migrated to head, so
+tests exercise the real migrations, TimescaleDB extension and triggers.
+"""
+
+from __future__ import annotations
+
+import os
+from collections.abc import Iterator
+
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import OperationalError
+
+from pmp.core import Database, run_migrations
+
+ADMIN_URL = os.environ.get(
+    "PMP_TEST_DATABASE_URL", "postgresql+psycopg://pmp:pmp@localhost:5433/pmp"
+)
+TEST_DB = "pmp_test"
+
+
+@pytest.fixture(scope="session")
+def database_url() -> str:
+    admin = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as connection:
+            connection.execute(text(f"DROP DATABASE IF EXISTS {TEST_DB} WITH (FORCE)"))
+            connection.execute(text(f"CREATE DATABASE {TEST_DB}"))
+    except OperationalError as error:
+        pytest.fail(
+            f"Cannot reach the development database at {make_url(ADMIN_URL).render_as_string()}. "
+            f"Start it with `make db-up`.\n{error}",
+            pytrace=False,
+        )
+    finally:
+        admin.dispose()
+
+    url = make_url(ADMIN_URL).set(database=TEST_DB).render_as_string(hide_password=False)
+    run_migrations(url)
+    return url
+
+
+@pytest.fixture(scope="session")
+def database(database_url: str) -> Iterator[Database]:
+    db = Database(database_url)
+    yield db
+    db.dispose()
+
+
+@pytest.fixture
+def clean_jobs(database: Database) -> Database:
+    with database.session() as session:
+        session.execute(text("TRUNCATE job RESTART IDENTITY"))
+    return database

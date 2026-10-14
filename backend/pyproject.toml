@@ -1,0 +1,390 @@
+[project]
+name = "pmp"
+version = "0.1.0"
+description = "Predictive Maintenance Platform: anomaly detection, health scoring and failure-risk management"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "alembic>=1.13",
+    "fastapi>=0.115",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.8",
+    "pydantic-settings>=2.4",
+    "sqlalchemy>=2.0.30",
+    "uvicorn>=0.30",
+]
+
+[project.scripts]
+pmp = "pmp.cli:main"
+
+[dependency-groups]
+dev = [
+    "httpx2>=2.13",
+    "hypothesis>=6.100",
+    "import-linter>=2.1",
+    "mypy>=1.11",
+    "pip-audit>=2.7",
+    "pytest>=8.3",
+    "pytest-cov>=5.0",
+    "ruff>=0.6",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pmp"]
+
+# ---------------------------------------------------------------- Ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "PT", "C4"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pmp"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["pmp", "tests", "migrations", "tools"]
+plugins = ["pydantic.mypy"]
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["-ra", "--strict-markers", "--strict-config"]
+markers = [
+    "integration: needs the development database (make db-up)",
+]
+
+# ---------------------------------------------------------------- coverage
+# The 80% gate (NFR-MAIN-01) applies to the analytics modules; see tools/coverage_gate.py.
+[tool.coverage.run]
+source = ["pmp"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]
+
+# ---------------------------------------------------------------- import-linter
+# Module boundaries from PMP-ARC-001 §4.1, enforced in CI (NFR-MAIN-01).
+[tool.importlinter]
+root_package = "pmp"
+
+[[tool.importlinter.contracts]]
+name = "Layers: api on top, feature modules in the middle, core at the bottom"
+type = "layers"
+layers = [
+    "pmp.api",
+    "pmp.ingestion : pmp.registry : pmp.dataquality : pmp.modelling : pmp.scoring : pmp.alerting : pmp.diagnostics : pmp.prognostics : pmp.advisory : pmp.cases : pmp.notifications : pmp.reporting",
+    "pmp.core",
+]
+
+[[tool.importlinter.contracts]]
+name = "core uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.core"]
+forbidden_modules = [
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ingestion uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.ingestion"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "registry uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.registry"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "dataquality uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.dataquality"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "modelling uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.modelling"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "scoring uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.scoring"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "alerting uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.alerting"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "diagnostics uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.diagnostics"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "prognostics uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.prognostics"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "advisory uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.advisory"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "cases uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.cases"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "notifications uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.notifications"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "reporting uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.reporting"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "api uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.api"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "cli uses modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.cli"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
+    "pmp.api.**",
+]
+allow_indirect_imports = true

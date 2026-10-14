@@ -1,0 +1,62 @@
+# Full local stack: database, web role and worker role from one image (ARC-001 §10.1).
+# Start with `make up` (needs deploy/.env). The reverse proxy, backups and production
+# settings are added in sub-phase 9.1.
+name: pmp
+
+x-app: &app
+  image: pmp:local
+  build:
+    context: ..
+    dockerfile: deploy/Dockerfile
+  env_file: .env
+  environment:
+    PMP_DATABASE_URL: postgresql+psycopg://pmp:pmp@db:5432/pmp
+  volumes:
+    - artefacts:/data/artefacts
+
+services:
+  db:
+    # Same pinned image as compose.dev.yaml.
+    image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
+    environment:
+      POSTGRES_USER: pmp
+      POSTGRES_PASSWORD: pmp
+      POSTGRES_DB: pmp
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pmp -d pmp"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  web:
+    <<: *app
+    command: ["web"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  worker:
+    <<: *app
+    command: ["worker"]
+    depends_on:
+      web:
+        condition: service_healthy   # the web role has finished migrations
+    restart: always
+
+volumes:
+  pgdata:
+  artefacts:
