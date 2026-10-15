@@ -72,6 +72,27 @@ uv run pmp apikey revoke <id>
 
 Interactive API documentation: http://127.0.0.1:8000/api/v1/docs (`make web`).
 
+## Loading history
+
+History files (CSV or Parquet; long format `ts, tag, value, quality` or wide format `ts`
+plus one column per tag) load through `POST /api/v1/ingest/backfill`, which queues a job
+for the worker, or directly from the command line. Every row is checked; counts always
+reconcile (rows read = loaded + duplicates + rejected). Timestamps need a UTC offset
+unless `--naive-as-utc` is given.
+
+```
+cd backend
+uv run pmp ingest backfill history.parquet --source gw-site-a-01 --preview   # check first
+uv run pmp ingest backfill history.parquet --source gw-site-a-01             # skip overlaps
+uv run pmp ingest backfill history.parquet --source gw-site-a-01 --mode overwrite
+```
+
+Over HTTP: upload with `preview=true`, read the result from `GET /api/v1/jobs/{id}`, then
+`POST /api/v1/ingest/backfill/{upload_id}/load`. The worker (`make worker`) runs the jobs.
+
+`make perf-backfill` runs the FR-ING-03 acceptance check: 12 months of 1-minute data for 50
+tags (about 26 million samples).
+
 ## Running the full stack in containers
 
 One image runs both roles (`pmp web`, `pmp worker`). To run database, web and worker together:
