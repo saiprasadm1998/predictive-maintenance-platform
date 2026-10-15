@@ -8,6 +8,7 @@ UPDATE, DELETE and TRUNCATE through a database trigger (migration 0001).
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -23,6 +24,19 @@ class ActorType(StrEnum):
     USER = "user"
     API_KEY = "api_key"
     SYSTEM = "system"
+
+
+@dataclass(frozen=True)
+class Actor:
+    """Who is making a change: passed to every service call that writes."""
+
+    actor_type: ActorType
+    user_id: int | None = None
+    ip: str | None = None
+
+    @classmethod
+    def system(cls) -> Actor:
+        return cls(ActorType.SYSTEM)
 
 
 class AuditLog(Base):
@@ -70,4 +84,28 @@ def record_audit(
             },
             ip=ip,
         )
+    )
+
+
+def audit_change(
+    session: Session,
+    actor: Actor,
+    *,
+    entity: str,
+    entity_id: str | int,
+    action: str,
+    before: Mapping[str, Any] | None = None,
+    after: Mapping[str, Any] | None = None,
+) -> None:
+    """Shorthand for record_audit with the who-fields taken from an Actor."""
+    record_audit(
+        session,
+        actor_type=actor.actor_type,
+        user_id=actor.user_id,
+        ip=actor.ip,
+        entity=entity,
+        entity_id=entity_id,
+        action=action,
+        before=before,
+        after=after,
     )

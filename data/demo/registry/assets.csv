@@ -1,0 +1,17 @@
+code,name,level,parent,criticality,asset_type,description
+DEMO,Demo enterprise,enterprise,,,,Demonstration plant for PMP
+SITE-A,Site A,site,DEMO,,,Ammonia and urea complex
+SA-AMM,Ammonia unit,unit,SITE-A,,,
+K-101,Syngas compressor K-101,equipment,SA-AMM,A,centrifugal_compressor,
+P-104A,BFW pump P-104A,equipment,SA-AMM,B,centrifugal_pump,Boiler feed water
+P-104B,BFW pump P-104B,equipment,SA-AMM,B,centrifugal_pump,Boiler feed water
+SA-UREA,Urea unit,unit,SITE-A,,,
+K-201,CO₂ compressor K-201,equipment,SA-UREA,A,reciprocating_compressor,
+P-202,Carbamate pump P-202,equipment,SA-UREA,B,plunger_pump,
+P-205,Condensate pump P-205,equipment,SA-UREA,C,centrifugal_pump,
+SA-UTIL,Utilities,unit,SITE-A,,,
+E-110,Waste-heat boiler E-110,equipment,SA-UTIL,B,waste_heat_boiler,
+SITE-B,Site B,site,DEMO,,,
+SB-NORTH,North area,area,SITE-B,,,
+SB-UTIL,Utilities,unit,SB-NORTH,,,
+F-3,Cooling-tower fan F-3,equipment,SB-UTIL,C,fan,

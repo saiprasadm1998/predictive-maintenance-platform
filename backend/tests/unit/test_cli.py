@@ -64,3 +64,41 @@ def test_web_can_skip_migrations(monkeypatch: pytest.MonkeyPatch) -> None:
     cli.main(["web", "--no-migrate"])
 
     assert order == ["serve"]
+
+
+def test_registry_import_runs_and_exits_with_the_report_status(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from contextlib import contextmanager
+    from pathlib import Path
+
+    from pmp.registry import ImportReport
+
+    calls: dict[str, Any] = {}
+
+    class FakeDatabase:
+        def __init__(self, url: str) -> None:
+            calls["url"] = url
+
+        @contextmanager
+        def session(self) -> Any:
+            yield "session"
+
+        def dispose(self) -> None:
+            calls["disposed"] = True
+
+    def fake_import(session: Any, actor: Any, paths: Any, *, dry_run: bool) -> ImportReport:
+        calls.update(session=session, paths=list(paths), dry_run=dry_run)
+        return ImportReport()
+
+    monkeypatch.setattr(cli, "Database", FakeDatabase)
+    monkeypatch.setattr(cli, "import_files", fake_import)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["registry", "import", "plant.xlsx", "--dry-run"])
+
+    assert exit_info.value.code == 0
+    assert calls["paths"] == [Path("plant.xlsx")]
+    assert calls["dry_run"] is True
+    assert calls["disposed"] is True
+    assert "valid (dry run)" in capsys.readouterr().out

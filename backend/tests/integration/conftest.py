@@ -55,3 +55,24 @@ def clean_jobs(database: Database) -> Database:
     with database.session() as session:
         session.execute(text("TRUNCATE job RESTART IDENTITY"))
     return database
+
+
+REGISTRY_TABLES = "tag_role_map, tag, asset, type_role, asset_type"
+
+
+@pytest.fixture
+def clean_registry(database: Database) -> Database:
+    with database.session() as session:
+        session.execute(text(f"TRUNCATE {REGISTRY_TABLES} RESTART IDENTITY CASCADE"))
+    return database
+
+
+INGESTION_TABLES = "unmapped_tag, ingest_source, api_key"
+
+
+@pytest.fixture
+def clean_ingestion(clean_registry: Database) -> Database:
+    with clean_registry.session() as session:
+        session.execute(text("TRUNCATE sample"))  # hypertable: truncated on its own
+        session.execute(text(f"TRUNCATE {INGESTION_TABLES} RESTART IDENTITY"))
+    return clean_registry

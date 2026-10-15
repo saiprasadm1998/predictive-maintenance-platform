@@ -1,0 +1,61 @@
+source,source_name,asset,description,unit,range_lo,range_hi,interval_s,role
+gw-site-a-01,K101.II1001.PV,K-101,II-1001 Motor current,A,0,400,60,motor_current
+gw-site-a-01,K101.PI1002.PV,K-101,PI-1002 Discharge pressure,barg,0,250,60,discharge_pressure
+gw-site-a-01,K101.PI1001.PV,K-101,PI-1001 Suction pressure,barg,0,100,60,suction_pressure
+gw-site-a-01,K101.TI1001.PV,K-101,TI-1001 Suction temperature,°C,0,100,60,suction_temp
+gw-site-a-01,K101.TI1002.PV,K-101,TI-1002 Discharge temperature,°C,0,250,60,discharge_temp
+gw-site-a-01,K101.FI1001.PV,K-101,FI-1001 Suction flow,kNm³/h,0,200,60,suction_flow
+gw-site-a-01,K101.SI1001.PV,K-101,SI-1001 Shaft speed,rpm,0,15000,60,speed
+gw-site-a-01,K101.TI1012.PV,K-101,TI-1012 Drive-end bearing temperature,°C,0,150,60,de_bearing_temp
+gw-site-a-01,K101.TI1018.PV,K-101,TI-1018 Non-drive-end bearing temperature,°C,0,150,60,nde_bearing_temp
+gw-site-a-01,K101.TI1016.PV,K-101,TI-1016 Thrust pad temperature,°C,0,150,60,thrust_pad_temp
+gw-site-a-01,K101.ZI1015.PV,K-101,ZI-1015 Axial displacement,µm,0,1000,60,axial_displacement
+gw-site-a-01,K101.VI1011X.PV,K-101,VI-1011X Drive-end shaft vibration X,µm,0,200,60,de_vibration_x
+gw-site-a-01,K101.VI1011Y.PV,K-101,VI-1011Y Drive-end shaft vibration Y,µm,0,200,60,de_vibration_y
+gw-site-a-01,K101.VI1017X.PV,K-101,VI-1017X Non-drive-end shaft vibration X,µm,0,200,60,nde_vibration_x
+gw-site-a-01,K101.VI1017Y.PV,K-101,VI-1017Y Non-drive-end shaft vibration Y,µm,0,200,60,nde_vibration_y
+gw-site-a-01,K101.TI1030.PV,K-101,TI-1030 Lube oil supply temperature,°C,0,100,60,lube_oil_supply_temp
+gw-site-a-01,K101.PI1031.PV,K-101,PI-1031 Lube oil supply pressure,barg,0,10,60,lube_oil_pressure
+gw-site-a-01,K101.PDI1040.PV,K-101,PDI-1040 Seal gas differential pressure,bar,0,10,60,seal_gas_dp
+gw-site-a-01,P104A.II1043.PV,P-104A,II-1043 Motor current,A,0,300,60,motor_current
+gw-site-a-01,P104A.PI1041.PV,P-104A,PI-1041 Suction pressure,barg,0,40,60,suction_pressure
+gw-site-a-01,P104A.PI1040.PV,P-104A,PI-1040 Discharge pressure,barg,0,160,60,discharge_pressure
+gw-site-a-01,P104A.FI1042.PV,P-104A,FI-1042 Flow,m³/h,0,400,60,flow
+gw-site-a-01,P104A.TI1044.PV,P-104A,TI-1044 Drive-end bearing temperature,°C,0,150,60,de_bearing_temp
+gw-site-a-01,P104A.TI1045.PV,P-104A,TI-1045 Non-drive-end bearing temperature,°C,0,150,60,nde_bearing_temp
+gw-site-a-01,P104A.VI1046.PV,P-104A,VI-1046 Drive-end bearing vibration,mm/s,0,25,60,de_vibration
+gw-site-a-01,P104A.VI1047.PV,P-104A,VI-1047 Non-drive-end bearing vibration,mm/s,0,25,60,nde_vibration
+gw-site-a-01,P104B.II1053.PV,P-104B,II-1053 Motor current,A,0,300,60,motor_current
+gw-site-a-01,P104B.PI1051.PV,P-104B,PI-1051 Suction pressure,barg,0,40,60,suction_pressure
+gw-site-a-01,P104B.PI1050.PV,P-104B,PI-1050 Discharge pressure,barg,0,160,60,discharge_pressure
+gw-site-a-01,P104B.FI1052.PV,P-104B,FI-1052 Flow,m³/h,0,400,60,flow
+gw-site-a-01,P104B.TI1054.PV,P-104B,TI-1054 Drive-end bearing temperature,°C,0,150,60,de_bearing_temp
+gw-site-a-01,P104B.TI1055.PV,P-104B,TI-1055 Non-drive-end bearing temperature,°C,0,150,60,nde_bearing_temp
+gw-site-a-01,P104B.VI1056.PV,P-104B,VI-1056 Drive-end bearing vibration,mm/s,0,25,60,de_vibration
+gw-site-a-01,P104B.VI1057.PV,P-104B,VI-1057 Non-drive-end bearing vibration,mm/s,0,25,60,nde_vibration
+gw-site-a-01,K201.II2001.PV,K-201,II-2001 Motor current,A,0,600,60,motor_current
+gw-site-a-01,K201.PI2001.PV,K-201,PI-2001 Suction pressure,barg,0,50,60,suction_pressure
+gw-site-a-01,K201.PI2002.PV,K-201,PI-2002 Discharge pressure,barg,0,200,60,discharge_pressure
+gw-site-a-01,K201.FI2203.PV,K-201,FI-2203 Suction flow,t/h,0,120,60,suction_flow
+gw-site-a-01,K201.TI2041.PV,K-201,TI-2041 Discharge temperature,°C,0,250,60,discharge_temp
+gw-site-a-01,K201.VI2010.PV,K-201,VI-2010 Crosshead vibration,mm/s,0,50,60,crosshead_vibration
+gw-site-a-01,K201.ZI2011.PV,K-201,ZI-2011 Rod drop,µm,0,1000,60,rod_drop
+gw-site-a-01,K201.TI2012.PV,K-201,TI-2012 Main bearing temperature,°C,0,150,60,main_bearing_temp
+gw-site-a-01,P202.II2023.PV,P-202,II-2023 Motor current,A,0,300,60,motor_current
+gw-site-a-01,P202.PI2026.PV,P-202,PI-2026 Suction pressure,barg,0,40,60,suction_pressure
+gw-site-a-01,P202.PI2021.PV,P-202,PI-2021 Discharge pressure,barg,0,250,60,discharge_pressure
+gw-site-a-01,P202.FI2022.PV,P-202,FI-2022 Flow,m³/h,0,100,60,flow
+gw-site-a-01,P202.TI2024.PV,P-202,TI-2024 Crankcase oil temperature,°C,0,120,60,crankcase_temp
+gw-site-a-01,P202.VI2025.PV,P-202,VI-2025 Frame vibration,mm/s,0,50,60,frame_vibration
+gw-site-a-01,P205.II2053.PV,P-205,II-2053 Motor current,A,0,300,60,motor_current
+gw-site-a-01,P205.PI2051.PV,P-205,PI-2051 Discharge pressure,barg,0,160,60,discharge_pressure
+gw-site-a-01,P205.FI2052.PV,P-205,FI-2052 Flow,m³/h,0,400,60,flow
+gw-site-a-01,P205.TI2054.PV,P-205,TI-2054 Drive-end bearing temperature,°C,0,150,60,de_bearing_temp
+gw-site-a-01,E110.TI3004.PV,E-110,TI-3004 Flue gas inlet temperature,°C,0,1200,60,gas_inlet_temp
+gw-site-a-01,E110.TI3005.PV,E-110,TI-3005 Flue gas outlet temperature,°C,0,600,60,gas_outlet_temp
+gw-site-a-01,E110.PI3006.PV,E-110,PI-3006 Steam drum pressure,barg,0,150,60,steam_pressure
+gw-site-a-01,E110.FI3007.PV,E-110,FI-3007 Steam flow,t/h,0,200,60,steam_flow
+gw-site-a-01,E110.LI3008.PV,E-110,LI-3008 Steam drum level,%,0,100,60,drum_level
+gw-site-b-01,F3.II4001.PV,F-3,II-4001 Motor current,A,0,200,60,motor_current
+gw-site-b-01,F3.VI4002.PV,F-3,VI-4002 Gearbox vibration,mm/s,0,25,60,gearbox_vibration
+gw-site-b-01,F3.SI4003.PV,F-3,SI-4003 Fan speed,rpm,0,300,60,speed

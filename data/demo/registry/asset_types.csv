@@ -1,0 +1,7 @@
+code,name,description
+centrifugal_compressor,Centrifugal compressor,Single-shaft centrifugal compressor
+reciprocating_compressor,Reciprocating compressor,Crosshead reciprocating compressor
+centrifugal_pump,Centrifugal pump,Motor-driven centrifugal pump
+plunger_pump,Plunger pump,High-pressure plunger pump
+waste_heat_boiler,Waste-heat boiler,Waste-heat boiler with steam drum
+fan,Fan,Motor-driven fan with gearbox

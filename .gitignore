@@ -5,7 +5,8 @@
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+.venv
+.venv.nosync/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/

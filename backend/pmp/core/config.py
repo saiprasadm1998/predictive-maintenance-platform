@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     artefact_dir: Path = Path("/data/artefacts")
     scoring_grace_s: int = Field(default=20, ge=0)
     late_data_days: int = Field(default=7, ge=0)
+    ingest_rate_limit: float = Field(default=50.0, gt=0)  # requests per second per API key
     retention_months: int = Field(default=24, ge=1)
     log_level: str = "INFO"
     log_format: LogFormat = LogFormat.JSON

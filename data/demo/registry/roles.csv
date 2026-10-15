@@ -1,0 +1,49 @@
+asset_type,code,name,unit
+centrifugal_compressor,motor_current,Motor current,A
+centrifugal_compressor,discharge_pressure,Discharge pressure,barg
+centrifugal_compressor,suction_pressure,Suction pressure,barg
+centrifugal_compressor,suction_temp,Suction temperature,°C
+centrifugal_compressor,discharge_temp,Discharge temperature,°C
+centrifugal_compressor,suction_flow,Suction flow,kNm³/h
+centrifugal_compressor,speed,Shaft speed,rpm
+centrifugal_compressor,de_bearing_temp,Drive-end bearing temperature,°C
+centrifugal_compressor,nde_bearing_temp,Non-drive-end bearing temperature,°C
+centrifugal_compressor,thrust_pad_temp,Thrust pad temperature,°C
+centrifugal_compressor,axial_displacement,Axial displacement,µm
+centrifugal_compressor,de_vibration_x,Drive-end shaft vibration X,µm
+centrifugal_compressor,de_vibration_y,Drive-end shaft vibration Y,µm
+centrifugal_compressor,nde_vibration_x,Non-drive-end shaft vibration X,µm
+centrifugal_compressor,nde_vibration_y,Non-drive-end shaft vibration Y,µm
+centrifugal_compressor,lube_oil_supply_temp,Lube oil supply temperature,°C
+centrifugal_compressor,lube_oil_pressure,Lube oil supply pressure,barg
+centrifugal_compressor,seal_gas_dp,Seal gas differential pressure,bar
+reciprocating_compressor,motor_current,Motor current,A
+reciprocating_compressor,suction_pressure,Suction pressure,barg
+reciprocating_compressor,discharge_pressure,Discharge pressure,barg
+reciprocating_compressor,suction_flow,Suction flow,t/h
+reciprocating_compressor,discharge_temp,Discharge temperature,°C
+reciprocating_compressor,crosshead_vibration,Crosshead vibration,mm/s
+reciprocating_compressor,rod_drop,Rod drop,µm
+reciprocating_compressor,main_bearing_temp,Main bearing temperature,°C
+centrifugal_pump,motor_current,Motor current,A
+centrifugal_pump,suction_pressure,Suction pressure,barg
+centrifugal_pump,discharge_pressure,Discharge pressure,barg
+centrifugal_pump,flow,Flow,m³/h
+centrifugal_pump,de_bearing_temp,Drive-end bearing temperature,°C
+centrifugal_pump,nde_bearing_temp,Non-drive-end bearing temperature,°C
+centrifugal_pump,de_vibration,Drive-end bearing vibration,mm/s
+centrifugal_pump,nde_vibration,Non-drive-end bearing vibration,mm/s
+plunger_pump,motor_current,Motor current,A
+plunger_pump,suction_pressure,Suction pressure,barg
+plunger_pump,discharge_pressure,Discharge pressure,barg
+plunger_pump,flow,Flow,m³/h
+plunger_pump,crankcase_temp,Crankcase oil temperature,°C
+plunger_pump,frame_vibration,Frame vibration,mm/s
+waste_heat_boiler,gas_inlet_temp,Flue gas inlet temperature,°C
+waste_heat_boiler,gas_outlet_temp,Flue gas outlet temperature,°C
+waste_heat_boiler,steam_pressure,Steam drum pressure,barg
+waste_heat_boiler,steam_flow,Steam flow,t/h
+waste_heat_boiler,drum_level,Steam drum level,%
+fan,motor_current,Motor current,A
+fan,gearbox_vibration,Gearbox vibration,mm/s
+fan,speed,Fan speed,rpm
