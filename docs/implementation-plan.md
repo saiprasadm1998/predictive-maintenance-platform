@@ -15,12 +15,11 @@ The build runs in 10 phases (0 to 9), each split into sub-phases, and nothing mo
 - Done means the "Done when" line is true and the checks run green with one command.
 - If the spec is unclear, conflicts with another document, or needs a client decision, stop and ask before building on a guess. Open questions are collected at the end.
 - At the end of each phase, send a short update with a demo of what now works.
-- Commits and pushes are done by Sai.
 
 **Assumptions**
 
 - Release 1 and Release 2 are both in scope, delivered by the end of November 2026. The week split below is a proposal, not a commitment.
-- Backend and front end come first, and the prediction model comes after (instruction from Usama). Until then a placeholder detector, which predicts each sensor as its training median, sits behind the detector plug-in contract (ARC §8.1). The whole pipeline and every screen can be built and demoed on it, and the AAKR model replaces it in Phase 7 without changes elsewhere. Scores before Phase 7 are for demonstration only and do not indicate real anomalies.
+- Backend and front end come first, and the prediction model comes after. Until then a placeholder detector, which predicts each sensor as its training median, sits behind the detector plug-in contract (ARC §8.1). The whole pipeline and every screen can be built and demoed on it, and the AAKR model replaces it in Phase 7 without changes elsewhere. Scores before Phase 7 are for demonstration only and do not indicate real anomalies.
 - The scoring formulas (residual, q, z, Deviation Index, Health Score) are plain maths and are built early. The placeholder still needs a real training step, because q needs each sensor's training range (P99 − P1) and z needs the residual σ from a validation period.
 - Release 3 items are stretch goals, built only if Release 1 and 2 are done (see "Stretch").
 - Development environment: macOS on Apple Silicon, Docker Desktop running `timescale/timescaledb:latest-pg16` (PostgreSQL 16), Python 3.12 managed by uv, Node 26. Integration tests run against the database container locally and in CI.
@@ -330,7 +329,7 @@ None of these block Phase 0.
 **Answered**
 
 - [x] **Scope:** Release 1 and Release 2 are both in scope, delivered by the end of November 2026, as soon as possible.
-- [x] **Build order:** frontend and backend first on the placeholder, then the prediction model (Usama).
+- [x] **Build order:** frontend and backend first on the placeholder, then the prediction model.
 
 **Open: client or management decisions**
 
@@ -350,10 +349,8 @@ None of these block Phase 0.
 - [ ] **Hierarchy depth (1.1):** FR-REG-01 specifies five levels; UC-03 and the wireframes use Site › Unit › Equipment. Proposed: variable depth up to five levels.
 - [ ] **Unshelve (4.2):** UCS Figure 6 has no transition for unshelving early. Proposed: re-evaluate the condition as on expiry.
 - [ ] **Not in operating mode (4.1):** UCS §6.5 does not give a band for this status. Proposed: no Health value, shown as Unknown with the reason "Not in operating mode", alert rules not evaluated.
-- [x] **Backfill and late window (1.3):** The 7-day late window would block history import. Resolved: the window applies to live ingestion only (FR-ING-04); history import still rejects timestamps more than 5 minutes in the future.
+- [ ] **Backfill and late window (1.3):** The 7-day late window would block history import. Proposed: the window applies to live ingestion only, not to backfill.
 - [ ] **Alert list sort (6.4):** PDS §4.2 says unacknowledged first; the wireframe caption says priority, then age. Proposed: follow PDS.
-- [x] **Raw quality code (1.2):** FR-ING-05 says to preserve the source quality code, but ARC §6.2 gives `sample.quality` the type int2, too small for a 32-bit OPC UA StatusCode. Resolved: `quality` holds the category (0 Good, 1 Uncertain, 2 Bad) as ARC says, and a nullable `quality_code` (bigint) holds the raw code when one is sent.
-- [x] **Sample value (1.2):** a value is required (FR-ING-01; the ARC example's Bad sample has one). A missing or non-numeric value is a schema error (400, nothing stored), per UC-01 2b.
 - [ ] **Fleet roll-up figures (4.3):** Wireframe 01 shows Site A at 38 while its lowest child is 41. Proposed: test against the UCS §6.5 rule, not the wireframe figures.
 
 ## Appendix A: Requirement-to-phase traceability
