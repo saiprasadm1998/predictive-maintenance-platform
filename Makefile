@@ -6,7 +6,7 @@ COMPOSE := docker compose -f deploy/compose.dev.yaml
 STACK := docker compose -f deploy/compose.yaml
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image up down logs
+        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill
 
 check: lint format-check types contracts test
 
@@ -70,3 +70,11 @@ down:
 
 logs:
 	$(STACK) logs -f
+
+# FR-ING-03 acceptance: 12 months of 1-minute data for 50 tags (about 26 million samples).
+# Needs the dev database with the demo registry imported. Run once and record the result.
+# Kept outside the repository (and outside iCloud-synced folders): about 270 MB.
+PERF_FILE := $(HOME)/pmp-perf/history_12m_50tags.parquet
+perf-backfill:
+	$(UV) python tools/make_history_file.py $(PERF_FILE)
+	cd backend && time uv run pmp ingest backfill $(PERF_FILE) --source gw-site-a-01 --mode overwrite

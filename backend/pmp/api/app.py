@@ -10,7 +10,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 import pmp
-from pmp.api import ingest
+from pmp.api import backfill, ingest
 from pmp.api.problems import ProblemError, problem_response
 from pmp.api.ratelimit import RateLimiter
 from pmp.core import Database, Settings, log_context
@@ -73,4 +73,5 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
         return {"status": "ok"}
 
     app.include_router(ingest.router)
+    app.include_router(backfill.router)
     return app

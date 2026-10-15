@@ -24,6 +24,7 @@ node_modules/
 frontend/dist/
 
 # Environment and local data
+backend/.artefacts/
 .env
 .env.*
 !.env.example

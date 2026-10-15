@@ -126,11 +126,7 @@ def ingest_batch(
     return result
 
 
-def write_samples(session: Session, rows: Iterable[SampleRow], *, overwrite: bool = True) -> int:
-    """Bulk upsert samples keyed on (tag_id, ts). Returns the number of rows written."""
-    rows = list(rows)
-    if not rows:
-        return 0
+def _prepare_stage(session: Session) -> None:
     session.execute(
         text(
             "CREATE TEMP TABLE IF NOT EXISTS sample_stage "
@@ -139,30 +135,76 @@ def write_samples(session: Session, rows: Iterable[SampleRow], *, overwrite: boo
         )
     )
     session.execute(text("TRUNCATE sample_stage"))
+
+
+def _copy_sql() -> str:
+    return "COPY sample_stage (tag_id, ts, value, quality, quality_code) FROM STDIN"
+
+
+def stage_rows(session: Session, rows: Iterable[SampleRow]) -> None:
+    """Load rows into the per-transaction staging table with COPY."""
+    _prepare_stage(session)
     raw = session.connection().connection.driver_connection
     assert raw is not None
-    with (
-        raw.cursor() as cursor,
-        cursor.copy(
-            "COPY sample_stage (tag_id, ts, value, quality, quality_code) FROM STDIN"
-        ) as copy,
-    ):
+    with raw.cursor() as cursor, cursor.copy(_copy_sql()) as copy:
         for row in rows:
             copy.write_row((row.tag_id, row.ts, row.value, int(row.quality), row.quality_code))
+
+
+def stage_text(session: Session, data: str) -> None:
+    """Load tab-separated rows (tag_id, ts, value, quality, quality_code; \\N for null)."""
+    _prepare_stage(session)
+    raw = session.connection().connection.driver_connection
+    assert raw is not None
+    with raw.cursor() as cursor, cursor.copy(_copy_sql()) as copy:
+        copy.write(data)
+
+
+def merge_staged(session: Session, *, overwrite: bool) -> tuple[int, int]:
+    """Upsert the staged rows into sample. Returns (new rows, rows that already existed).
+
+    With overwrite the existing rows are replaced; otherwise they are left alone. The
+    time bounds let TimescaleDB look only at the chunks the batch touches.
+    """
+    bounds = session.execute(text("SELECT min(ts), max(ts), count(*) FROM sample_stage")).one()
+    low, high, total = bounds
+    if not total:
+        return 0, 0
+    existing = (
+        session.scalar(
+            text(
+                "SELECT count(*) FROM sample_stage s JOIN sample t "
+                "ON t.tag_id = s.tag_id AND t.ts = s.ts "
+                "WHERE t.ts BETWEEN :low AND :high"
+            ),
+            {"low": low, "high": high},
+        )
+        or 0
+    )
     action = (
         "DO UPDATE SET value = EXCLUDED.value, quality = EXCLUDED.quality, "
         "quality_code = EXCLUDED.quality_code"
         if overwrite
         else "DO NOTHING"
     )
-    written = session.execute(
+    session.execute(
         text(
             "INSERT INTO sample (tag_id, ts, value, quality, quality_code) "
             "SELECT tag_id, ts, value, quality, quality_code FROM sample_stage "
             f"ON CONFLICT (tag_id, ts) {action}"
         )
     )
-    return int(written.rowcount)  # type: ignore[attr-defined]
+    return int(total) - int(existing), int(existing)
+
+
+def write_samples(session: Session, rows: Iterable[SampleRow], *, overwrite: bool = True) -> int:
+    """Bulk upsert samples keyed on (tag_id, ts). Returns the number of rows staged."""
+    rows = list(rows)
+    if not rows:
+        return 0
+    stage_rows(session, rows)
+    merge_staged(session, overwrite=overwrite)
+    return len(rows)
 
 
 def _record_unmapped(session: Session, source: str, names: Counter[str], now: datetime) -> None:

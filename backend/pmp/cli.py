@@ -1,4 +1,4 @@
-"""Command line: `pmp web | worker | migrate | registry | apikey` (ARC-001 §10.1, §12).
+"""Command line: `pmp web | worker | migrate | registry | ingest | apikey` (ARC-001 §10.1, §12).
 
 One image runs both roles. `pmp registry import` loads registry files until the REST
 endpoints arrive (5.2). `pmp backup` is added in sub-phase 9.1.
@@ -34,6 +34,15 @@ from pmp.core import (
     rotate_api_key,
     run_migrations,
 )
+from pmp.ingestion import (
+    BACKFILL_JOB,
+    BackfillError,
+    BackfillOptions,
+    Layout,
+    OverlapMode,
+    make_backfill_handler,
+    run_backfill,
+)
 from pmp.registry import ImportFailedError, ImportReport, import_files
 
 logger = logging.getLogger(__name__)
@@ -63,6 +72,25 @@ def build_parser() -> argparse.ArgumentParser:
     registry_import.add_argument(
         "--dry-run", action="store_true", help="validate only; change nothing"
     )
+
+    ingest = commands.add_parser("ingest", help="data ingestion")
+    ingest_commands = ingest.add_subparsers(dest="ingest_command", required=True)
+    backfill = ingest_commands.add_parser(
+        "backfill", help="import a history file (CSV or Parquet, long or wide) directly"
+    )
+    backfill.add_argument("file", type=Path)
+    backfill.add_argument("--source", required=True, help="gateway source the tags belong to")
+    backfill.add_argument("--layout", choices=[x.value for x in Layout], help="default: detect")
+    backfill.add_argument(
+        "--mode",
+        choices=[m.value for m in OverlapMode],
+        default=OverlapMode.SKIP.value,
+        help="what to do with samples that already exist (default: skip)",
+    )
+    backfill.add_argument(
+        "--naive-as-utc", action="store_true", help="read timestamps without an offset as UTC"
+    )
+    backfill.add_argument("--preview", action="store_true", help="validate only; store nothing")
 
     apikey = commands.add_parser("apikey", help="machine API keys for the gateway (FR-SEC-02)")
     apikey_commands = apikey.add_subparsers(dest="apikey_command", required=True)
@@ -94,7 +122,9 @@ def _run_web(settings: Settings, args: argparse.Namespace) -> None:
 
 def _run_worker(settings: Settings) -> None:
     database = Database(settings.database_url.get_secret_value())
-    registry = JobRegistry()  # modules register their job handlers here from phase 1
+    registry = JobRegistry()
+    uploads = Path(settings.artefact_dir) / "uploads"
+    registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
     stop = threading.Event()
 
     def _request_stop(signum: int, _frame: FrameType | None) -> None:
@@ -158,6 +188,32 @@ def _run_apikey(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_backfill(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    options = BackfillOptions(
+        source=args.source,
+        layout=Layout(args.layout) if args.layout else None,
+        mode=OverlapMode(args.mode),
+        naive_as_utc=args.naive_as_utc,
+    )
+    last = [-10.0]
+
+    def show(percent: float) -> None:
+        if percent - last[0] >= 5 or percent >= 100:
+            last[0] = percent
+            print(f"  {percent:5.1f} %", flush=True)
+
+    try:
+        report = run_backfill(database, args.file, options, preview=args.preview, on_progress=show)
+    except BackfillError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    print(report.summary())
+    return 0 if report.reconciles else 1
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     settings = get_settings()
@@ -171,6 +227,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         _run_worker(settings)
     elif args.command == "registry" and args.registry_command == "import":
         sys.exit(_run_registry_import(settings, args))
+    elif args.command == "ingest" and args.ingest_command == "backfill":
+        sys.exit(_run_backfill(settings, args))
     elif args.command == "apikey":
         sys.exit(_run_apikey(settings, args))
 

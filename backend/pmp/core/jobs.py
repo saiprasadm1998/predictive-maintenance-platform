@@ -13,7 +13,10 @@ import logging
 import os
 import socket
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -181,6 +184,77 @@ def queue_depth(session: Session) -> int:
 JobHandler = Callable[[Mapping[str, Any]], Mapping[str, Any] | None]
 
 
+@dataclass(frozen=True)
+class JobStatusView:
+    id: int
+    type: str
+    status: JobStatus
+    attempts: int
+    max_attempts: int
+    progress: float | None  # 0-100 while running (from report_progress)
+    result: Mapping[str, Any] | None
+    last_error: str | None
+    created_at: datetime
+    finished_at: datetime | None
+
+
+def get_job(session: Session, job_id: int) -> JobStatusView | None:
+    job = session.get(Job, job_id)
+    if job is None:
+        return None
+    result = job.result
+    progress = None
+    if job.status == JobStatus.RUNNING and result is not None:
+        progress = result.get("percent")
+    if job.status == JobStatus.SUCCEEDED:
+        progress = 100.0
+    return JobStatusView(
+        id=job.id,
+        type=job.type,
+        status=JobStatus(job.status),
+        attempts=job.attempts,
+        max_attempts=job.max_attempts,
+        progress=progress,
+        result=result if job.status != JobStatus.RUNNING else None,
+        last_error=job.last_error,
+        created_at=job.created_at,
+        finished_at=job.finished_at,
+    )
+
+
+@dataclass(frozen=True)
+class _RunningJob:
+    database: Database
+    job_id: int
+
+
+_current_job: ContextVar[_RunningJob | None] = ContextVar("current_job", default=None)
+
+
+@contextmanager
+def _running(database: Database, job_id: int) -> Iterator[None]:
+    token = _current_job.set(_RunningJob(database, job_id))
+    try:
+        yield
+    finally:
+        _current_job.reset(token)
+
+
+def report_progress(percent: float, **details: Any) -> None:
+    """Called by a long job handler to publish progress (shown by GET /jobs/{id}).
+
+    Does nothing outside a worker, so handlers can also be called directly (CLI, tests).
+    Progress is written in its own transaction, so it is visible while the job runs.
+    """
+    running = _current_job.get()
+    if running is None:
+        return
+    with running.database.session() as session:
+        job = session.get(Job, running.job_id)
+        if job is not None and job.status == JobStatus.RUNNING:
+            job.result = {"percent": round(max(0.0, min(100.0, percent)), 1), **details}
+
+
 class JobRegistry:
     """Maps job types to handler functions. Modules register their handlers at start-up."""
 
@@ -241,7 +315,8 @@ class Worker:
             return True
 
         try:
-            result = handler(payload)
+            with _running(self.database, job_id):
+                result = handler(payload)
         except Exception as exc:
             with self.database.session() as session:
                 status = fail(session, job_id, f"{type(exc).__name__}: {exc}")
