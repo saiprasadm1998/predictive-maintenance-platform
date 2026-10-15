@@ -350,7 +350,7 @@ None of these block Phase 0.
 - [ ] **Hierarchy depth (1.1):** FR-REG-01 specifies five levels; UC-03 and the wireframes use Site › Unit › Equipment. Proposed: variable depth up to five levels.
 - [ ] **Unshelve (4.2):** UCS Figure 6 has no transition for unshelving early. Proposed: re-evaluate the condition as on expiry.
 - [ ] **Not in operating mode (4.1):** UCS §6.5 does not give a band for this status. Proposed: no Health value, shown as Unknown with the reason "Not in operating mode", alert rules not evaluated.
-- [ ] **Backfill and late window (1.3):** The 7-day late window would block history import. Proposed: the window applies to live ingestion only, not to backfill.
+- [x] **Backfill and late window (1.3):** The 7-day late window would block history import. Resolved: the window applies to live ingestion only (FR-ING-04); history import still rejects timestamps more than 5 minutes in the future.
 - [ ] **Alert list sort (6.4):** PDS §4.2 says unacknowledged first; the wireframe caption says priority, then age. Proposed: follow PDS.
 - [x] **Raw quality code (1.2):** FR-ING-05 says to preserve the source quality code, but ARC §6.2 gives `sample.quality` the type int2, too small for a 32-bit OPC UA StatusCode. Resolved: `quality` holds the category (0 Good, 1 Uncertain, 2 Bad) as ARC says, and a nullable `quality_code` (bigint) holds the raw code when one is sent.
 - [x] **Sample value (1.2):** a value is required (FR-ING-01; the ARC example's Bad sample has one). A missing or non-numeric value is a schema error (400, nothing stored), per UC-01 2b.
