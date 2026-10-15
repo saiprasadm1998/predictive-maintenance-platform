@@ -93,6 +93,25 @@ Over HTTP: upload with `preview=true`, read the result from `GET /api/v1/jobs/{i
 `make perf-backfill` runs the FR-ING-03 acceptance check: 12 months of 1-minute data for 50
 tags (about 26 million samples).
 
+## Demo plant data (synthetic)
+
+A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
+for every registered tag: sensors on one machine move together with its load, there are
+turndowns and monthly trips, and the wireframe fault story is built in (K-101 thrust-bearing
+degradation, flatlines, a stale tag, a lost gateway link, an out-of-range pressure, spikes,
+occasional Bad quality). The story is timed from an anchor day (default: today, UTC).
+Same seed, same data. **Synthetic: it proves the software, not detection on real equipment
+(that is AC-04, which needs the client's history).**
+
+```
+make db-up && make migrate
+cd backend
+uv run pmp registry import ../data/demo/registry/registry.xlsx
+uv run pmp demo history                       # 180 days through the history import
+uv run pmp apikey create --name "Demo gateway" --scope ingest
+uv run pmp demo replay --key <key> --from -2h # catch up 2 h quickly, then live every minute
+```
+
 ## Running the full stack in containers
 
 One image runs both roles (`pmp web`, `pmp worker`). To run database, web and worker together:
