@@ -92,7 +92,7 @@ name = "Layers: api on top, feature modules in the middle, core at the bottom"
 type = "layers"
 layers = [
     "pmp.api",
-    "pmp.ingestion : pmp.registry : pmp.dataquality : pmp.modelling : pmp.scoring : pmp.alerting : pmp.diagnostics : pmp.prognostics : pmp.advisory : pmp.cases : pmp.notifications : pmp.reporting",
+    "pmp.ingestion : pmp.registry : pmp.dataquality : pmp.modelling : pmp.scoring : pmp.alerting : pmp.diagnostics : pmp.prognostics : pmp.advisory : pmp.cases : pmp.notifications : pmp.reporting : pmp.demo",
     "pmp.core",
 ]
 
@@ -113,6 +113,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -133,6 +134,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -153,6 +155,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -173,6 +176,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -193,6 +197,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -213,6 +218,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -233,6 +239,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -253,6 +260,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -273,6 +281,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -293,6 +302,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -313,6 +323,7 @@ forbidden_modules = [
     "pmp.advisory.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -333,6 +344,7 @@ forbidden_modules = [
     "pmp.advisory.**",
     "pmp.cases.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -353,6 +365,7 @@ forbidden_modules = [
     "pmp.advisory.**",
     "pmp.cases.**",
     "pmp.notifications.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -374,6 +387,7 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
 ]
 allow_indirect_imports = true
 
@@ -395,6 +409,28 @@ forbidden_modules = [
     "pmp.cases.**",
     "pmp.notifications.**",
     "pmp.reporting.**",
+    "pmp.demo.**",
     "pmp.api.**",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "demo uses other modules only through their public interface"
+type = "forbidden"
+source_modules = ["pmp.demo"]
+forbidden_modules = [
+    "pmp.core.**",
+    "pmp.ingestion.**",
+    "pmp.registry.**",
+    "pmp.dataquality.**",
+    "pmp.modelling.**",
+    "pmp.scoring.**",
+    "pmp.alerting.**",
+    "pmp.diagnostics.**",
+    "pmp.prognostics.**",
+    "pmp.advisory.**",
+    "pmp.cases.**",
+    "pmp.notifications.**",
+    "pmp.reporting.**",
 ]
 allow_indirect_imports = true

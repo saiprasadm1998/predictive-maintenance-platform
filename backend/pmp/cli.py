@@ -1,4 +1,6 @@
-"""Command line: `pmp web | worker | migrate | registry | ingest | apikey` (ARC-001 §10.1, §12).
+"""Command line: `pmp web | worker | migrate | registry | ingest | demo | apikey`.
+
+See ARC-001 §10.1 and §12.
 
 One image runs both roles. `pmp registry import` loads registry files until the REST
 endpoints arrive (5.2). `pmp backup` is added in sub-phase 9.1.
@@ -8,10 +10,12 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import signal
 import sys
 import threading
 from collections.abc import Sequence
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import FrameType
 
@@ -34,6 +38,7 @@ from pmp.core import (
     rotate_api_key,
     run_migrations,
 )
+from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, replay
 from pmp.ingestion import (
     BACKFILL_JOB,
     BackfillError,
@@ -46,6 +51,24 @@ from pmp.ingestion import (
 from pmp.registry import ImportFailedError, ImportReport, import_files
 
 logger = logging.getLogger(__name__)
+
+
+def _date(value: str) -> datetime:
+    return datetime.fromisoformat(value).replace(tzinfo=UTC)
+
+
+def _when(value: str) -> datetime:
+    match = re.fullmatch(r"-(\d+)([mhd])", value.strip())
+    if match:
+        amount, unit = int(match.group(1)), match.group(2)
+        delta = {
+            "m": timedelta(minutes=amount),
+            "h": timedelta(hours=amount),
+            "d": timedelta(days=amount),
+        }[unit]
+        return datetime.now(UTC) - delta
+    parsed = datetime.fromisoformat(value)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -91,6 +114,30 @@ def build_parser() -> argparse.ArgumentParser:
         "--naive-as-utc", action="store_true", help="read timestamps without an offset as UTC"
     )
     backfill.add_argument("--preview", action="store_true", help="validate only; store nothing")
+
+    demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
+    demo_commands = demo.add_subparsers(dest="demo_command", required=True)
+    for name, text in (
+        ("history", "generate and import 1-minute history for every registered tag"),
+        ("replay", "play the OT gateway: send live samples to the ingestion API"),
+    ):
+        command = demo_commands.add_parser(name, help=text)
+        command.add_argument("--seed", type=int, default=DEFAULT_SEED)
+        command.add_argument(
+            "--anchor", type=_date, help="the story's reference day (default: today, UTC)"
+        )
+    demo_history = demo_commands.choices["history"]
+    demo_history.add_argument("--days", type=int, default=180, help="history length (180)")
+    demo_replay = demo_commands.choices["replay"]
+    demo_replay.add_argument("--key", required=True, help="API key with scope 'ingest'")
+    demo_replay.add_argument("--url", default="http://127.0.0.1:8000")
+    demo_replay.add_argument(
+        "--from", dest="start", type=_when, help="start time: e.g. -6h, -30m, -2d or ISO 8601"
+    )
+    demo_replay.add_argument(
+        "--speed", type=float, default=60.0, help="catch-up speed: minutes per second (60)"
+    )
+    demo_replay.add_argument("--minutes", type=int, help="stop after this many minutes")
 
     apikey = commands.add_parser("apikey", help="machine API keys for the gateway (FR-SEC-02)")
     apikey_commands = apikey.add_subparsers(dest="apikey_command", required=True)
@@ -214,6 +261,62 @@ def _run_backfill(settings: Settings, args: argparse.Namespace) -> int:
     return 0 if report.reconciles else 1
 
 
+def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            tags = demo_tags(session)
+        if not tags:
+            print(
+                "No tags registered. Import the demo registry first:\n"
+                "  uv run pmp registry import ../data/demo/registry/registry.xlsx",
+                file=sys.stderr,
+            )
+            return 1
+        simulator = PlantSimulator(tags, seed=args.seed, anchor=args.anchor)
+        print(
+            f"SYNTHETIC demo data: {len(tags)} tags, seed {args.seed}, "
+            f"story anchored at {simulator.anchor:%Y-%m-%d %H:%M} UTC"
+        )
+        if args.demo_command == "history":
+            last: dict[str, float] = {}
+
+            def show(stage: str, percent: float) -> None:
+                if percent - last.get(stage, -100) >= 10 or percent >= 100:
+                    last[stage] = percent
+                    print(f"  {stage:<22} {percent:5.1f} %", flush=True)
+
+            reports = load_history(
+                database,
+                simulator,
+                days=args.days,
+                work_dir=Path(settings.artefact_dir) / "demo",
+                on_progress=show,
+            )
+            for source, report in reports.items():
+                print(f"[{source}]")
+                print(report.summary())
+            return 0 if all(r.reconciles for r in reports.values()) else 1
+        stats = replay(
+            simulator,
+            url=args.url.rstrip("/") + "/api/v1/ingest/samples",
+            key=args.key,
+            start=args.start,
+            speed=args.speed,
+            minutes=args.minutes,
+        )
+        print(
+            f"Replay finished: {stats.minutes} minutes, {stats.accepted} samples accepted, "
+            f"{stats.rejected} rejected, {stats.failed_batches} failed batches"
+        )
+        return 0 if stats.failed_batches == 0 else 1
+    except KeyboardInterrupt:
+        print("Stopped.")
+        return 0
+    finally:
+        database.dispose()
+
+
 def main(argv: Sequence[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
     settings = get_settings()
@@ -229,6 +332,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_registry_import(settings, args))
     elif args.command == "ingest" and args.ingest_command == "backfill":
         sys.exit(_run_backfill(settings, args))
+    elif args.command == "demo":
+        sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":
         sys.exit(_run_apikey(settings, args))
 

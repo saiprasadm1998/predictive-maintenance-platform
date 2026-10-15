@@ -28,7 +28,7 @@ types:
 	$(UV) mypy
 
 contracts:
-	$(UV) lint-imports
+	$(UV) lint-imports --no-cache
 
 # Tests with coverage, then the 80% gate on the analytics modules (NFR-MAIN-01).
 test:
