@@ -1,0 +1,38 @@
+{
+  "asset": "K-101",
+  "name": "main",
+  "description": "Syngas compressor K-101: whole machine, all 18 sensors",
+  "algorithm": "median",
+  "params": {"seed": 42},
+  "sensors": [
+    {"tag": "K101.II1001.PV", "required": true},
+    {"tag": "K101.PI1001.PV"},
+    {"tag": "K101.PI1002.PV"},
+    {"tag": "K101.TI1001.PV"},
+    {"tag": "K101.TI1002.PV"},
+    {"tag": "K101.FI1001.PV"},
+    {"tag": "K101.SI1001.PV"},
+    {"tag": "K101.TI1012.PV", "required": true},
+    {"tag": "K101.TI1018.PV"},
+    {"tag": "K101.TI1016.PV", "required": true},
+    {"tag": "K101.ZI1015.PV", "required": true},
+    {"tag": "K101.VI1011X.PV"},
+    {"tag": "K101.VI1011Y.PV"},
+    {"tag": "K101.VI1017X.PV"},
+    {"tag": "K101.VI1017Y.PV"},
+    {"tag": "K101.TI1030.PV"},
+    {"tag": "K101.PI1031.PV"},
+    {"tag": "K101.PDI1040.PV"}
+  ],
+  "training_periods": [{"start": "-170d", "end": "-60d"}],
+  "validation_period": {"start": "-60d", "end": "-30d"},
+  "mode_filters": ["K101.II1001.PV > 120"],
+  "alert_rules": {
+    "di": {"warning": 15, "alert": 25},
+    "sensors": [
+      {"tag": "K101.TI1012.PV"},
+      {"tag": "K101.TI1016.PV"},
+      {"tag": "K101.ZI1015.PV", "warning": 3, "alert": 5}
+    ]
+  }
+}
