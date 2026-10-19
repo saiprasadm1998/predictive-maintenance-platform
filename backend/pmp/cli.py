@@ -14,6 +14,7 @@ import re
 import signal
 import sys
 import threading
+import urllib.error
 from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -459,6 +460,13 @@ def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
             f"{stats.rejected} rejected, {stats.failed_batches} failed batches"
         )
         return 0 if stats.failed_batches == 0 else 1
+    except urllib.error.URLError as error:  # refused, not an HTTP error response
+        print(
+            f"Error: cannot reach {args.url} ({error.reason}). Is the web role running "
+            "(`make web` in another terminal)?",
+            file=sys.stderr,
+        )
+        return 1
     except KeyboardInterrupt:
         print("Stopped.")
         return 0

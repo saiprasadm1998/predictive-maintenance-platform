@@ -130,3 +130,44 @@ def test_dq_commands_parse() -> None:
         ["flatline_used=on"],
         True,
     )
+
+
+def test_replay_explains_when_the_web_role_is_not_running(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import urllib.error
+    from contextlib import contextmanager
+    from datetime import UTC, datetime
+
+    class FakeDatabase:
+        def __init__(self, url: str) -> None:
+            pass
+
+        @contextmanager
+        def session(self) -> Any:
+            yield "session"
+
+        def dispose(self) -> None:
+            pass
+
+    class FakeSimulator:
+        anchor = datetime(2026, 10, 19, tzinfo=UTC)
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+    def refused(*args: Any, **kwargs: Any) -> Any:
+        raise urllib.error.URLError(ConnectionRefusedError(61, "Connection refused"))
+
+    monkeypatch.setattr(cli, "Database", FakeDatabase)
+    monkeypatch.setattr(cli, "demo_tags", lambda session: ["tag"])
+    monkeypatch.setattr(cli, "PlantSimulator", FakeSimulator)
+    monkeypatch.setattr(cli, "replay", refused)
+
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["demo", "replay", "--key", "k", "--from", "-2h"])
+
+    assert exit_info.value.code == 1
+    err = capsys.readouterr().err
+    assert "cannot reach http://127.0.0.1:8000" in err
+    assert "make web" in err

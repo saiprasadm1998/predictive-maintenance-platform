@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from pmp.core import LogFormat, Settings
+from pmp.core.config import BACKEND_DIR
 
 REQUIRED = {
     "PMP_DATABASE_URL": "postgresql+psycopg://u:secret-db-pw@localhost/db",
@@ -64,3 +65,19 @@ def test_secrets_never_appear_in_repr(env: pytest.MonkeyPatch) -> None:
     text = repr(_settings())
     assert "secret-db-pw" not in text
     assert "secret-key-value" not in text
+
+
+def test_backend_env_file_is_found_from_any_folder() -> None:
+    env_files = Settings.model_config["env_file"]
+    assert isinstance(env_files, tuple)
+    assert env_files[0] == BACKEND_DIR / ".env"
+    assert (BACKEND_DIR / "pyproject.toml").exists()
+
+
+def test_relative_artefact_dir_is_anchored_to_the_backend_folder(
+    env: pytest.MonkeyPatch,
+) -> None:
+    env.setenv("PMP_ARTEFACT_DIR", "./.artefacts")
+    assert _settings().artefact_dir == BACKEND_DIR / ".artefacts"
+    env.setenv("PMP_ARTEFACT_DIR", "/data/artefacts")
+    assert _settings().artefact_dir == Path("/data/artefacts")
