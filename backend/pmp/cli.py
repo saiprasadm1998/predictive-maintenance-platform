@@ -1,4 +1,5 @@
-"""Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | demo | apikey`.
+"""Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
+demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -9,6 +10,7 @@ endpoints (5.2) and screens (6.6) until they arrive. `pmp backup` is added in su
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import re
 import signal
@@ -21,7 +23,17 @@ from pathlib import Path
 from types import FrameType
 
 import uvicorn
+from sqlalchemy.orm import Session
 
+from pmp.alerting import (
+    DEFAULT_SENSOR_ALERT,
+    DEFAULT_SENSOR_WARNING,
+    AlertRuleError,
+    AlertRuleSpec,
+    RuleKind,
+    list_alert_rules,
+    set_alert_rules,
+)
 from pmp.api import create_app
 from pmp.core import (
     Actor,
@@ -62,7 +74,15 @@ from pmp.ingestion import (
     make_backfill_handler,
     run_backfill,
 )
-from pmp.modelling import available_detectors
+from pmp.modelling import (
+    ModelError,
+    ModelView,
+    available_detectors,
+    definition_from_dict,
+    get_model,
+    list_models,
+    save_draft,
+)
 from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
 
 logger = logging.getLogger(__name__)
@@ -183,6 +203,20 @@ def build_parser() -> argparse.ArgumentParser:
     algorithm_commands.add_parser(
         "list", help="list detectors found and whether they passed the contract suite"
     )
+
+    model = commands.add_parser("model", help="model definitions and alert rules (UC-05)")
+    model_commands = model.add_subparsers(dest="model_command", required=True)
+    model_create = model_commands.add_parser(
+        "create",
+        help="create a model, or update its draft, from a JSON definition file "
+        "(see data/demo/models/k101.json)",
+    )
+    model_create.add_argument("file", type=Path)
+    model_show = model_commands.add_parser("show", help="show a model, its versions and rules")
+    model_show.add_argument("asset")
+    model_show.add_argument("name")
+    model_list = model_commands.add_parser("list", help="list models")
+    model_list.add_argument("--asset", help="only this asset's models")
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -428,6 +462,128 @@ def _run_algorithms() -> int:
     return 0 if all(d.enabled for d in detectors) else 1
 
 
+def _rules_from_dict(raw: object, model: ModelView) -> list[AlertRuleSpec]:
+    """The alert_rules part of a model definition file."""
+    if raw is None:
+        return []
+    if not isinstance(raw, dict):
+        raise AlertRuleError("alert_rules must be an object")
+    sensor_ids = {s.source_name: s.tag_id for s in model.latest.sensors}
+    options = (
+        "persistence_n",
+        "persistence_m",
+        "on_delay_s",
+        "deadband",
+        "clear_cycles",
+        "enabled",
+    )
+
+    def extra(rule: dict[str, object]) -> dict[str, object]:
+        return {k: rule[k] for k in options if k in rule}
+
+    rules: list[AlertRuleSpec] = []
+    try:
+        if raw.get("di") is not None:
+            di = raw["di"]
+            rules.append(
+                AlertRuleSpec(
+                    RuleKind.DI,
+                    float(di["warning"]),
+                    float(di["alert"]),
+                    **extra(di),  # type: ignore[arg-type]
+                )
+            )
+        for rule in raw.get("sensors", []):
+            name = str(rule["tag"])
+            if name not in sensor_ids:
+                raise AlertRuleError(f"Sensor rule on {name}, which is not a model sensor")
+            rules.append(
+                AlertRuleSpec(
+                    RuleKind.SENSOR,
+                    float(rule.get("warning", DEFAULT_SENSOR_WARNING)),
+                    float(rule.get("alert", DEFAULT_SENSOR_ALERT)),
+                    tag_id=sensor_ids[name],
+                    **extra(rule),  # type: ignore[arg-type]
+                )
+            )
+    except (KeyError, TypeError, ValueError) as error:
+        if isinstance(error, AlertRuleError):
+            raise
+        raise AlertRuleError(f"alert_rules is malformed: {error}") from None
+    return rules
+
+
+def _print_model(session: Session, model: ModelView) -> None:
+    latest = model.latest
+    print(f"{model.asset_code} / {model.name}  (model {model.id})  {model.description}")
+    for v in model.versions:
+        note = f"  error: {v.error}" if v.error else ""
+        created = f"{v.created_at:%Y-%m-%d %H:%M}"
+        print(f"  v{v.version}  {v.status.value:<10} {v.algorithm:<8} {created}{note}")
+    print(f"Version {latest.version} definition:")
+    required = sum(s.required for s in latest.sensors)
+    print(f"  sensors ({len(latest.sensors)}, {required} required):")
+    for s in latest.sensors:
+        print(f"    {'*' if s.required else ' '} {s.source_name:<20} {s.description}")
+    for i, period in enumerate(latest.training_periods, start=1):
+        print(f"  training period {i}: {period}")
+    if latest.validation_period:
+        print(f"  validation period:  {latest.validation_period}")
+    for text in latest.mode_filters:
+        print(f"  operating mode:     {text}")
+    names = {s.tag_id: s.source_name for s in latest.sensors}
+    print("Alert rules:")
+    for rule in list_alert_rules(session, model.id):
+        spec = rule.spec
+        target = (
+            "DI (%)"
+            if spec.kind is RuleKind.DI
+            else f"|z| {names.get(spec.tag_id or 0, spec.tag_id)}"
+        )
+        print(
+            f"  {target:<24} warning {spec.warning:g}  alert {spec.alert:g}  "
+            f"{spec.persistence_n} of {spec.persistence_m}  on-delay {spec.on_delay_s} s  "
+            f"deadband {spec.deadband:.0%} for {spec.clear_cycles}"
+            + ("" if spec.enabled else "  (disabled)")
+        )
+
+
+def _run_model(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    actor = Actor.system()
+    try:
+        with database.session() as session:
+            if args.model_command == "create":
+                try:
+                    data = json.loads(args.file.read_text(encoding="utf-8"))
+                except (OSError, ValueError) as error:
+                    raise ModelError(f"Cannot read {args.file}: {error}") from None
+                definition = definition_from_dict(data, datetime.now(UTC))
+                model = save_draft(session, actor, definition)
+                set_alert_rules(
+                    session, actor, model.id, _rules_from_dict(data.get("alert_rules"), model)
+                )
+                version = model.latest.version
+                print(f"Saved {model.asset_code} / {model.name} version {version} (Draft)")
+                _print_model(session, model)
+            elif args.model_command == "show":
+                _print_model(session, get_model(session, args.asset, args.name))
+            else:
+                for m in list_models(session, args.asset):
+                    v = m.latest
+                    print(
+                        f"{m.id:>4}  {m.asset_code:<10} {m.name:<20} v{v.version} "
+                        f"{v.status.value:<10} {len(v.sensors)} sensors  {v.algorithm}"
+                    )
+    except (ModelError, AlertRuleError) as error:
+        message = "\n  ".join(getattr(error, "problems", None) or [str(error)])
+        print(f"Error: {message}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    return 0
+
+
 def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -510,6 +666,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_dq(settings, args))
     elif args.command == "algorithms":
         sys.exit(_run_algorithms())
+    elif args.command == "model":
+        sys.exit(_run_model(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":

@@ -86,3 +86,11 @@ def clean_dq(clean_ingestion: Database) -> Database:
     with clean_ingestion.session() as session:
         session.execute(text(f"TRUNCATE {DQ_TABLES} RESTART IDENTITY"))
     return clean_ingestion
+
+
+@pytest.fixture
+def clean_models(clean_registry: Database) -> Database:
+    """Models and alert rules (also emptied with the registry, through CASCADE)."""
+    with clean_registry.session() as session:
+        session.execute(text("TRUNCATE model RESTART IDENTITY CASCADE"))
+    return clean_registry

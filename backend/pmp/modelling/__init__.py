@@ -17,6 +17,26 @@ from pmp.modelling.algorithms.registry import (
     available_detectors,
     get_detector,
 )
+from pmp.modelling.definitions import (
+    ModelDefinition,
+    ModelError,
+    Period,
+    SensorChoice,
+    VersionStatus,
+    check_definition,
+    definition_from_dict,
+)
+from pmp.modelling.expressions import Expression, ExpressionError, parse_expression
+from pmp.modelling.service import (
+    ModelSensorView,
+    ModelView,
+    VersionView,
+    find_model,
+    get_model,
+    get_model_by_id,
+    list_models,
+    save_draft,
+)
 
 __all__ = [
     "DEFAULT_DETECTOR",
@@ -25,8 +45,26 @@ __all__ = [
     "Detector",
     "DetectorError",
     "DetectorInfo",
+    "Expression",
+    "ExpressionError",
     "MedianDetector",
+    "ModelDefinition",
+    "ModelError",
+    "ModelSensorView",
+    "ModelView",
+    "Period",
+    "SensorChoice",
+    "VersionStatus",
+    "VersionView",
     "available_detectors",
+    "check_definition",
     "check_detector",
+    "definition_from_dict",
+    "find_model",
     "get_detector",
+    "get_model",
+    "get_model_by_id",
+    "list_models",
+    "parse_expression",
+    "save_draft",
 ]

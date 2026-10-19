@@ -411,6 +411,13 @@ def get_asset(session: Session, code: str) -> AssetView:
     return _asset_view(session, _require_asset(session, code))
 
 
+def get_asset_by_id(session: Session, asset_id: int) -> AssetView:
+    asset = session.get(Asset, asset_id)
+    if asset is None:
+        raise RegistryError(f"Asset {asset_id} does not exist")
+    return _asset_view(session, asset)
+
+
 def find_asset(session: Session, code: str) -> AssetView | None:
     asset = _find_asset(session, code)
     return _asset_view(session, asset) if asset else None
