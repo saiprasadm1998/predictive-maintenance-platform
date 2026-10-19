@@ -49,6 +49,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "SIM", "RUF", "PT", "C4"]
 
+[tool.ruff.lint.per-file-ignores]
+# X for a data matrix, as in the ARC-001 §8.1 contract and scikit-learn
+"pmp/modelling/algorithms/*.py" = ["N803", "N806"]
+"tests/unit/test_detector_*.py" = ["N803", "N806"]
+
 [tool.ruff.lint.isort]
 known-first-party = ["pmp"]
 

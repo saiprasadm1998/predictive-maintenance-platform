@@ -1,4 +1,4 @@
-"""Command line: `pmp web | worker | migrate | registry | ingest | dq | demo | apikey`.
+"""Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -62,6 +62,7 @@ from pmp.ingestion import (
     make_backfill_handler,
     run_backfill,
 )
+from pmp.modelling import available_detectors
 from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
 
 logger = logging.getLogger(__name__)
@@ -176,6 +177,12 @@ def build_parser() -> argparse.ArgumentParser:
     dq_status = dq_commands.add_parser("status", help="evaluate the rules now and list statuses")
     dq_status.add_argument("--asset", help="only this asset's tags")
     dq_status.add_argument("--at", type=_when, help="cycle time: e.g. -1h or ISO 8601 (now)")
+
+    algorithms = commands.add_parser("algorithms", help="normal-behaviour algorithms (detectors)")
+    algorithm_commands = algorithms.add_subparsers(dest="algorithms_command", required=True)
+    algorithm_commands.add_parser(
+        "list", help="list detectors found and whether they passed the contract suite"
+    )
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -411,6 +418,16 @@ def _run_dq(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_algorithms() -> int:
+    detectors = available_detectors()
+    for info in detectors:
+        state = "enabled" if info.enabled else "REFUSED"
+        print(f"{info.name:<16} {info.version:<10} {state:<9} {info.source}")
+        for failure in info.failures:
+            print(f"    - {failure}")
+    return 0 if all(d.enabled for d in detectors) else 1
+
+
 def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -491,6 +508,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_backfill(settings, args))
     elif args.command == "dq":
         sys.exit(_run_dq(settings, args))
+    elif args.command == "algorithms":
+        sys.exit(_run_algorithms())
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":
