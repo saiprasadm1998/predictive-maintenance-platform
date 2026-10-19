@@ -17,8 +17,9 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 1.2 REST ingestion and API keys | Done | Example batch and 10,000-sample batch pass |
 | 1.3 History import | Done | FR-ING-03 test on my Mac: 12 months × 1 minute × 50 tags = 26,280,000 samples loaded in 6 min 43 s, counts reconcile |
 | 1.4 Demo data seeder | Done | 180 days of history for every demo tag; live replay feeds the ingestion endpoint |
-| 2.1 Data-quality rules | Built | All eight UCS §6.1 rules, coverage rule, versioned overrides, 30-day preview, `pmp dq`; final check on my Mac in progress |
-| 2.2 Detector contract and placeholder | Next | |
+| 2.1 Data-quality rules | Done | All eight UCS §6.1 rules, coverage rule, versioned overrides, 30-day preview, `pmp dq` |
+| 2.2 Detector contract and placeholder | Built | Contract suite runs before any detector is enabled; median placeholder passes; `pmp algorithms list`; final check on my Mac in progress |
+| 2.3 Outputs and health | Next | |
 
 ## How I work
 
@@ -365,6 +366,7 @@ None of these block the current work.
 - [x] **Missing sample value (1.2):** A sample must carry a value. A sample without one is rejected with 400 rather than stored as empty.
 - [x] **Range for flatline and spike before a model exists (2.1):** Both thresholds are a percentage of the sensor's training range, which only exists once a model is trained. Until then the rules use the instrument range (range_hi − range_lo) and skip the flatline guard (training standard deviation above 1 % of range). From 4.1 scoring passes in the deployed model's training statistics. Effect on the demo data: constant-speed machines' speed sensors show as flatlined until a model is trained, unless set to "used" with an override.
 - [x] **Tag groups (2.1):** UC-04 allows overrides "per tag or tag group", but the registry has no groups. Overrides apply at three levels: global, asset-type role (for example the flow sensor on every pump), then the tag itself, the most specific one winning.
+- [x] **Built-in detectors (2.2):** Built-in algorithms are listed in the code; only third-party plug-ins come through the `pmp.algorithms` entry point. Both pass the same contract suite before use, and a plug-in cannot take a built-in's name.
 - [x] **Preview warning (2.1):** The 20 % warning (UC-04 3a) is checked per tag, so one sensor that would be excluded most of the time isn't hidden by an average over many healthy ones.
 
 **Open: spec conflicts (I follow the proposed answer until told otherwise)**
