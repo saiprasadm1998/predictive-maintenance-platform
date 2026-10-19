@@ -115,6 +115,22 @@ uv run pmp dq status --asset K-101                        # evaluate now and lis
 
 `NAME=default` removes an override. Parameter names: `pmp dq set --help`.
 
+## Prediction algorithms (detectors)
+
+Every normal-behaviour model implements the Detector contract in
+`backend/pmp/modelling/algorithms/contract.py` (PMP-ARC-001 §8.1). Third-party algorithms are
+installed Python packages registered under the `pmp.algorithms` entry point, never uploaded
+code (ADR-09). Each detector found runs the contract suite (output shape, missing inputs,
+save and load, determinism, refusing bad input) and is used only if it passes.
+
+```
+cd backend
+uv run pmp algorithms list
+```
+
+Until the AAKR model arrives (Phase 7), the default detector is a placeholder that predicts
+each sensor as its training median. **Scores made with it are for demonstration only.**
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
