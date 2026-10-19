@@ -145,6 +145,22 @@ cd backend
 uv run python tools/build_scoring_reference.py
 ```
 
+## Model definitions
+
+A model monitors one asset: its sensors (some marked required), one or more training periods,
+a hold-out validation period that may not overlap them, operating-mode filters and alert
+rules (PMP-UCS-001 UC-05, §6.6). Until the model builder screens arrive (Phase 6), models are
+defined from a JSON file; times can be ISO 8601 or relative (`-60d` is 60 days before today
+00:00 UTC). Filters compare tags (by source name) with numbers, e.g. `K101.II1001.PV > 120`,
+combined with `and`, `or`, `not` and brackets; they are parsed safely, never executed.
+
+```
+cd backend
+uv run pmp model create ../data/demo/models/k101.json   # create, or update the draft
+uv run pmp model show K-101 main
+uv run pmp model list
+```
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
