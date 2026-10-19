@@ -6,7 +6,7 @@ COMPOSE := docker compose -f deploy/compose.dev.yaml
 STACK := docker compose -f deploy/compose.yaml
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill
+        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring
 
 check: lint format-check types contracts test
 
@@ -78,3 +78,6 @@ PERF_FILE := $(HOME)/pmp-perf/history_12m_50tags.parquet
 perf-backfill:
 	$(UV) python tools/make_history_file.py $(PERF_FILE)
 	cd backend && time uv run pmp ingest backfill $(PERF_FILE) --source gw-site-a-01 --mode overwrite
+
+perf-scoring:
+	$(UV) python tools/perf_scoring.py
