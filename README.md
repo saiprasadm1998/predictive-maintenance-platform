@@ -131,6 +131,20 @@ uv run pmp algorithms list
 Until the AAKR model arrives (Phase 7), the default detector is a placeholder that predicts
 each sensor as its training median. **Scores made with it are for demonstration only.**
 
+## Scoring outputs
+
+Each cycle turns actual and predicted values into the outputs of PMP-UCS-001 §6.2 and §6.5:
+residual, relative deviation q, standardised residual z, the Deviation Index, contributions,
+the Health Score, the band and coverage (`backend/pmp/scoring/outputs.py`). The AC-03
+reference set in `backend/tests/reference_data/` checks every output to 1e-6; its expected
+values come from `backend/tools/build_scoring_reference.py`, which uses exact decimal
+arithmetic and is independent of the scoring code. Regenerate it only when a case is added:
+
+```
+cd backend
+uv run python tools/build_scoring_reference.py
+```
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
