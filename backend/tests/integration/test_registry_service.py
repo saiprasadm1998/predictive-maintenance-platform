@@ -16,6 +16,7 @@ from pmp.registry import (
     TagSpec,
     find_tag,
     get_asset,
+    get_tags,
     list_ancestors,
     list_subtree,
     list_tags,
@@ -155,6 +156,8 @@ def test_roles_are_mapped_and_gaps_reported(clean_registry: Database) -> None:
         tag = find_tag(s, "gw-1", "EQ1.TI1.PV")
         assert tag is not None
         assert tag.role_code == "de_bearing_temp"
+        assert tag.asset_type_code == "pump"
+        assert get_tags(s, [tag.id, 999]) == [tag]
         assert list(role_gaps(s, "EQ-1")) == ["flow"]
     with pytest.raises(RegistryError, match="already filled"), clean_registry.session() as s:
         upsert_tag(s, ACTOR, _tag("EQ1.TI2.PV"), role_code="de_bearing_temp")

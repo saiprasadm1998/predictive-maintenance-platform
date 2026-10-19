@@ -102,3 +102,31 @@ def test_registry_import_runs_and_exits_with_the_report_status(
     assert calls["dry_run"] is True
     assert calls["disposed"] is True
     assert "valid (dry run)" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize(
+    ("argv", "expected"),
+    [
+        (["demo", "replay", "--key", "k", "--from", "-2h"], "--from=-2h"),
+        (["dq", "status", "--at", "-30m"], "--at=-30m"),
+    ],
+)
+def test_relative_times_after_an_option_are_not_read_as_options(
+    argv: list[str], expected: str
+) -> None:
+    fixed = cli._attach_relative_times(argv)
+    assert expected in fixed
+    args = cli.build_parser().parse_args(fixed)
+    assert (args.start if argv[0] == "demo" else args.at) is not None
+
+
+def test_dq_commands_parse() -> None:
+    args = cli.build_parser().parse_args(
+        ["dq", "set", "--tag", "K101.SI1001.PV", "flatline_used=on", "--comment", "why", "--yes"]
+    )
+    assert (args.dq_command, args.tag, args.params, args.yes) == (
+        "set",
+        "K101.SI1001.PV",
+        ["flatline_used=on"],
+        True,
+    )

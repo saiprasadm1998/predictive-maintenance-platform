@@ -88,6 +88,7 @@ class TagView:
     range_hi: float
     interval_s: int
     role_code: str | None
+    asset_type_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -180,18 +181,20 @@ def _asset_view(session: Session, asset: Asset) -> AssetView:
 
 
 def _tag_view(session: Session, tag: Tag) -> TagView:
+    asset = session.get_one(Asset, tag.asset_id)
     return TagView(
         id=tag.id,
         source=tag.source,
         source_name=tag.source_name,
         asset_id=tag.asset_id,
-        asset_code=session.get_one(Asset, tag.asset_id).code,
+        asset_code=asset.code,
         description=tag.description,
         unit=tag.unit,
         range_lo=tag.range_lo,
         range_hi=tag.range_hi,
         interval_s=tag.interval_s,
         role_code=_role_code_of_tag(session, tag.id),
+        asset_type_code=_type_code(session, asset.asset_type_id),
     )
 
 
@@ -553,6 +556,17 @@ def list_tags(session: Session, asset_code: str | None = None) -> list[TagView]:
     if asset_code is not None:
         query = query.where(Tag.asset_id == _require_asset(session, asset_code).id)
     tags = session.scalars(query.order_by(Tag.source, Tag.source_name)).all()
+    return [_tag_view(session, t) for t in tags]
+
+
+def get_tags(session: Session, tag_ids: Iterable[int]) -> list[TagView]:
+    """Tags by ID, ordered by source and name; unknown IDs are left out."""
+    ids = list(set(tag_ids))
+    if not ids:
+        return []
+    tags = session.scalars(
+        select(Tag).where(Tag.id.in_(ids)).order_by(Tag.source, Tag.source_name)
+    ).all()
     return [_tag_view(session, t) for t in tags]
 
 

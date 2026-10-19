@@ -266,6 +266,20 @@ def read_samples(
     return [(ts, value, Quality(q)) for ts, value, q in rows]
 
 
+def read_last_samples(
+    session: Session, tag_id: int, at: datetime, limit: int
+) -> list[tuple[datetime, float, Quality]]:
+    """The latest `limit` samples for one tag at or before `at`, oldest first."""
+    rows = session.execute(
+        text(
+            "SELECT ts, value, quality FROM sample "
+            "WHERE tag_id = :tag AND ts <= :at ORDER BY ts DESC LIMIT :limit"
+        ),
+        {"tag": tag_id, "at": at, "limit": limit},
+    ).all()
+    return [(ts, value, Quality(q)) for ts, value, q in reversed(rows)]
+
+
 def count_samples(session: Session, tag_ids: Iterable[int] | None = None) -> int:
     if tag_ids is None:
         return session.scalar(text("SELECT count(*) FROM sample")) or 0

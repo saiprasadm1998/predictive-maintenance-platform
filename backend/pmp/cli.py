@@ -1,9 +1,9 @@
-"""Command line: `pmp web | worker | migrate | registry | ingest | demo | apikey`.
+"""Command line: `pmp web | worker | migrate | registry | ingest | dq | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
-One image runs both roles. `pmp registry import` loads registry files until the REST
-endpoints arrive (5.2). `pmp backup` is added in sub-phase 9.1.
+One image runs both roles. `pmp registry import` and `pmp dq` stand in for the REST
+endpoints (5.2) and screens (6.6) until they arrive. `pmp backup` is added in sub-phase 9.1.
 """
 
 from __future__ import annotations
@@ -38,6 +38,19 @@ from pmp.core import (
     rotate_api_key,
     run_migrations,
 )
+from pmp.dataquality import (
+    DEFAULTS,
+    PARAM_NAMES,
+    DataQualityError,
+    RuleScope,
+    effective_params,
+    evaluate_sensors,
+    get_rule_set,
+    get_sensor_statuses,
+    list_rule_versions,
+    preview_rules,
+    save_rule_set,
+)
 from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, replay
 from pmp.ingestion import (
     BACKFILL_JOB,
@@ -48,7 +61,7 @@ from pmp.ingestion import (
     make_backfill_handler,
     run_backfill,
 )
-from pmp.registry import ImportFailedError, ImportReport, import_files
+from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +82,25 @@ def _when(value: str) -> datetime:
         return datetime.now(UTC) - delta
     parsed = datetime.fromisoformat(value)
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+_TIME_OPTIONS = ("--from", "--at")
+_RELATIVE = re.compile(r"-\d+[mhd]")
+
+
+def _attach_relative_times(argv: Sequence[str]) -> list[str]:
+    """Turn `--from -2h` into `--from=-2h`: argparse reads a bare -2h as an option."""
+    args = list(argv)
+    joined: list[str] = []
+    i = 0
+    while i < len(args):
+        if args[i] in _TIME_OPTIONS and i + 1 < len(args) and _RELATIVE.fullmatch(args[i + 1]):
+            joined.append(f"{args[i]}={args[i + 1]}")
+            i += 2
+        else:
+            joined.append(args[i])
+            i += 1
+    return joined
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -114,6 +146,35 @@ def build_parser() -> argparse.ArgumentParser:
         "--naive-as-utc", action="store_true", help="read timestamps without an offset as UTC"
     )
     backfill.add_argument("--preview", action="store_true", help="validate only; store nothing")
+
+    dq = commands.add_parser("dq", help="sensor data-quality rules and NE 107 status (UC-04)")
+    dq_commands = dq.add_subparsers(dest="dq_command", required=True)
+    for name, text in (
+        ("show", "show the overrides and effective parameters for a scope"),
+        ("set", "save overrides for a scope as a new version (previews first)"),
+        ("preview", "show the effect of the rules (optionally changed) on recent data"),
+    ):
+        command = dq_commands.add_parser(name, help=text)
+        where = command.add_mutually_exclusive_group()
+        where.add_argument("--role", metavar="TYPE/ROLE", help="an asset-type role")
+        where.add_argument("--tag", metavar="NAME", help="a tag's source name")
+        command.add_argument("--source", help="the tag's source, if the name is not unique")
+        if name != "show":
+            command.add_argument(
+                "params",
+                nargs="*",
+                metavar="NAME=VALUE",
+                help=f"e.g. spike_pct=30 flatline=off; VALUE 'default' removes an override. "
+                f"Names: {', '.join(PARAM_NAMES)}",
+            )
+            command.add_argument("--days", type=int, default=30, help="preview length (30)")
+    dq_commands.choices["set"].add_argument("--comment", default="", help="why it changed")
+    dq_commands.choices["set"].add_argument(
+        "--yes", action="store_true", help="save even if more than 20 %% would be excluded"
+    )
+    dq_status = dq_commands.add_parser("status", help="evaluate the rules now and list statuses")
+    dq_status.add_argument("--asset", help="only this asset's tags")
+    dq_status.add_argument("--at", type=_when, help="cycle time: e.g. -1h or ISO 8601 (now)")
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -261,6 +322,94 @@ def _run_backfill(settings: Settings, args: argparse.Namespace) -> int:
     return 0 if report.reconciles else 1
 
 
+def _pairs(items: Sequence[str]) -> dict[str, str]:
+    pairs = {}
+    for item in items:
+        name, sep, value = item.partition("=")
+        if not sep or not name:
+            raise DataQualityError(f"Expected NAME=VALUE, got {item!r}")
+        pairs[name.strip()] = value.strip()
+    return pairs
+
+
+def _find_tag(tags: Sequence[TagView], name: str, source: str | None) -> TagView:
+    found = [t for t in tags if t.source_name == name and (source is None or t.source == source)]
+    if not found:
+        raise DataQualityError(f"Tag {name!r} is not registered")
+    if len(found) > 1:
+        raise DataQualityError(f"Tag {name!r} exists in several sources; add --source")
+    return found[0]
+
+
+def _scope(tags: Sequence[TagView], args: argparse.Namespace) -> RuleScope:
+    if args.role:
+        asset_type, sep, role = args.role.partition("/")
+        if not sep:
+            raise DataQualityError("--role must be TYPE/ROLE, e.g. centrifugal_pump/motor_current")
+        return RuleScope.role(asset_type, role)
+    if args.tag:
+        return RuleScope.tag(_find_tag(tags, args.tag, args.source).id)
+    return RuleScope.everywhere()
+
+
+def _run_dq(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            if args.dq_command == "status":
+                tags = list_tags(session, args.asset)
+                at = args.at or datetime.now(UTC)
+                evaluate_sensors(session, at, [t.id for t in tags])
+                print(f"Sensor status at {at:%Y-%m-%d %H:%M:%S} UTC")
+                for v in get_sensor_statuses(session, [t.id for t in tags]):
+                    print(
+                        f"{v.asset_code:<10} {v.source_name:<28} {v.status.value:<22} "
+                        f"{v.rule.value:<18} {v.effect.value:<16} since {v.since:%Y-%m-%d %H:%M}"
+                    )
+                return 0
+
+            tags = list_tags(session)
+            scope = _scope(tags, args)
+            current = get_rule_set(session, scope)
+            if args.dq_command == "show":
+                print(f"Scope: {scope}  (version {current.version or 'none saved'})")
+                print(f"Overrides: {current.overrides or 'none'}")
+                for older in list_rule_versions(session, scope)[1:]:
+                    when = f"{older.created_at:%Y-%m-%d %H:%M}" if older.created_at else ""
+                    print(f"  v{older.version} {when}  {older.overrides}")
+                if scope.kind == "tag":
+                    effective = effective_params(session, int(scope.key))
+                else:  # defaults, then global, then this role's overrides
+                    base = get_rule_set(session, RuleScope.everywhere()).overrides
+                    effective = DEFAULTS.with_overrides(base).with_overrides(current.overrides)
+                print("Effective parameters:")
+                for name, value in effective.as_dict().items():
+                    print(f"  {name:<20} {value}")
+                return 0
+
+            proposed = dict(current.overrides)
+            for name, value in _pairs(args.params).items():
+                if value.lower() == "default":
+                    proposed.pop(name, None)
+                else:
+                    proposed[name] = value
+            report = preview_rules(session, scope, proposed, days=args.days)
+            print(report.summary())
+            if args.dq_command == "preview":
+                return 0
+            if report.warning and not args.yes:
+                print("Not saved. Re-run with --yes to save anyway.", file=sys.stderr)
+                return 1
+            saved = save_rule_set(session, Actor.system(), scope, proposed, args.comment)
+            print(f"Saved {scope} as version {saved.version}: {saved.overrides or 'no overrides'}")
+            return 0
+    except DataQualityError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
 def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -318,7 +467,7 @@ def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    args = build_parser().parse_args(argv)
+    args = build_parser().parse_args(_attach_relative_times(sys.argv[1:] if argv is None else argv))
     settings = get_settings()
     configure_logging(settings.log_level, settings.log_format)
 
@@ -332,6 +481,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_registry_import(settings, args))
     elif args.command == "ingest" and args.ingest_command == "backfill":
         sys.exit(_run_backfill(settings, args))
+    elif args.command == "dq":
+        sys.exit(_run_dq(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":

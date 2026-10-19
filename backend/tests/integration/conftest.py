@@ -76,3 +76,13 @@ def clean_ingestion(clean_registry: Database) -> Database:
         session.execute(text("TRUNCATE sample"))  # hypertable: truncated on its own
         session.execute(text(f"TRUNCATE {INGESTION_TABLES} RESTART IDENTITY"))
     return clean_registry
+
+
+DQ_TABLES = "dq_rule, sensor_status, sensor_exclusion"
+
+
+@pytest.fixture
+def clean_dq(clean_ingestion: Database) -> Database:
+    with clean_ingestion.session() as session:
+        session.execute(text(f"TRUNCATE {DQ_TABLES} RESTART IDENTITY"))
+    return clean_ingestion
