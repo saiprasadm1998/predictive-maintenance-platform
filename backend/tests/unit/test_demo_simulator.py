@@ -184,3 +184,24 @@ def test_replay_catches_up_then_runs_in_real_time() -> None:
     assert sleeps[0] == pytest.approx(1.0)  # catching up: one simulated minute per second
     assert any(s > 50 for s in sleeps)  # then waiting for real time
     assert stats.accepted == sum(len(p["samples"]) for p in posted)  # type: ignore[arg-type,misc]
+
+
+def test_healthy_signals_do_not_trip_the_spike_or_flatline_rules() -> None:
+    """With each tag's own range from 30 healthy days (as training computes it), the
+    spike rule (a step above 25 % of the range) and the flatline rule (30-sample standard
+    deviation below 0.1 % of the range) fire on at most 0.1 % of minutes. Stopped
+    machines sitting at an instrument limit are left out of the flatline check."""
+    sim = PlantSimulator(list(all_tags()), anchor=ANCHOR)
+    frame = sim.samples_between(ANCHOR - timedelta(days=120), ANCHOR - timedelta(days=90))
+    noisy = {}
+    for tag in all_tags():
+        values = series(frame, tag.source_name).to_numpy()
+        p1, p99 = np.percentile(values, [1, 99])
+        width = p99 - p1
+        spikes = float((np.abs(np.diff(values)) > 0.25 * width).mean())
+        windows = np.lib.stride_tricks.sliding_window_view(values, 30)
+        at_limit = (windows <= tag.range_lo + 0.005 * tag.span).all(axis=1)
+        flat = float(((windows.std(axis=1) < 0.001 * width) & ~at_limit).mean())
+        if spikes > 0.001 or flat > 0.001:
+            noisy[tag.source_name] = (round(spikes, 4), round(flat, 4))
+    assert noisy == {}

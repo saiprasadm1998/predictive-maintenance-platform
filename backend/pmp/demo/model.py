@@ -40,6 +40,10 @@ class RoleProfile:
     idle: float  # fraction of range when stopped
     ambient: float = 0.0  # engineering units per °C of ambient deviation
     noise: float = 0.003  # white noise, fraction of range
+    # Steady signals (pressures, levels, displacements, some vibrations) get less noise:
+    # real ones move little minute to minute compared with their normal swing, and the
+    # spike rule (UCS §6.1: a step above 25 % of the training range) must not fire on
+    # healthy data. A unit test checks this for every demo tag.
     wander: float = 0.008  # slow wander amplitude, fraction of range
 
 
@@ -47,36 +51,36 @@ _TEMP = 0.5
 PROFILES: dict[str, RoleProfile] = {
     "motor_current": RoleProfile(0.75, 0.0),
     "discharge_pressure": RoleProfile(0.62, 0.15),
-    "suction_pressure": RoleProfile(0.30, 0.26),
+    "suction_pressure": RoleProfile(0.30, 0.26, noise=0.0006),
     "suction_temp": RoleProfile(0.40, 0.20, _TEMP),
     "discharge_temp": RoleProfile(0.55, 0.15, _TEMP),
     "suction_flow": RoleProfile(0.70, 0.0),
     "flow": RoleProfile(0.70, 0.0),
-    "speed": RoleProfile(0.75, 0.0, noise=0.0005),
+    "speed": RoleProfile(0.75, 0.0, noise=0.001),
     "de_bearing_temp": RoleProfile(0.475, 0.20, _TEMP),
     "nde_bearing_temp": RoleProfile(0.46, 0.20, _TEMP),
     "thrust_pad_temp": RoleProfile(0.50, 0.20, _TEMP),
     "main_bearing_temp": RoleProfile(0.45, 0.20, _TEMP),
-    "axial_displacement": RoleProfile(0.375, 0.30),
+    "axial_displacement": RoleProfile(0.375, 0.30, noise=0.0015),
     "de_vibration_x": RoleProfile(0.18, 0.02),
     "de_vibration_y": RoleProfile(0.17, 0.02),
     "nde_vibration_x": RoleProfile(0.15, 0.02),
     "nde_vibration_y": RoleProfile(0.14, 0.02),
-    "de_vibration": RoleProfile(0.12, 0.01),
-    "nde_vibration": RoleProfile(0.10, 0.01),
+    "de_vibration": RoleProfile(0.12, 0.01, noise=0.002),
+    "nde_vibration": RoleProfile(0.10, 0.01, noise=0.0015),
     "crosshead_vibration": RoleProfile(0.15, 0.01),
-    "frame_vibration": RoleProfile(0.10, 0.01),
-    "gearbox_vibration": RoleProfile(0.12, 0.01),
-    "rod_drop": RoleProfile(0.30, 0.30, noise=0.001),
+    "frame_vibration": RoleProfile(0.10, 0.01, noise=0.002),
+    "gearbox_vibration": RoleProfile(0.12, 0.01, noise=0.002),
+    "rod_drop": RoleProfile(0.30, 0.30, noise=0.0004),
     "lube_oil_supply_temp": RoleProfile(0.455, 0.30, _TEMP),
-    "lube_oil_pressure": RoleProfile(0.25, 0.24),
-    "seal_gas_dp": RoleProfile(0.30, 0.25),
+    "lube_oil_pressure": RoleProfile(0.25, 0.24, noise=0.0002),
+    "seal_gas_dp": RoleProfile(0.30, 0.25, noise=0.0006),
     "crankcase_temp": RoleProfile(0.50, 0.25, _TEMP),
     "gas_inlet_temp": RoleProfile(0.75, 0.10),
     "gas_outlet_temp": RoleProfile(0.35, 0.08),
     "steam_pressure": RoleProfile(0.60, 0.10),
     "steam_flow": RoleProfile(0.65, 0.0),
-    "drum_level": RoleProfile(0.50, 0.50),
+    "drum_level": RoleProfile(0.50, 0.50, noise=0.0004),
 }
 DEFAULT_PROFILE = RoleProfile(0.5, 0.2)
 
