@@ -22,8 +22,9 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 2.3 Outputs and health | Done | Residual, q, z, DI, contributions, Health, band and coverage; AC-03 reference set (10 cases, exact decimal expected values) passes to 1e-6 |
 | 3.1 Model definitions and alert rules | Done | Models with Draft versions, sensors, periods, safe operating-mode filters, alert rules; K-101 defined from `data/demo/models/k101.json` |
 | 3.2 Baseline training job | Done | K-101 trained on 157,398 of 158,400 cycles of demo history and validated on 42,584; artefact with SHA-256 |
-| 3.3 Artefacts and version lifecycle | Built | Deploy, pause, resume, retire, reject; deploy supersedes; one version in service (database-enforced); SHA-256 checked on every load; per-worker cache; final check on my Mac in progress |
-| 4.1 Scoring runtime | Next | |
+| 3.3 Artefacts and version lifecycle | Done | Deploy, pause, resume, retire, reject; deploy supersedes; one version in service (database-enforced); SHA-256 checked on every load; per-worker cache |
+| 4.1 Scoring runtime | Built | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
+| 4.2 Alert engine | Next | |
 
 ## How I work
 
@@ -375,6 +376,8 @@ None of these block the current work.
 - [x] **Which training cycles count (3.2):** A cycle is used for training when it is in the operating mode and passes the coverage rule (at least 70 % of sensors usable and every required sensor usable), the same test scoring applies, so the model learns only from cycles it would later score. Unusable values inside a retained cycle are left out, not filled in.
 - [x] **Deploying needs a DI alert rule (3.3):** The Health Score is measured against the DI alert limit (DIref = 2 × alert), so a model without a DI rule cannot be deployed; the message says to set it first.
 - [x] **Rejecting a Validated version (3.3):** It goes back to Draft (ARC Figure 7) and its artefact, metrics and training snapshot are removed, since they no longer match a definition that can now change; training again writes a fresh artefact.
+- [x] **Order of the cycle checks (4.1):** Coverage is checked before the operating mode, as in UCS Figure 5, so when data stops the status says "Insufficient data" rather than "Not in operating mode".
+- [x] **Process pool (4.1):** ARC §5.1 allows scoring across a process pool. One process already scores 100 models and 5,000 tags in 5.5 s (budget 30 s), so the pool is not built yet; it is added in Phase 7 if AAKR needs it, with `make perf-scoring` as the check.
 - [x] **Sensors that did not move in training (2.3):** The spec gives q = |r| / R and z = r / σ but nothing for R = 0 or σ = 0 (a sensor that was constant in training, such as a fixed-speed machine's speed). R is floored at 1 % of the instrument range and σ at 1 % of R, and the floor is recorded with the sensor's scale.
 - [x] **"A sensor z warning active" (2.3, 4.2):** UCS §6.5 makes the band Watch or Alert when a sensor z warning or alert is "active". I read "active" as an active sensor alert (after persistence), the same as in the alert lifecycle. Until the alert engine exists (4.2), the band uses each usable sensor's current |z| against its limits.
 - [x] **Built-in detectors (2.2):** Built-in algorithms are listed in the code; only third-party plug-ins come through the `pmp.algorithms` entry point. Both pass the same contract suite before use, and a plug-in cannot take a built-in's name.
