@@ -177,6 +177,26 @@ back over the validation period and writes the artefact folder
 `manifest.json`, `validation.json`) with its SHA-256. The version ends Validated, or Failed
 with the reason; saving the definition again moves a Failed version back to Draft.
 
+## Live scoring
+
+The worker role (`make worker`) runs the scoring scheduler next to the job queue. One worker
+leads at a time. Each deployed model is scored on its cycle (default every 60 s, 20 s after
+the cycle time so late samples still count): data-quality rules, coverage and operating mode
+first, then prediction, Deviation Index, Health and band (PMP-UCS-001 §6.2). Scores, sensor
+outputs and the runtime status are written together; a cycle is never written twice and
+missed cycles are not filled in.
+
+```
+make worker                                   # terminal 1: jobs and the scoring scheduler
+uv run pmp demo replay --key <key> --from -3m # terminal 2 (in backend/): live demo data
+cd backend
+uv run pmp score status                       # each model's status, band, DI and Health
+uv run pmp score once K-101 main              # score the latest cycle by hand
+```
+
+`make perf-scoring` runs the NFR-PERF-01 check (100 models, 5,000 tags, within 30 s) in a
+separate `pmp_perf` database.
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
