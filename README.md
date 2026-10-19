@@ -160,7 +160,14 @@ uv run pmp model create ../data/demo/models/k101.json   # create, or update the 
 uv run pmp model show K-101 main
 uv run pmp model list
 uv run pmp model train K-101 main --now   # train here; without --now a job for `make worker`
+uv run pmp model deploy K-101 main        # Validated -> Deployed (needs the DI alert rule)
+uv run pmp model pause K-101 main         # also: resume, retire, reject; --version N
 ```
+
+Lifecycle (PMP-ARC-001 Figure 7): Draft → Training → Validated or Failed; Validated → Deployed
+(the previous version is Superseded) or back to Draft (reject); Deployed ↔ Paused; Deployed or
+Paused → Retired. Only one version per model is in service. Artefacts are loaded only if
+their SHA-256 still matches the one stored at training.
 
 Training lays the chosen periods on the model's 60 s cycle grid exactly as scoring will
 (sample-and-hold, data-quality rules, operating-mode filter), blocks with a plain reason if
