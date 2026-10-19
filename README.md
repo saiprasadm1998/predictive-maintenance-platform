@@ -159,7 +159,16 @@ cd backend
 uv run pmp model create ../data/demo/models/k101.json   # create, or update the draft
 uv run pmp model show K-101 main
 uv run pmp model list
+uv run pmp model train K-101 main --now   # train here; without --now a job for `make worker`
 ```
+
+Training lays the chosen periods on the model's 60 s cycle grid exactly as scoring will
+(sample-and-hold, data-quality rules, operating-mode filter), blocks with a plain reason if
+fewer than 2,000 cycles or under half the period remain, fits the detector, plays the model
+back over the validation period and writes the artefact folder
+(`<PMP_ARTEFACT_DIR>/models/<model>/<version>/`: algorithm files, `scaling.json`,
+`manifest.json`, `validation.json`) with its SHA-256. The version ends Validated, or Failed
+with the reason; saving the definition again moves a Failed version back to Draft.
 
 ## Demo plant data (synthetic)
 
