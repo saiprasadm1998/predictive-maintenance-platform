@@ -185,15 +185,15 @@ def compute_outputs(
     tags = [s.tag for s in sensors]
     if len(set(tags)) != len(tags):
         raise ScoringError("Duplicate sensor tags")
-    for s in sensors:
-        if s.usable and not (_finite(s.actual) and _finite(s.predicted)):
-            raise ScoringError(f"Usable sensor {s.tag} needs an actual and a prediction")
     usable = [s for s in sensors if s.usable]
     coverage = len(usable) / len(sensors)
 
     if status is not RuntimeStatus.RUNNING:
         plain = tuple(SensorOutput(s.tag, s.actual, s.predicted, s.usable) for s in sensors)
         return ModelOutput(status, Band.UNKNOWN, coverage, plain)
+    for s in sensors:
+        if s.usable and not (_finite(s.actual) and _finite(s.predicted)):
+            raise ScoringError(f"Usable sensor {s.tag} needs an actual and a prediction")
     if not usable:
         raise ScoringError("No usable sensor: the coverage rule should have stopped scoring")
 

@@ -26,8 +26,9 @@ from sqlalchemy.orm import Session
 
 from pmp.core import Actor, Event, EventBus, audit_change
 from pmp.modelling.definitions import ModelError, VersionStatus
-from pmp.modelling.models import ModelVersion
+from pmp.modelling.models import Model, ModelVersion
 from pmp.modelling.service import ModelView, _set_status, get_model, get_model_by_id
+from pmp.registry import get_asset_by_id
 
 
 class Action(StrEnum):
@@ -208,3 +209,38 @@ def change_status(
         for event in events:
             bus.publish(event)
     return get_model_by_id(session, model.id)
+
+
+@dataclass(frozen=True)
+class ActiveVersion:
+    """A model's version in service (Deployed or Paused)."""
+
+    model_id: int
+    asset_code: str
+    name: str
+    version_id: int
+    version: int
+    status: VersionStatus
+    cycle_s: int
+
+
+def list_active_versions(session: Session) -> list[ActiveVersion]:
+    """Every model's version in service, for the scoring scheduler."""
+    rows = session.execute(
+        select(ModelVersion, Model)
+        .join(Model, Model.id == ModelVersion.model_id)
+        .where(ModelVersion.status.in_(ACTIVE))
+        .order_by(Model.id)
+    ).all()
+    return [
+        ActiveVersion(
+            model_id=model.id,
+            asset_code=get_asset_by_id(session, model.asset_id).code,
+            name=model.name,
+            version_id=version.id,
+            version=version.version,
+            status=VersionStatus(version.status),
+            cycle_s=int((version.params or {}).get("cycle_s", 60)),
+        )
+        for version, model in rows
+    ]

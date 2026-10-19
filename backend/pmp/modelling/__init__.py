@@ -30,10 +30,12 @@ from pmp.modelling.definitions import (
 from pmp.modelling.expressions import Expression, ExpressionError, parse_expression
 from pmp.modelling.lifecycle import (
     Action,
+    ActiveVersion,
     DeployCheck,
     ModelDeployed,
     ModelStatusChanged,
     change_status,
+    list_active_versions,
 )
 from pmp.modelling.loading import LoadedModel, ModelCache, load_version
 from pmp.modelling.scaling import (
@@ -65,6 +67,7 @@ __all__ = [
     "SIGMA_FLOOR",
     "TRAIN_JOB",
     "Action",
+    "ActiveVersion",
     "ArtefactError",
     "ContractReport",
     "DeployCheck",
@@ -97,6 +100,7 @@ __all__ = [
     "get_detector",
     "get_model",
     "get_model_by_id",
+    "list_active_versions",
     "list_models",
     "load_version",
     "make_training_handler",

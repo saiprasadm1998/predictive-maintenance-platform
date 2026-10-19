@@ -92,6 +92,7 @@ class SensorStats:
     median: float
     p1: float
     p99: float
+    std: float  # standard deviation of the retained training values (flatline guard)
     raw_sigma: float
     scale: SensorScale
     validation_count: int
@@ -103,6 +104,7 @@ class SensorStats:
             "median": self.median,
             "p1": self.p1,
             "p99": self.p99,
+            "std": self.std,
             "range": self.scale.range,
             "range_floored": self.scale.range_floored,
             "residual_sigma_raw": self.raw_sigma,
@@ -178,6 +180,7 @@ def train(
     fit_rows = training.frame[training.retained]
     medians: dict[str, float] = {}
     percentiles: dict[str, tuple[float, float]] = {}
+    stds: dict[str, float] = {}
     ranges: dict[str, SensorScale] = {}
     for sensor in sensors:
         column = fit_rows[sensor.name].dropna().to_numpy(dtype=np.float64)
@@ -188,6 +191,7 @@ def train(
             )
         p1, p99 = (float(v) for v in np.percentile(column, [1, 99]))
         medians[sensor.name] = float(np.median(column))
+        stds[sensor.name] = float(np.std(column))
         percentiles[sensor.name] = (p1, p99)
         ranges[sensor.name] = scale_with_floors(p99 - p1, 0.0, sensor.instrument_range)
 
@@ -221,6 +225,7 @@ def train(
             median=medians[sensor.name],
             p1=p1,
             p99=p99,
+            std=stds[sensor.name],
             raw_sigma=raw_sigma,
             scale=scale_with_floors(p99 - p1, raw_sigma, sensor.instrument_range),
             validation_count=len(residuals),

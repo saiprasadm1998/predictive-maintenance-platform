@@ -180,6 +180,54 @@ def _asset_view(session: Session, asset: Asset) -> AssetView:
     )
 
 
+def _tag_views(session: Session, tags: Sequence[Tag]) -> list[TagView]:
+    """Views for many tags with three queries in total (scoring reads thousands per cycle)."""
+    if not tags:
+        return []
+    asset_ids = {t.asset_id for t in tags}
+    assets = {
+        a.id: (a.code, a.asset_type_id)
+        for a in session.scalars(select(Asset).where(Asset.id.in_(asset_ids))).all()
+    }
+    type_ids = {type_id for _, type_id in assets.values() if type_id is not None}
+    type_codes = (
+        dict(
+            session.execute(
+                select(AssetType.id, AssetType.code).where(AssetType.id.in_(type_ids))
+            ).all()
+        )
+        if type_ids
+        else {}
+    )
+    roles = dict(
+        session.execute(
+            select(TagRoleMap.tag_id, TypeRole.code)
+            .join(TypeRole, TagRoleMap.type_role_id == TypeRole.id)
+            .where(TagRoleMap.tag_id.in_([t.id for t in tags]))
+        ).all()
+    )
+    views = []
+    for tag in tags:
+        asset_code, type_id = assets[tag.asset_id]
+        views.append(
+            TagView(
+                id=tag.id,
+                source=tag.source,
+                source_name=tag.source_name,
+                asset_id=tag.asset_id,
+                asset_code=asset_code,
+                description=tag.description,
+                unit=tag.unit,
+                range_lo=tag.range_lo,
+                range_hi=tag.range_hi,
+                interval_s=tag.interval_s,
+                role_code=roles.get(tag.id),
+                asset_type_code=type_codes.get(type_id) if type_id is not None else None,
+            )
+        )
+    return views
+
+
 def _tag_view(session: Session, tag: Tag) -> TagView:
     asset = session.get_one(Asset, tag.asset_id)
     return TagView(
@@ -563,7 +611,7 @@ def list_tags(session: Session, asset_code: str | None = None) -> list[TagView]:
     if asset_code is not None:
         query = query.where(Tag.asset_id == _require_asset(session, asset_code).id)
     tags = session.scalars(query.order_by(Tag.source, Tag.source_name)).all()
-    return [_tag_view(session, t) for t in tags]
+    return _tag_views(session, tags)
 
 
 def get_tags(session: Session, tag_ids: Iterable[int]) -> list[TagView]:
@@ -574,7 +622,7 @@ def get_tags(session: Session, tag_ids: Iterable[int]) -> list[TagView]:
     tags = session.scalars(
         select(Tag).where(Tag.id.in_(ids)).order_by(Tag.source, Tag.source_name)
     ).all()
-    return [_tag_view(session, t) for t in tags]
+    return _tag_views(session, tags)
 
 
 def role_gaps(session: Session, asset_code: str) -> Sequence[str]:

@@ -178,3 +178,29 @@ def test_only_a_draft_can_be_trained_and_reruns_are_skipped(
     run_training(db, view.id, artefacts)
     assert run_training(db, view.id, artefacts) == {"skipped": "version is Validated"}
     assert "does not exist" in run_training(db, 999, artefacts)["skipped"]
+
+
+def test_k101_is_scored_live_after_deployment(models: tuple[Database, Path]) -> None:
+    """Plan 4.1 "Done when" on the demo plant: K-101 scores, and the TI-1018 flatline
+    planted 6 hours before the anchor is excluded without stopping the model."""
+    from pmp.alerting import AlertRuleSpec, RuleKind, set_alert_rules
+    from pmp.modelling import Action, ModelCache, change_status, list_active_versions
+    from pmp.scoring import Band, RuntimeStatus, score_models
+
+    db, artefacts = models
+    with db.session() as s:
+        model = save_draft(s, ACTOR, DEFINITION)
+        set_alert_rules(s, ACTOR, model.id, [AlertRuleSpec(RuleKind.DI, 15, 25)])
+        view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
+    assert run_training(db, view.id, artefacts)["status"] == "Validated"
+    with db.session() as s:
+        change_status(s, ACTOR, "K-101", "main", Action.DEPLOY)
+        active = list_active_versions(s)
+
+    result = score_models(db, ANCHOR - timedelta(hours=1), active, ModelCache())[0]
+    assert result.status is RuntimeStatus.RUNNING, result.reason
+    assert result.output is not None
+    assert result.output.band in (Band.HEALTHY, Band.WATCH, Band.ALERT)
+    excluded = [s.tag for s in result.output.sensors if not s.usable]
+    assert "K101.TI1018.PV" in excluded
+    assert result.output.coverage >= 0.7

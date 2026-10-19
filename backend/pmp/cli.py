@@ -1,5 +1,5 @@
 """Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
-demo | apikey`.
+score | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -78,12 +78,14 @@ from pmp.ingestion import (
 from pmp.modelling import (
     TRAIN_JOB,
     Action,
+    ModelCache,
     ModelError,
     ModelView,
     available_detectors,
     change_status,
     definition_from_dict,
     get_model,
+    list_active_versions,
     list_models,
     make_training_handler,
     run_training,
@@ -91,6 +93,13 @@ from pmp.modelling import (
     start_training,
 )
 from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
+from pmp.scoring import (
+    CycleResult,
+    Scheduler,
+    get_runtime_statuses,
+    latest_due_cycle,
+    score_models,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -244,6 +253,16 @@ def build_parser() -> argparse.ArgumentParser:
     model_list = model_commands.add_parser("list", help="list models")
     model_list.add_argument("--asset", help="only this asset's models")
 
+    score = commands.add_parser("score", help="scoring: run a cycle by hand, show statuses")
+    score_commands = score.add_subparsers(dest="score_command", required=True)
+    score_once = score_commands.add_parser(
+        "once", help="score one cycle of a deployed model now (or --at a past cycle)"
+    )
+    score_once.add_argument("asset")
+    score_once.add_argument("name")
+    score_once.add_argument("--at", type=_when, help="cycle time: e.g. -5m or ISO 8601")
+    score_commands.add_parser("status", help="each model's runtime status and latest score")
+
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
     for name, text in (
@@ -303,6 +322,10 @@ def _run_worker(settings: Settings) -> None:
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
     registry.register(TRAIN_JOB, make_training_handler(database, Path(settings.artefact_dir)))
     stop = threading.Event()
+    scheduler = Scheduler(database, grace_s=settings.scoring_grace_s)
+    scheduler_thread = threading.Thread(
+        target=scheduler.run_forever, args=(stop,), name="scoring-scheduler", daemon=True
+    )
 
     def _request_stop(signum: int, _frame: FrameType | None) -> None:
         logger.info("Received signal %s, finishing the current job", signum)
@@ -310,9 +333,12 @@ def _run_worker(settings: Settings) -> None:
 
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
+    scheduler_thread.start()
     try:
         Worker(database, registry).run_forever(stop)
     finally:
+        stop.set()
+        scheduler_thread.join(timeout=30)
         database.dispose()
 
 
@@ -649,6 +675,65 @@ def _run_model(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_cycle(result: CycleResult) -> None:
+    output = result.output
+    head = f"{result.ts:%Y-%m-%d %H:%M:%S} UTC  {result.status.value}"
+    if output is not None and output.di is not None:
+        head += f"  DI {output.di:.1f} %  Health {output.health:.0f}  {output.band.value}"
+    if result.reason:
+        head += f"  ({result.reason})"
+    if not result.written:
+        head += "  [already scored; nothing written]"
+    print(head)
+    if output is not None and output.di is not None:
+        print("  top contributors:")
+        for s in output.top_contributors():
+            print(
+                f"    {s.tag:<20} {(s.contribution or 0):6.1%}  z {s.z:+.1f}  "
+                f"actual {s.actual:.2f}  predicted {s.predicted:.2f}"
+            )
+        excluded = [s.tag for s in output.sensors if not s.usable]
+        if excluded:
+            print(f"  excluded: {', '.join(excluded)}")
+
+
+def _run_score(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            if args.score_command == "status":
+                names = {m.id: f"{m.asset_code} / {m.name}" for m in list_models(session)}
+                for v in get_runtime_statuses(session):
+                    score = (
+                        f"DI {v.di:5.1f} %  Health {v.health:3.0f}"
+                        if v.di is not None and v.health is not None
+                        else " " * 23
+                    )
+                    last = f"{v.last_cycle:%Y-%m-%d %H:%M}" if v.last_cycle else "-"
+                    print(
+                        f"{names.get(v.model_id, v.model_id)!s:<20} {v.status.value:<22} "
+                        f"{v.band.value:<8} {score}  last cycle {last}  {v.reason or ''}"
+                    )
+                return 0
+            model = get_model(session, args.asset, args.name)
+            active = [a for a in list_active_versions(session) if a.model_id == model.id]
+        if not active:
+            print(f"Error: {args.asset} / {args.name} has no version in service", file=sys.stderr)
+            return 1
+        if args.at:
+            at = latest_due_cycle(args.at, active[0].cycle_s, 0)
+        else:
+            at = latest_due_cycle(datetime.now(UTC), active[0].cycle_s, settings.scoring_grace_s)
+        for result in score_models(database, at, active, ModelCache()):
+            _print_cycle(result)
+        return 0
+    except ModelError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
 def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -733,6 +818,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_algorithms())
     elif args.command == "model":
         sys.exit(_run_model(settings, args))
+    elif args.command == "score":
+        sys.exit(_run_score(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":

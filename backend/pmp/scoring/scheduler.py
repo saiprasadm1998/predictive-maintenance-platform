@@ -1,0 +1,92 @@
+"""The scoring scheduler (FR-RUN-01, ARC §5.1): one leader, cycles on the wall clock.
+
+Only one worker schedules at a time: the leader holds the SCHEDULER advisory lock on its
+own connection, and if it dies PostgreSQL releases the lock so another worker takes over.
+
+Each model's cycle times are whole multiples of its cycle (default 60 s, minimum 10 s).
+Cycle T is scored once T + grace (default 20 s) has passed, so late gateway samples are
+still included. Only the latest due cycle is scored: cycles missed while no scheduler was
+running are not back-filled (ARC §5.1); re-scoring history is a separate job (8.7).
+"""
+
+from __future__ import annotations
+
+import logging
+import threading
+from collections import defaultdict
+from collections.abc import Callable
+from datetime import UTC, datetime, timedelta
+
+from pmp.core import Database, EventBus, LockKey, try_advisory_lock
+from pmp.modelling import ActiveVersion, ModelCache, list_active_versions
+from pmp.scoring.runtime import CycleResult, last_cycles, mark_out_of_service, score_models
+
+logger = logging.getLogger(__name__)
+MIN_CYCLE_S = 10
+
+
+def latest_due_cycle(now: datetime, cycle_s: int, grace_s: int) -> datetime:
+    """The newest cycle time T with T + grace <= now."""
+    cycle_s = max(MIN_CYCLE_S, cycle_s)
+    seconds = int((now - timedelta(seconds=grace_s)).timestamp()) // cycle_s * cycle_s
+    return datetime.fromtimestamp(seconds, tz=UTC)
+
+
+class Scheduler:
+    def __init__(
+        self,
+        database: Database,
+        *,
+        grace_s: int = 20,
+        bus: EventBus | None = None,
+        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        poll_s: float = 1.0,
+    ) -> None:
+        self.database = database
+        self.grace_s = grace_s
+        self.bus = bus or EventBus()
+        self.clock = clock
+        self.poll_s = poll_s
+        self.cache = ModelCache(self.bus)
+        self._last: dict[int, datetime] | None = None
+
+    def tick(self) -> list[CycleResult]:
+        """Score every model whose latest due cycle has not been scored yet."""
+        now = self.clock()
+        with self.database.session() as session:
+            active = list_active_versions(session)
+            if self._last is None:
+                self._last = last_cycles(session)
+        last = self._last
+        mark_out_of_service(self.database, (v.model_id for v in active))
+
+        due: dict[datetime, list[ActiveVersion]] = defaultdict(list)
+        for version in active:
+            cycle = latest_due_cycle(now, version.cycle_s, self.grace_s)
+            previous = last.get(version.version_id)
+            if previous is None or cycle > previous:
+                due[cycle].append(version)
+        results: list[CycleResult] = []
+        for cycle in sorted(due):
+            batch = score_models(self.database, cycle, due[cycle], self.cache, bus=self.bus)
+            for version in due[cycle]:
+                last[version.version_id] = cycle
+            results += batch
+        return results
+
+    def run_forever(self, stop: threading.Event) -> None:
+        """Wait to become the leader, then tick until stopped. Closing the connection
+        on the way out releases the lock for another worker."""
+        with self.database.engine.connect() as connection:
+            while not stop.is_set() and not try_advisory_lock(connection, LockKey.SCHEDULER):
+                stop.wait(5.0)
+            if stop.is_set():
+                return
+            logger.info("Scoring scheduler started as the leader")
+            while not stop.is_set():
+                try:
+                    self.tick()
+                except Exception:
+                    logger.exception("Scoring tick failed; trying again next tick")
+                stop.wait(self.poll_s)
+        logger.info("Scoring scheduler stopped")

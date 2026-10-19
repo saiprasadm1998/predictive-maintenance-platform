@@ -280,6 +280,30 @@ def read_last_samples(
     return [(ts, value, Quality(q)) for ts, value, q in reversed(rows)]
 
 
+def read_last_samples_many(
+    session: Session, tag_ids: Iterable[int], at: datetime, limit: int
+) -> dict[int, list[tuple[datetime, float, Quality]]]:
+    """The latest `limit` samples at or before `at` for many tags in one query, oldest
+    first per tag (the scoring cycle reads thousands of tags)."""
+    ids = sorted(set(tag_ids))
+    result: dict[int, list[tuple[datetime, float, Quality]]] = {t: [] for t in ids}
+    if not ids:
+        return result
+    rows = session.execute(
+        text(
+            "SELECT t.tag_id, s.ts, s.value, s.quality "
+            "FROM unnest(CAST(:ids AS integer[])) AS t(tag_id) "
+            "CROSS JOIN LATERAL (SELECT ts, value, quality FROM sample "
+            "  WHERE sample.tag_id = t.tag_id AND ts <= :at ORDER BY ts DESC LIMIT :limit) s "
+            "ORDER BY t.tag_id, s.ts"
+        ),
+        {"ids": ids, "at": at, "limit": limit},
+    )
+    for tag_id, ts, value, quality in rows:
+        result[int(tag_id)].append((ts, value, Quality(quality)))
+    return result
+
+
 def count_samples(session: Session, tag_ids: Iterable[int] | None = None) -> int:
     if tag_ids is None:
         return session.scalar(text("SELECT count(*) FROM sample")) or 0

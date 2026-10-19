@@ -22,15 +22,33 @@ from pmp.scoring.outputs import (
     compute_outputs,
     health_score,
 )
+from pmp.scoring.runtime import (
+    EVENT_CHANNEL,
+    CycleResult,
+    RuntimeStatusView,
+    ScoreComputed,
+    evaluate,
+    get_runtime_statuses,
+    last_cycles,
+    limits_for,
+    references_for,
+    score_models,
+)
+from pmp.scoring.scheduler import Scheduler, latest_due_cycle
 
 __all__ = [
+    "EVENT_CHANNEL",
     "RANGE_FLOOR",
     "SIGMA_FLOOR",
     "Band",
+    "CycleResult",
     "Limits",
     "ModelOutput",
     "RuntimeStatus",
+    "RuntimeStatusView",
     "ScaleError",
+    "Scheduler",
+    "ScoreComputed",
     "ScoringError",
     "SensorInput",
     "SensorLimits",
@@ -39,6 +57,13 @@ __all__ = [
     "Severity",
     "band_for",
     "compute_outputs",
+    "evaluate",
+    "get_runtime_statuses",
     "health_score",
+    "last_cycles",
+    "latest_due_cycle",
+    "limits_for",
+    "references_for",
     "scale_with_floors",
+    "score_models",
 ]

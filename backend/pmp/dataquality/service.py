@@ -40,7 +40,7 @@ from pmp.dataquality.domain import (
     to_ns,
 )
 from pmp.dataquality.models import DqRule, SensorExclusion, SensorStatus
-from pmp.ingestion import read_last_samples, read_samples
+from pmp.ingestion import read_last_samples, read_last_samples_many, read_samples
 from pmp.registry import RegistryError, TagView, get_asset_type, get_tags, list_tags
 
 _NS = 1_000_000_000
@@ -283,6 +283,14 @@ def _tags(session: Session, tag_ids: Iterable[int] | None) -> list[TagView]:
     return list_tags(session) if tag_ids is None else get_tags(session, tag_ids)
 
 
+@dataclass(frozen=True)
+class SensorReading:
+    """A sensor at one cycle: the value scoring would use and its data-quality state."""
+
+    value: float | None  # latest sample at or before the cycle (sample-and-hold)
+    state: SensorState
+
+
 def evaluate_sensors(
     session: Session,
     at: datetime,
@@ -293,23 +301,47 @@ def evaluate_sensors(
 ) -> dict[int, SensorState]:
     """Evaluate the rules for each tag at cycle time `at` and store the statuses.
 
-    `SensorStatusChanged` is published for every tag whose status or rule changed. The
-    scoring cycle (4.1) calls this with the deployed models' training statistics.
+    `SensorStatusChanged` is published for every tag whose status or rule changed.
     """
+    readings = read_sensors(session, at, tag_ids, references=references, bus=bus)
+    return {tag_id: reading.state for tag_id, reading in readings.items()}
+
+
+def read_sensors(
+    session: Session,
+    at: datetime,
+    tag_ids: Iterable[int] | None = None,
+    *,
+    references: Mapping[int, Reference] | None = None,
+    bus: EventBus | None = None,
+) -> dict[int, SensorReading]:
+    """Each tag's held value and state at cycle time `at`; statuses are stored as in
+    evaluate_sensors. The scoring cycle (4.1) calls this with the deployed models'
+    training statistics as references."""
     tags = _tags(session, tag_ids)
     rows = _current_rows(session)
     excl = _exclusions(session, (t.id for t in tags), at, at)
     refs = references or {}
-    states: dict[int, SensorState] = {}
+    readings: dict[int, SensorReading] = {}
     events: list[SensorStatusChanged] = []
+    params_by_tag = {tag.id: _params_for(tag, rows) for tag in tags}
+    window = max((p.flatline_window for p in params_by_tag.values()), default=2)
+    recent = read_last_samples_many(session, params_by_tag, at, window)
+    stored_rows = {
+        r.tag_id: r
+        for r in session.scalars(
+            select(SensorStatus).where(SensorStatus.tag_id.in_(list(params_by_tag)))
+        ).all()
+    }
     for tag in tags:
-        params = _params_for(tag, rows)
-        samples = Samples.from_rows(read_last_samples(session, tag.id, at, params.flatline_window))
+        params = params_by_tag[tag.id]
+        samples = Samples.from_rows(recent[tag.id][-params.flatline_window :])
         excluded = bool(_excluded_mask(to_ns(at), excl.get(tag.id, [])).any())
         state = evaluate_sensor(samples, _config(tag, refs.get(tag.id)), params, at, excluded)
-        states[tag.id] = state
+        value = float(samples.value[-1]) if len(samples.value) else None
+        readings[tag.id] = SensorReading(value, state)
 
-        stored = session.get(SensorStatus, tag.id)
+        stored = stored_rows.get(tag.id)
         if stored is None:
             session.add(
                 SensorStatus(
@@ -343,7 +375,7 @@ def evaluate_sensors(
     if bus is not None:
         for event in events:
             bus.publish(event)
-    return states
+    return readings
 
 
 @dataclass(frozen=True)

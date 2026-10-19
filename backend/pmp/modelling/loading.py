@@ -19,10 +19,16 @@ from pmp.modelling.algorithms.contract import Detector, DetectorError
 from pmp.modelling.algorithms.registry import get_detector
 from pmp.modelling.artefacts import ArtefactError, read_artefact
 from pmp.modelling.definitions import ModelError
+from pmp.modelling.expressions import parse_expression
 from pmp.modelling.lifecycle import ModelStatusChanged
-from pmp.modelling.models import ModelVersion
+from pmp.modelling.models import Model, ModelVersion
 from pmp.modelling.scaling import ScaleError, SensorScale
 from pmp.modelling.service import _version_view
+from pmp.registry import get_asset_by_id, list_tags
+
+
+def _asset_id(session: Session, row: ModelVersion) -> int:
+    return session.get_one(Model, row.model_id).asset_id
 
 
 @dataclass(frozen=True)
@@ -38,7 +44,9 @@ class LoadedModel:
     required: frozenset[str]
     medians: Mapping[str, float]
     scales: Mapping[str, SensorScale]
+    training_std: Mapping[str, float | None]  # None for artefacts written before 4.1
     mode_filters: tuple[str, ...]
+    filter_tag_ids: Mapping[str, int]  # every tag the operating-mode filters name
     cycle_s: int
     sha256: str
 
@@ -78,6 +86,15 @@ def load_version(session: Session, version_id: int) -> LoadedModel:
     view = _version_view(session, row)
     order = tuple(s.source_name for s in view.sensors)
     medians, scales = _scales(scaling, order)
+    stds = {
+        n: (float(v) if (v := scaling["sensors"][n].get("std")) is not None else None)
+        for n in order
+    }
+    asset_tags = {
+        t.source_name: t.id
+        for t in list_tags(session, get_asset_by_id(session, _asset_id(session, row)).code)
+    }
+    filter_names = sorted(set().union(*(parse_expression(f).names for f in view.mode_filters)))
     try:
         detector = get_detector(str(manifest.get("algorithm", row.algorithm))).load(algorithm_dir)
     except DetectorError as error:
@@ -92,7 +109,9 @@ def load_version(session: Session, version_id: int) -> LoadedModel:
         required=frozenset(s.source_name for s in view.sensors if s.required),
         medians=medians,
         scales=scales,
+        training_std=stds,
         mode_filters=view.mode_filters,
+        filter_tag_ids={n: asset_tags[n] for n in filter_names if n in asset_tags},
         cycle_s=int((row.params or {}).get("cycle_s", 60)),
         sha256=row.artefact_sha256,
     )

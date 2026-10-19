@@ -28,6 +28,7 @@ from pmp.dataquality.service import (
     RuleScope,
     RuleSetView,
     ScopeKind,
+    SensorReading,
     SensorStatusView,
     SeriesAssessment,
     TagPreview,
@@ -39,6 +40,7 @@ from pmp.dataquality.service import (
     get_sensor_statuses,
     list_rule_versions,
     preview_rules,
+    read_sensors,
     save_rule_set,
 )
 
@@ -58,6 +60,7 @@ __all__ = [
     "RuleScope",
     "RuleSetView",
     "ScopeKind",
+    "SensorReading",
     "SensorState",
     "SensorStatusChanged",
     "SensorStatusView",
@@ -72,5 +75,6 @@ __all__ = [
     "get_sensor_statuses",
     "list_rule_versions",
     "preview_rules",
+    "read_sensors",
     "save_rule_set",
 ]

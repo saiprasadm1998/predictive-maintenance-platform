@@ -27,12 +27,13 @@ def test_core_tables_exist(database: Database) -> None:
     assert {"dq_rule", "sensor_status", "sensor_exclusion"} <= tables
     assert {"model", "model_version", "model_sensor", "training_period", "mode_filter"} <= tables
     assert "alert_rule" in tables
+    assert {"score", "sensor_output", "runtime_status"} <= tables
 
 
 def test_database_is_at_the_latest_revision(database: Database) -> None:
     with database.session() as session:
         version = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0006"
+    assert version == "0007"
 
 
 def test_running_migrations_again_is_harmless(database_url: str) -> None:

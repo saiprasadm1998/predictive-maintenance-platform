@@ -25,13 +25,12 @@ from __future__ import annotations
 
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields, replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 
 from pmp.core import Event
 
@@ -258,12 +257,20 @@ class Samples:
         )
 
 
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+_MICROSECOND = timedelta(microseconds=1)
+
+
 def _epoch_ns(moments: Sequence[datetime]) -> npt.NDArray[np.int64]:
-    """Nanoseconds since the Unix epoch (UTC); naive times are taken as UTC."""
-    index = pd.DatetimeIndex(list(moments))
-    if index.tz is not None:
-        index = index.tz_convert("UTC").tz_localize(None)
-    return np.asarray(index.as_unit("ns").to_numpy().view(np.int64), dtype=np.int64)
+    """Nanoseconds since the Unix epoch (UTC), exact to the microsecond; naive times are
+    taken as UTC. Plain integer arithmetic: the scoring cycle converts thousands of
+    short lists, where building pandas indexes would dominate the cycle time."""
+    out = np.empty(len(moments), dtype=np.int64)
+    for i, moment in enumerate(moments):
+        if moment.tzinfo is None:
+            moment = moment.replace(tzinfo=UTC)
+        out[i] = (moment - _EPOCH) // _MICROSECOND * 1000
+    return out
 
 
 def to_ns(moments: Sequence[datetime] | datetime) -> npt.NDArray[np.int64]:
@@ -305,9 +312,10 @@ def evaluate_rules(
     out = has & ((value < config.range_lo) | (value > config.range_hi))
 
     window = params.flatline_window
-    rolling_std = (
-        pd.Series(samples.value).rolling(window, min_periods=window).std(ddof=0).to_numpy()
-    )
+    rolling_std = np.full(len(samples.value), np.nan)
+    if len(samples.value) >= window:  # std of each window of `window` samples ending here
+        windows = np.lib.stride_tricks.sliding_window_view(samples.value, window)
+        rolling_std[window - 1 :] = windows.std(axis=1)
     guard_ok = (
         config.training_std is None or config.training_std > params.flatline_guard_pct / 100 * width
     )
