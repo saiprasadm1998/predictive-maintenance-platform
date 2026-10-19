@@ -93,6 +93,28 @@ Over HTTP: upload with `preview=true`, read the result from `GET /api/v1/jobs/{i
 `make perf-backfill` runs the FR-ING-03 acceptance check: 12 months of 1-minute data for 50
 tags (about 26 million samples).
 
+## Data-quality rules
+
+Every scoring cycle, each sensor goes through the UCS §6.1 rules in order and the first match
+sets its NAMUR NE 107 status: bad quality and stale (Failure), manual exclusion (Function
+check), out of instrument range (Out of specification), flatline, spike and uncertain quality
+(Maintenance required), otherwise Good. Defaults can be overridden globally, per asset-type
+role or per tag; each save is a new, audited version and applies from the next cycle. Saving
+previews the effect on the last 30 days first and refuses if a tag would be excluded more
+than 20 % of the time, unless `--yes` is given.
+
+```
+cd backend
+uv run pmp dq preview                                     # effect of the current rules
+uv run pmp dq preview --tag K101.TI1018.PV spike_pct=30   # effect of a change, not saved
+uv run pmp dq set --tag K101.SI1001.PV flatline_used=on --comment "constant-speed machine"
+uv run pmp dq set --role centrifugal_pump/flow stale_factor=5
+uv run pmp dq show --tag K101.SI1001.PV                   # overrides, history, effective values
+uv run pmp dq status --asset K-101                        # evaluate now and list statuses
+```
+
+`NAME=default` removes an override. Parameter names: `pmp dq set --help`.
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
