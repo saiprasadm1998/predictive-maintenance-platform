@@ -17,6 +17,7 @@ from pmp.modelling.algorithms.registry import (
     available_detectors,
     get_detector,
 )
+from pmp.modelling.artefacts import ArtefactError
 from pmp.modelling.definitions import (
     ModelDefinition,
     ModelError,
@@ -27,6 +28,14 @@ from pmp.modelling.definitions import (
     definition_from_dict,
 )
 from pmp.modelling.expressions import Expression, ExpressionError, parse_expression
+from pmp.modelling.lifecycle import (
+    Action,
+    DeployCheck,
+    ModelDeployed,
+    ModelStatusChanged,
+    change_status,
+)
+from pmp.modelling.loading import LoadedModel, ModelCache, load_version
 from pmp.modelling.scaling import (
     RANGE_FLOOR,
     SIGMA_FLOOR,
@@ -55,16 +64,23 @@ __all__ = [
     "RANGE_FLOOR",
     "SIGMA_FLOOR",
     "TRAIN_JOB",
+    "Action",
+    "ArtefactError",
     "ContractReport",
+    "DeployCheck",
     "Detector",
     "DetectorError",
     "DetectorInfo",
     "Expression",
     "ExpressionError",
+    "LoadedModel",
     "MedianDetector",
+    "ModelCache",
     "ModelDefinition",
+    "ModelDeployed",
     "ModelError",
     "ModelSensorView",
+    "ModelStatusChanged",
     "ModelView",
     "Period",
     "ScaleError",
@@ -73,6 +89,7 @@ __all__ = [
     "VersionStatus",
     "VersionView",
     "available_detectors",
+    "change_status",
     "check_definition",
     "check_detector",
     "definition_from_dict",
@@ -81,6 +98,7 @@ __all__ = [
     "get_model",
     "get_model_by_id",
     "list_models",
+    "load_version",
     "make_training_handler",
     "parse_expression",
     "run_training",

@@ -2,7 +2,9 @@
 
 Contents: the algorithm's own files (written by Detector.save into `algorithm/`),
 scaling.json, manifest.json and validation.json. The SHA-256 of the folder is stored with
-the version; verifying it on every load arrives with the lifecycle in 3.3.
+the version and checked on every load, before any file is read: the algorithm formats
+can execute code when loaded, so only artefacts PMP wrote and that still match their
+checksum are ever loaded (ARC §8.2).
 """
 
 from __future__ import annotations
@@ -14,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from pmp.modelling.algorithms.contract import Detector
+from pmp.modelling.definitions import ModelError
 
 ALGORITHM_DIR = "algorithm"
 
@@ -58,3 +61,30 @@ def write_artefact(
         shutil.rmtree(target)
     staging.rename(target)
     return folder_digest(target)
+
+
+class ArtefactError(ModelError):
+    """An artefact that is missing, changed since training, or unreadable."""
+
+
+def read_artefact(
+    folder: Path, expected_sha256: str
+) -> tuple[Path, dict[str, Any], dict[str, Any]]:
+    """Verify the folder's SHA-256, then read scaling.json and manifest.json.
+
+    Returns the algorithm folder (for Detector.load), the scaling and the manifest.
+    """
+    if not folder.is_dir():
+        raise ArtefactError(f"Artefact folder {folder} is missing")
+    actual = folder_digest(folder)
+    if actual != expected_sha256:
+        raise ArtefactError(
+            f"Artefact {folder} does not match its checksum (expected {expected_sha256[:12]}…, "
+            f"found {actual[:12]}…); it was changed after training and will not be loaded"
+        )
+    try:
+        scaling = json.loads((folder / "scaling.json").read_text(encoding="utf-8"))
+        manifest = json.loads((folder / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ArtefactError(f"Artefact {folder} is unreadable: {error}") from None
+    return folder / ALGORITHM_DIR, scaling, manifest

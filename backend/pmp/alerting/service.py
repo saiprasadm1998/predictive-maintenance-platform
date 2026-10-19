@@ -122,3 +122,12 @@ def set_alert_rules(
             audit("update", key, before, _snapshot(spec))
     session.flush()
     return list_alert_rules(session, model_id)
+
+
+def require_di_rule(session: Session, model_id: int) -> None:
+    """Deploy check: the Health Score needs the DI alert limit (DIref = 2 x alert)."""
+    rules = list_alert_rules(session, model_id)
+    if not any(r.spec.kind is RuleKind.DI and r.spec.enabled for r in rules):
+        raise ModelError(
+            "Set the DI alert rule first: the Health Score is measured against its alert limit"
+        )

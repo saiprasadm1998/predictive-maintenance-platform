@@ -32,6 +32,7 @@ from pmp.alerting import (
     AlertRuleSpec,
     RuleKind,
     list_alert_rules,
+    require_di_rule,
     set_alert_rules,
 )
 from pmp.api import create_app
@@ -76,9 +77,11 @@ from pmp.ingestion import (
 )
 from pmp.modelling import (
     TRAIN_JOB,
+    Action,
     ModelError,
     ModelView,
     available_detectors,
+    change_status,
     definition_from_dict,
     get_model,
     list_models,
@@ -227,6 +230,17 @@ def build_parser() -> argparse.ArgumentParser:
     model_train.add_argument(
         "--now", action="store_true", help="train here and wait, instead of queuing a job"
     )
+    for action, text in (
+        ("deploy", "put a Validated version in service (the previous one is superseded)"),
+        ("pause", "pause the version in service"),
+        ("resume", "resume a paused version"),
+        ("retire", "take the version in service out of service for good"),
+        ("reject", "send a Validated version back to Draft"),
+    ):
+        command = model_commands.add_parser(action, help=text)
+        command.add_argument("asset")
+        command.add_argument("name")
+        command.add_argument("--version", type=int, help="a specific version number")
     model_list = model_commands.add_parser("list", help="list models")
     model_list.add_argument("--asset", help="only this asset's models")
 
@@ -601,6 +615,18 @@ def _run_model(settings: Settings, args: argparse.Namespace) -> int:
                         f"Version {view.version} is Training: job {job_id} queued. "
                         "The worker runs it (`make worker`)."
                     )
+            elif args.model_command in {a.value for a in Action}:
+                model = change_status(
+                    session,
+                    actor,
+                    args.asset,
+                    args.name,
+                    Action(args.model_command),
+                    version=args.version,
+                    deploy_checks=(require_di_rule,),
+                )
+                print(f"{args.model_command.capitalize()}: done.")
+                _print_model(session, model)
             else:
                 for m in list_models(session, args.asset):
                     v = m.latest

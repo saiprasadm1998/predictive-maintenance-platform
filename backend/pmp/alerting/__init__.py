@@ -13,7 +13,12 @@ from pmp.alerting.domain import (
     AlertRuleSpec,
     RuleKind,
 )
-from pmp.alerting.service import AlertRuleView, list_alert_rules, set_alert_rules
+from pmp.alerting.service import (
+    AlertRuleView,
+    list_alert_rules,
+    require_di_rule,
+    set_alert_rules,
+)
 
 __all__ = [
     "DEFAULT_SENSOR_ALERT",
@@ -23,5 +28,6 @@ __all__ = [
     "AlertRuleView",
     "RuleKind",
     "list_alert_rules",
+    "require_di_rule",
     "set_alert_rules",
 ]
