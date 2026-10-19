@@ -7,9 +7,8 @@ Public interface of the module (ARC-001 §4.1). Other modules may import only
 what this file exports, never the module's internal files.
 """
 
+from pmp.modelling import RANGE_FLOOR, SIGMA_FLOOR, ScaleError, SensorScale, scale_with_floors
 from pmp.scoring.outputs import (
-    RANGE_FLOOR,
-    SIGMA_FLOOR,
     Band,
     Limits,
     ModelOutput,
@@ -18,12 +17,10 @@ from pmp.scoring.outputs import (
     SensorInput,
     SensorLimits,
     SensorOutput,
-    SensorScale,
     Severity,
     band_for,
     compute_outputs,
     health_score,
-    scale_with_floors,
 )
 
 __all__ = [
@@ -33,6 +30,7 @@ __all__ = [
     "Limits",
     "ModelOutput",
     "RuntimeStatus",
+    "ScaleError",
     "ScoringError",
     "SensorInput",
     "SensorLimits",

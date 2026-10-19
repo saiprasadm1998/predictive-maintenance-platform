@@ -1,0 +1,180 @@
+"""Baseline training on the demo plant (plan 3.2 "Done when"; UC-05 steps 3, 7, 8, 6a, 7a).
+
+Six days of synthetic K-101 history: training on days 6 to 2 before the anchor,
+validation on the last 2 days.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+from sqlalchemy import select, text
+
+from pmp.core import Actor, AuditLog, Database, JobRegistry, Worker
+from pmp.demo import PlantSimulator, demo_tags, load_history
+from pmp.modelling import (
+    TRAIN_JOB,
+    ModelDefinition,
+    ModelError,
+    Period,
+    SensorChoice,
+    VersionStatus,
+    get_model,
+    make_training_handler,
+    run_training,
+    save_draft,
+    start_training,
+)
+from pmp.modelling.artefacts import folder_digest
+from pmp.registry import import_files
+
+pytestmark = pytest.mark.integration
+ACTOR = Actor.system()
+DATA = Path(__file__).resolve().parents[3] / "data" / "demo"
+ANCHOR = datetime(2026, 9, 1, tzinfo=UTC)
+K101 = json.loads((DATA / "models" / "k101.json").read_text())
+
+
+def days_before(a: int, b: int) -> Period:
+    return Period(ANCHOR - timedelta(days=a), ANCHOR - timedelta(days=b))
+
+
+DEFINITION = ModelDefinition(
+    asset_code="K-101",
+    name="main",
+    sensors=tuple(SensorChoice(s["tag"], bool(s.get("required", False))) for s in K101["sensors"]),
+    training_periods=(days_before(6, 2),),
+    validation_period=days_before(2, 0),
+    mode_filters=tuple(K101["mode_filters"]),
+)
+
+
+@pytest.fixture(scope="module")
+def plant(database: Database, tmp_path_factory: pytest.TempPathFactory) -> Database:
+    """The demo registry and 6 days of history, loaded once for this module."""
+    with database.session() as s:
+        s.execute(text("TRUNCATE tag_role_map, tag, asset, type_role, asset_type CASCADE"))
+        s.execute(text("TRUNCATE sample"))
+        import_files(s, ACTOR, [DATA / "registry" / "registry.xlsx"])
+    with database.session() as s:
+        tags = [t for t in demo_tags(s) if t.source_name.startswith("K101.")]
+    load_history(
+        database,
+        PlantSimulator(tags, anchor=ANCHOR),
+        days=6,
+        work_dir=tmp_path_factory.mktemp("history"),
+    )
+    return database
+
+
+@pytest.fixture
+def models(plant: Database, tmp_path: Path) -> tuple[Database, Path]:
+    with plant.session() as s:
+        s.execute(text("TRUNCATE model RESTART IDENTITY CASCADE"))
+        s.execute(text("TRUNCATE job RESTART IDENTITY"))
+    return plant, tmp_path / "artefacts"
+
+
+def _audit_actions(db: Database) -> list[str]:
+    with db.session() as s:
+        return list(
+            s.scalars(
+                select(AuditLog.action)
+                .where(AuditLog.entity == "model_version")
+                .order_by(AuditLog.id)
+            ).all()
+        )[-2:]
+
+
+def test_k101_trains_on_demo_history_and_reaches_validated(
+    models: tuple[Database, Path],
+) -> None:
+    db, artefacts = models
+    with db.session() as s:
+        save_draft(s, ACTOR, DEFINITION)
+        view, job_id = start_training(s, ACTOR, "K-101", "main")
+    assert view.status is VersionStatus.TRAINING
+    assert view.params == {"seed": 42, "cycle_s": 60}
+    assert job_id is not None
+
+    registry = JobRegistry()
+    registry.register(TRAIN_JOB, make_training_handler(db, artefacts))
+    assert Worker(db, registry).run_once()
+
+    with db.session() as s:
+        model = get_model(s, "K-101", "main")
+    v1 = model.latest
+    assert v1.status is VersionStatus.VALIDATED, v1.error
+    assert v1.metrics is not None
+    assert v1.metrics["training_cycles"] == 4 * 1440
+    assert v1.metrics["training_retained"] >= 2000
+    assert v1.metrics["validation_retained"] > 0
+    folder = Path(v1.artefact_path or "")
+    assert folder == artefacts / "models" / str(model.id) / "1"
+    assert v1.artefact_sha256 == folder_digest(folder)
+
+    scaling = json.loads((folder / "scaling.json").read_text())
+    assert len(scaling["sensor_order"]) == 18
+    for stats in scaling["sensors"].values():  # what q and z need
+        assert stats["range"] > 0
+        assert stats["sigma"] > 0
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert (manifest["algorithm"], manifest["seed"], manifest["cycle_s"]) == ("median", 42, 60)
+    assert len(manifest["definition_sha256"]) == 64
+    assert _audit_actions(db) == ["train_start", "train_validated"]
+
+
+def test_training_is_reproducible_with_the_same_seed(models: tuple[Database, Path]) -> None:
+    db, artefacts = models
+    folders = []
+    for _ in range(2):  # v1, then v2 from the same definition
+        with db.session() as s:
+            save_draft(s, ACTOR, DEFINITION)
+            view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
+        assert run_training(db, view.id, artefacts)["status"] == "Validated"
+        with db.session() as s:
+            folders.append(Path(get_model(s, "K-101", "main").latest.artefact_path or ""))
+    assert folders[0] != folders[1]
+    for name in ("scaling.json", "validation.json", "algorithm/median.json"):
+        assert (folders[0] / name).read_text() == (folders[1] / name).read_text()
+
+
+def test_too_little_data_fails_with_the_reason_then_can_be_fixed(
+    models: tuple[Database, Path],
+) -> None:
+    db, artefacts = models
+    short = replace(DEFINITION, training_periods=(days_before(4, 3),))  # 1,440 cycles
+    with db.session() as s:
+        save_draft(s, ACTOR, short)
+        view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
+    result = run_training(db, view.id, artefacts)
+    assert result["status"] == "Failed"
+    with db.session() as s:
+        failed = get_model(s, "K-101", "main").latest
+    assert failed.status is VersionStatus.FAILED
+    assert "at least 2,000 are needed" in (failed.error or "")
+    assert _audit_actions(db) == ["train_start", "train_failed"]
+    assert not (artefacts / "models").exists()
+
+    with db.session() as s:  # Failed -> Draft: fix the configuration and train again
+        fixed = save_draft(s, ACTOR, DEFINITION)
+    assert [(v.version, v.status) for v in fixed.versions] == [(1, VersionStatus.DRAFT)]
+    assert fixed.latest.error is None
+
+
+def test_only_a_draft_can_be_trained_and_reruns_are_skipped(
+    models: tuple[Database, Path],
+) -> None:
+    db, artefacts = models
+    with db.session() as s:
+        save_draft(s, ACTOR, DEFINITION)
+        view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
+    with pytest.raises(ModelError, match="is Training; only a Draft"), db.session() as s:
+        start_training(s, ACTOR, "K-101", "main")
+    run_training(db, view.id, artefacts)
+    assert run_training(db, view.id, artefacts) == {"skipped": "version is Validated"}
+    assert "does not exist" in run_training(db, 999, artefacts)["skipped"]

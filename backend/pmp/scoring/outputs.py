@@ -18,7 +18,8 @@ the asset screen), but only usable sensors count towards DI and contributions.
 
 Two decisions where the spec is silent (implementation plan, decisions for 2.3):
 - A sensor that did not move in training has R = 0 or sigma = 0. R is floored at 1 % of
-  the instrument range and sigma at 1 % of R; the floor is recorded with the scale.
+  the instrument range and sigma at 1 % of R; the floor is recorded with the scale
+  (pmp.modelling, which produces the scales in training).
 - "A sensor z warning active" (UCS §6.5) is read as an active sensor alert. Until the
   alert engine exists (4.2) the band uses the current |z| against the sensor limits.
 """
@@ -30,8 +31,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-RANGE_FLOOR = 0.01  # x instrument range
-SIGMA_FLOOR = 0.01  # x training range
+from pmp.modelling import SensorScale
 
 
 class ScoringError(ValueError):
@@ -61,39 +61,7 @@ class Severity(StrEnum):
     ALERT = "Alert"
 
 
-# ------------------------------------------------------------------ scales and limits
-
-
-@dataclass(frozen=True)
-class SensorScale:
-    """A sensor's training range R and residual sigma, after any floor."""
-
-    range: float
-    sigma: float
-    range_floored: bool = False
-    sigma_floored: bool = False
-
-    def __post_init__(self) -> None:
-        if not (self.range > 0 and self.sigma > 0) or not math.isfinite(self.range + self.sigma):
-            raise ScoringError("Training range and residual sigma must be positive")
-
-
-def scale_with_floors(
-    training_range: float, residual_sigma: float, instrument_range: float
-) -> SensorScale:
-    """R and sigma from training, floored so q and z are always defined."""
-    if not instrument_range > 0:
-        raise ScoringError("Instrument range must be positive")
-    range_floor = RANGE_FLOOR * instrument_range
-    value_range = max(training_range, range_floor)
-    sigma_floor = SIGMA_FLOOR * value_range
-    sigma = max(residual_sigma, sigma_floor)
-    return SensorScale(
-        range=value_range,
-        sigma=sigma,
-        range_floored=training_range < range_floor,
-        sigma_floored=residual_sigma < sigma_floor,
-    )
+# ------------------------------------------------------------------ limits
 
 
 @dataclass(frozen=True)

@@ -27,7 +27,15 @@ from pmp.modelling.definitions import (
     definition_from_dict,
 )
 from pmp.modelling.expressions import Expression, ExpressionError, parse_expression
+from pmp.modelling.scaling import (
+    RANGE_FLOOR,
+    SIGMA_FLOOR,
+    ScaleError,
+    SensorScale,
+    scale_with_floors,
+)
 from pmp.modelling.service import (
+    TRAIN_JOB,
     ModelSensorView,
     ModelView,
     VersionView,
@@ -35,12 +43,18 @@ from pmp.modelling.service import (
     get_model,
     get_model_by_id,
     list_models,
+    make_training_handler,
+    run_training,
     save_draft,
+    start_training,
 )
 
 __all__ = [
     "DEFAULT_DETECTOR",
     "ENTRY_POINT_GROUP",
+    "RANGE_FLOOR",
+    "SIGMA_FLOOR",
+    "TRAIN_JOB",
     "ContractReport",
     "Detector",
     "DetectorError",
@@ -53,7 +67,9 @@ __all__ = [
     "ModelSensorView",
     "ModelView",
     "Period",
+    "ScaleError",
     "SensorChoice",
+    "SensorScale",
     "VersionStatus",
     "VersionView",
     "available_detectors",
@@ -65,6 +81,10 @@ __all__ = [
     "get_model",
     "get_model_by_id",
     "list_models",
+    "make_training_handler",
     "parse_expression",
+    "run_training",
     "save_draft",
+    "scale_with_floors",
+    "start_training",
 ]

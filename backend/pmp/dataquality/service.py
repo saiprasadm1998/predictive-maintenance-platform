@@ -448,6 +448,25 @@ class PreviewReport:
         return "\n".join(lines)
 
 
+def cycle_grid(start: datetime, end: datetime, cycle_s: int) -> npt.NDArray[np.int64]:
+    """Cycle times in [start, end) as epoch nanoseconds, on whole multiples of cycle_s."""
+    step = cycle_s * _NS
+    start_ns, end_ns = (int(x) for x in to_ns([start, end]))
+    first = -(-start_ns // step) * step  # first cycle time on or after start
+    return np.arange(first, end_ns, step, dtype=np.int64)
+
+
+def _samples_for(
+    session: Session, tag_id: int, start: datetime, end: datetime, params: RuleParams
+) -> Samples:
+    """Samples in [start, end) plus enough before start for the stale, spike and flatline
+    rules at the first cycle."""
+    before = read_last_samples(
+        session, tag_id, start - timedelta(microseconds=1), params.flatline_window
+    )
+    return Samples.from_rows(before + read_samples(session, tag_id, start, end))
+
+
 def preview_rules(
     session: Session,
     scope: RuleScope,
@@ -471,20 +490,14 @@ def preview_rules(
         rows[(scope.kind.value, scope.key)] = parse_overrides(overrides)
     tags = [t for t in list_tags(session) if scope.covers(t)]
 
-    step = cycle_s * _NS
-    start_ns, end_ns = (int(x) for x in to_ns([start, end]))
-    first = -(-start_ns // step) * step  # first cycle time on or after start
-    cycle_ns = np.arange(first, end_ns, step, dtype=np.int64)
+    cycle_ns = cycle_grid(start, end, cycle_s)
     excl = _exclusions(session, (t.id for t in tags), start, end)
     refs = references or {}
 
     previews = []
     for tag in tags:
         params = _params_for(tag, rows)
-        before = read_last_samples(
-            session, tag.id, start - timedelta(microseconds=1), params.flatline_window
-        )
-        samples = Samples.from_rows(before + read_samples(session, tag.id, start, end))
+        samples = _samples_for(session, tag.id, start, end, params)
         codes = evaluate_rules(
             samples,
             _config(tag, refs.get(tag.id)),
@@ -505,3 +518,55 @@ def preview_rules(
             )
         )
     return PreviewReport(scope, start, end, previews)
+
+
+# ------------------------------------------------------------------ series for training
+
+
+@dataclass(frozen=True)
+class SeriesAssessment:
+    """One tag on a cycle grid: the value scoring would use and whether it is usable."""
+
+    tag_id: int
+    values: npt.NDArray[np.float64]  # latest sample at or before each cycle; NaN if none
+    usable: npt.NDArray[np.bool_]  # the rules' effect is "used" or "used, flagged"
+    rules: npt.NDArray[np.int8]  # index into the rule order, for reports
+
+
+def assess_series(
+    session: Session,
+    tag_ids: Iterable[int],
+    cycle_ns: npt.NDArray[np.int64],
+    *,
+    references: Mapping[int, Reference] | None = None,
+) -> dict[int, SeriesAssessment]:
+    """Each tag's held values and usability at every cycle time, exactly as scoring sees
+    them (sample-and-hold, the rules, manual exclusions). Used to assemble training and
+    validation data (UCS §6.4: samples failing the rules, other than Uncertain, are
+    removed)."""
+    if len(cycle_ns) == 0:
+        return {}
+    start = datetime.fromtimestamp(int(cycle_ns[0]) / 1e9, tz=UTC)
+    end = datetime.fromtimestamp(int(cycle_ns[-1]) / 1e9, tz=UTC) + timedelta(microseconds=1)
+    tags = _tags(session, tag_ids)
+    rows = _current_rows(session)
+    excl = _exclusions(session, (t.id for t in tags), start, end)
+    refs = references or {}
+    result = {}
+    for tag in tags:
+        params = _params_for(tag, rows)
+        samples = _samples_for(session, tag.id, start, end, params)
+        codes = evaluate_rules(
+            samples,
+            _config(tag, refs.get(tag.id)),
+            params,
+            cycle_ns,
+            _excluded_mask(cycle_ns, excl.get(tag.id, [])),
+        )
+        idx = np.searchsorted(samples.ts, cycle_ns, side="right") - 1
+        values = np.where(idx >= 0, samples.value[np.maximum(idx, 0)], np.nan)
+        if len(samples.value) == 0:
+            values = np.full(len(cycle_ns), np.nan)
+        usable_by_rule = np.array([state_for(r, params).usable for r in RULE_ORDER])
+        result[tag.id] = SeriesAssessment(tag.id, values, usable_by_rule[codes], codes)
+    return result

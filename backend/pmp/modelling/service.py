@@ -7,15 +7,28 @@ has been trained. Every change is audited (FR-AUD-01).
 
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import platform
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
+from pathlib import Path
 from typing import Any
 
+import numpy as np
+import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor, audit_change
-from pmp.modelling.algorithms.registry import available_detectors
+from pmp.core import Actor, Database, audit_change, enqueue, report_progress
+from pmp.dataquality import assess_series, cycle_grid
+from pmp.modelling.algorithms.contract import DetectorError
+from pmp.modelling.algorithms.registry import available_detectors, get_detector
+from pmp.modelling.artefacts import artefact_dir, write_artefact
 from pmp.modelling.definitions import (
     ModelDefinition,
     ModelError,
@@ -23,11 +36,17 @@ from pmp.modelling.definitions import (
     VersionStatus,
     check_definition,
 )
-from pmp.modelling.expressions import parse_expression
+from pmp.modelling.expressions import ExpressionError, parse_expression
 from pmp.modelling.models import ModeFilter, Model, ModelSensor, ModelVersion, TrainingPeriod
+from pmp.modelling.training import Assembled, SensorInfo, TrainingError, assemble, train
 from pmp.registry import TagView, find_asset, get_asset_by_id, get_tags, list_tags
 
+logger = logging.getLogger(__name__)
+
 TRAINING, VALIDATION = "training", "validation"
+TRAIN_JOB = "model.train"
+DEFAULT_SEED = 42
+DEFAULT_CYCLE_S = 60
 
 
 @dataclass(frozen=True)
@@ -52,6 +71,9 @@ class VersionView:
     mode_filters: tuple[str, ...]
     created_at: datetime
     error: str | None = None
+    artefact_path: str | None = None
+    artefact_sha256: str | None = None
+    metrics: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -190,6 +212,9 @@ def _version_view(session: Session, version: ModelVersion) -> VersionView:
         mode_filters=tuple(filters),
         created_at=version.created_at,
         error=version.error,
+        artefact_path=version.artefact_path,
+        artefact_sha256=version.artefact_sha256,
+        metrics=dict(version.metrics) if version.metrics else None,
     )
 
 
@@ -257,9 +282,14 @@ def save_draft(session: Session, actor: Actor, definition: ModelDefinition) -> M
             .order_by(ModelVersion.version.desc())
             .limit(1)
         ).one()
-        if latest.status == VersionStatus.DRAFT.value:
-            version, action = latest, "update_draft"
+        if latest.status in (VersionStatus.DRAFT.value, VersionStatus.FAILED.value):
+            # Failed -> Draft: "fix configuration" (ARC Figure 7)
+            action = "update_draft" if latest.status == VersionStatus.DRAFT.value else "fix_failed"
             before = _view_snapshot(_version_view(session, latest), previous_description)
+            version = latest
+            if latest.status == VersionStatus.FAILED.value:
+                _set_status(latest, VersionStatus.DRAFT)
+                latest.error = None
         else:
             version = ModelVersion(
                 model_id=model.id,
@@ -336,3 +366,223 @@ def list_models(session: Session, asset_code: str | None = None) -> list[ModelVi
         query = query.where(Model.asset_id == asset.id)
     models = session.scalars(query).all()
     return [_model_view(session, m, get_asset_by_id(session, m.asset_id).code) for m in models]
+
+
+# ------------------------------------------------------------------ training (3.2)
+
+
+def _set_status(version: ModelVersion, status: VersionStatus) -> None:
+    version.status = status.value
+    version.status_changed_at = datetime.now(UTC)
+
+
+def _training_definition(view: VersionView, params: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "algorithm": view.algorithm,
+        "params": dict(params),
+        "sensors": [
+            {"tag_id": s.tag_id, "tag": s.source_name, "required": s.required} for s in view.sensors
+        ],
+        "training_periods": [
+            [p.start.isoformat(), p.end.isoformat()] for p in view.training_periods
+        ],
+        "validation_period": (
+            [view.validation_period.start.isoformat(), view.validation_period.end.isoformat()]
+            if view.validation_period
+            else None
+        ),
+        "mode_filters": list(view.mode_filters),
+    }
+
+
+def start_training(
+    session: Session, actor: Actor, asset_code: str, name: str, *, queue: bool = True
+) -> tuple[VersionView, int | None]:
+    """Submit the model's Draft version for training: Draft -> Training, job queued.
+
+    The seed and cycle time are fixed in the version's parameters now (ARC §8.3), and the
+    definition is snapshotted. Returns the version and the job ID (None with queue=False,
+    when the caller runs the training itself, as `pmp model train --now` does).
+    """
+    model = get_model(session, asset_code, name)
+    version = session.get_one(ModelVersion, model.latest.id)
+    if version.status != VersionStatus.DRAFT.value:
+        raise ModelError(
+            f"Version {version.version} is {version.status}; only a Draft can be trained"
+        )
+    params = {"seed": DEFAULT_SEED, "cycle_s": DEFAULT_CYCLE_S, **dict(version.params or {})}
+    version.params = params
+    version.training_def = _training_definition(model.latest, params)
+    _set_status(version, VersionStatus.TRAINING)
+    job_id = enqueue(session, TRAIN_JOB, {"version_id": version.id}) if queue else None
+    audit_change(
+        session,
+        actor,
+        entity="model_version",
+        entity_id=version.id,
+        action="train_start",
+        before={"status": VersionStatus.DRAFT.value},
+        after={"status": VersionStatus.TRAINING.value, "job_id": job_id, "params": params},
+    )
+    session.flush()
+    return _version_view(session, version), job_id
+
+
+def _versions() -> dict[str, str]:
+    found = {"python": platform.python_version(), "numpy": np.__version__, "pandas": pd.__version__}
+    try:
+        found["pmp"] = package_version("pmp")
+    except PackageNotFoundError:  # pragma: no cover - running from a source tree
+        found["pmp"] = "unknown"
+    return found
+
+
+def _mark_failed(database: Database, version_id: int, message: str) -> None:
+    with database.session() as session:
+        version = session.get(ModelVersion, version_id)
+        if version is None or version.status != VersionStatus.TRAINING.value:
+            return
+        _set_status(version, VersionStatus.FAILED)
+        version.error = message
+        audit_change(
+            session,
+            Actor.system(),
+            entity="model_version",
+            entity_id=version_id,
+            action="train_failed",
+            before={"status": VersionStatus.TRAINING.value},
+            after={"status": VersionStatus.FAILED.value, "error": message},
+        )
+
+
+def _gather(
+    session: Session,
+    periods: Sequence[Period],
+    cycle_s: int,
+    sensors: Sequence[SensorInfo],
+    tag_ids: Mapping[str, int],
+    filters: Sequence[Any],
+) -> Assembled:
+    grids = [cycle_grid(p.start, p.end, cycle_s) for p in periods]
+    cycle_ns = np.concatenate(grids) if grids else np.empty(0, dtype=np.int64)
+    assessed = assess_series(session, tag_ids.values(), cycle_ns)
+    values = {name: assessed[tag_id].values for name, tag_id in tag_ids.items()}
+    usable = {name: assessed[tag_id].usable for name, tag_id in tag_ids.items()}
+    return assemble(cycle_ns, sensors, values, usable, filters)
+
+
+def run_training(database: Database, version_id: int, artefact_base: Path) -> dict[str, Any]:
+    """Train a version that is in Training; ends Validated or Failed with the reason.
+
+    Safe to run again after a crash: a version that is no longer Training is skipped, and
+    the artefact folder is replaced as a whole.
+    """
+    try:
+        with database.session() as session:
+            version = session.get(ModelVersion, version_id)
+            if version is None:
+                return {"skipped": f"version {version_id} does not exist"}
+            if version.status != VersionStatus.TRAINING.value:
+                return {"skipped": f"version is {version.status}"}
+            model = session.get_one(Model, version.model_id)
+            asset_code = get_asset_by_id(session, model.asset_id).code
+            view = _version_view(session, version)
+            if view.validation_period is None:
+                raise TrainingError("The version has no validation period")
+            asset_tags = {t.source_name: t for t in list_tags(session, asset_code)}
+            filters = [parse_expression(f) for f in view.mode_filters]
+            sensors = [
+                SensorInfo(
+                    s.source_name,
+                    s.required,
+                    asset_tags[s.source_name].range_hi - asset_tags[s.source_name].range_lo,
+                )
+                for s in view.sensors
+            ]
+            names = {s.name for s in sensors}.union(*(f.names for f in filters))
+            tag_ids = {n: asset_tags[n].id for n in sorted(names)}
+            params = dict(version.params or {})
+            cycle_s = int(params.get("cycle_s", DEFAULT_CYCLE_S))
+
+            training_data = _gather(
+                session, view.training_periods, cycle_s, sensors, tag_ids, filters
+            )
+            report_progress(40)
+            validation_data = _gather(
+                session, [view.validation_period], cycle_s, sensors, tag_ids, filters
+            )
+            report_progress(60)
+            detector_cls = get_detector(version.algorithm)
+            result = train(detector_cls, params, sensors, training_data, validation_data)
+            report_progress(85)
+
+            definition = version.training_def or _training_definition(view, params)
+            definition_hash = hashlib.sha256(
+                json.dumps(definition, sort_keys=True).encode()
+            ).hexdigest()
+            target = artefact_dir(artefact_base, model.id, version.version)
+            manifest = {
+                "model_id": model.id,
+                "model": model.name,
+                "asset": asset_code,
+                "version": version.version,
+                "algorithm": version.algorithm,
+                "algorithm_version": detector_cls.version,
+                "seed": params.get("seed"),
+                "cycle_s": cycle_s,
+                "sensor_order": [s.name for s in sensors],
+                "definition_sha256": definition_hash,
+                "versions": _versions(),
+            }
+            sha = write_artefact(
+                target,
+                result.detector,
+                scaling=result.scaling(),
+                manifest=manifest,
+                validation=result.validation(),
+            )
+            metrics = {
+                "training_cycles": result.training_cycles,
+                "training_retained": result.training_retained,
+                "validation_cycles": result.validation_cycles,
+                "validation_retained": result.validation_retained,
+                "floored_sensors": sorted(
+                    n
+                    for n, st in result.sensors.items()
+                    if st.scale.range_floored or st.scale.sigma_floored
+                ),
+            }
+            version.artefact_path = str(target)
+            version.artefact_sha256 = sha
+            version.metrics = metrics
+            version.error = None
+            _set_status(version, VersionStatus.VALIDATED)
+            audit_change(
+                session,
+                Actor.system(),
+                entity="model_version",
+                entity_id=version.id,
+                action="train_validated",
+                before={"status": VersionStatus.TRAINING.value},
+                after={"status": VersionStatus.VALIDATED.value, "artefact_sha256": sha, **metrics},
+            )
+            return {"status": VersionStatus.VALIDATED.value, "artefact": str(target), **metrics}
+    except (TrainingError, DetectorError, ExpressionError, ModelError) as error:
+        _mark_failed(database, version_id, str(error))
+        return {"status": VersionStatus.FAILED.value, "error": str(error)}
+    except Exception as error:
+        logger.exception("Training of model version %s failed", version_id)
+        message = f"Training failed unexpectedly: {type(error).__name__}: {error}"
+        _mark_failed(database, version_id, message)
+        return {"status": VersionStatus.FAILED.value, "error": message}
+
+
+def make_training_handler(
+    database: Database, artefact_base: Path
+) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+    """The worker's handler for `model.train` jobs. Payload: {"version_id": int}."""
+
+    def handle(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        return run_training(database, int(payload["version_id"]), artefact_base)
+
+    return handle

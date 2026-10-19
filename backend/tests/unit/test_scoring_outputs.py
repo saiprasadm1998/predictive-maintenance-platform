@@ -12,6 +12,7 @@ from pmp.scoring import (
     Band,
     Limits,
     RuntimeStatus,
+    ScaleError,
     ScoringError,
     SensorInput,
     SensorLimits,
@@ -137,19 +138,31 @@ def test_floors_apply_only_when_needed() -> None:
 
 
 @pytest.mark.parametrize(
-    ("make", "message"),
+    ("make", "error", "message"),
     [
-        (lambda: SensorScale(0.0, 1.0), "positive"),
-        (lambda: SensorScale(1.0, float("nan")), "positive"),
-        (lambda: scale_with_floors(1.0, 1.0, 0.0), "Instrument range"),
-        (lambda: Limits(25, 15), "warning < alert"),
-        (lambda: Limits(15, 25, di_ref=0), "DIref"),
-        (lambda: SensorLimits(5, 3), "warning < alert"),
+        (lambda: SensorScale(0.0, 1.0), ScaleError, "positive"),
+        (lambda: SensorScale(1.0, float("nan")), ScaleError, "positive"),
+        (lambda: scale_with_floors(1.0, 1.0, 0.0), ScaleError, "Instrument range"),
+        (lambda: Limits(25, 15), ScoringError, "warning < alert"),
+        (lambda: Limits(15, 25, di_ref=0), ScoringError, "DIref"),
+        (lambda: SensorLimits(5, 3), ScoringError, "warning < alert"),
     ],
 )
-def test_invalid_scales_and_limits_are_refused(make: object, message: str) -> None:
-    with pytest.raises(ScoringError, match=message):
+def test_invalid_scales_and_limits_are_refused(
+    make: object, error: type[Exception], message: str
+) -> None:
+    with pytest.raises(error, match=message):
         make()  # type: ignore[operator]
+
+
+def test_non_finite_training_statistics_fall_back_to_the_floors() -> None:
+    scale = scale_with_floors(float("nan"), float("nan"), 100.0)
+    assert (scale.range, scale.sigma, scale.range_floored, scale.sigma_floored) == (
+        1.0,
+        0.01,
+        True,
+        True,
+    )
 
 
 def test_inconsistent_inputs_are_refused() -> None:

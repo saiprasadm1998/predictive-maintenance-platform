@@ -75,13 +75,17 @@ from pmp.ingestion import (
     run_backfill,
 )
 from pmp.modelling import (
+    TRAIN_JOB,
     ModelError,
     ModelView,
     available_detectors,
     definition_from_dict,
     get_model,
     list_models,
+    make_training_handler,
+    run_training,
     save_draft,
+    start_training,
 )
 from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
 
@@ -215,6 +219,14 @@ def build_parser() -> argparse.ArgumentParser:
     model_show = model_commands.add_parser("show", help="show a model, its versions and rules")
     model_show.add_argument("asset")
     model_show.add_argument("name")
+    model_train = model_commands.add_parser(
+        "train", help="train the model's Draft version (a job for the worker, or --now)"
+    )
+    model_train.add_argument("asset")
+    model_train.add_argument("name")
+    model_train.add_argument(
+        "--now", action="store_true", help="train here and wait, instead of queuing a job"
+    )
     model_list = model_commands.add_parser("list", help="list models")
     model_list.add_argument("--asset", help="only this asset's models")
 
@@ -275,6 +287,7 @@ def _run_worker(settings: Settings) -> None:
     registry = JobRegistry()
     uploads = Path(settings.artefact_dir) / "uploads"
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
+    registry.register(TRAIN_JOB, make_training_handler(database, Path(settings.artefact_dir)))
     stop = threading.Event()
 
     def _request_stop(signum: int, _frame: FrameType | None) -> None:
@@ -518,8 +531,19 @@ def _print_model(session: Session, model: ModelView) -> None:
     print(f"{model.asset_code} / {model.name}  (model {model.id})  {model.description}")
     for v in model.versions:
         note = f"  error: {v.error}" if v.error else ""
+        if v.metrics:
+            note += (
+                f"  trained on {v.metrics['training_retained']:,} of "
+                f"{v.metrics['training_cycles']:,} cycles, validated on "
+                f"{v.metrics['validation_retained']:,}"
+            )
         created = f"{v.created_at:%Y-%m-%d %H:%M}"
         print(f"  v{v.version}  {v.status.value:<10} {v.algorithm:<8} {created}{note}")
+    if latest.artefact_path:
+        print(f"Artefact: {latest.artefact_path}  (SHA-256 {latest.artefact_sha256})")
+        floored = (latest.metrics or {}).get("floored_sensors") or []
+        if floored:
+            print(f"  scale floored for: {', '.join(floored)}")
     print(f"Version {latest.version} definition:")
     required = sum(s.required for s in latest.sensors)
     print(f"  sensors ({len(latest.sensors)}, {required} required):")
@@ -568,6 +592,15 @@ def _run_model(settings: Settings, args: argparse.Namespace) -> int:
                 _print_model(session, model)
             elif args.model_command == "show":
                 _print_model(session, get_model(session, args.asset, args.name))
+            elif args.model_command == "train":
+                view, job_id = start_training(
+                    session, actor, args.asset, args.name, queue=not args.now
+                )
+                if job_id is not None:
+                    print(
+                        f"Version {view.version} is Training: job {job_id} queued. "
+                        "The worker runs it (`make worker`)."
+                    )
             else:
                 for m in list_models(session, args.asset):
                     v = m.latest
@@ -575,6 +608,12 @@ def _run_model(settings: Settings, args: argparse.Namespace) -> int:
                         f"{m.id:>4}  {m.asset_code:<10} {m.name:<20} v{v.version} "
                         f"{v.status.value:<10} {len(v.sensors)} sensors  {v.algorithm}"
                     )
+        if args.model_command == "train" and args.now:
+            print(f"Training {args.asset} / {args.name} ...", flush=True)
+            result = run_training(database, view.id, Path(settings.artefact_dir))
+            with database.session() as session:
+                _print_model(session, get_model(session, args.asset, args.name))
+            return 0 if result.get("status") == "Validated" else 1
     except (ModelError, AlertRuleError) as error:
         message = "\n  ".join(getattr(error, "problems", None) or [str(error)])
         print(f"Error: {message}", file=sys.stderr)
