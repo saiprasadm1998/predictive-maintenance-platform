@@ -239,6 +239,32 @@ uv run pmp health tree            # the whole hierarchy
 uv run pmp health tree K-101      # one asset and everything beneath it
 ```
 
+## Users and sign-in
+
+Five roles from PMP-ARC-001 §9.2: Viewer, Analyst, Maintenance, Model Engineer and
+Administrator, each optionally limited to part of the hierarchy (`analyst@SITE-A`). The
+services check every action against the matrix. Passwords are hashed with Argon2id; an account
+locks for 15 minutes after 5 failed sign-ins, and a session ends after 30 idle minutes.
+
+```
+cd backend
+uv run pmp user create admin --name "Plant admin" --role administrator
+uv run pmp user create sam --role analyst@SITE-A --role viewer
+uv run pmp user list
+uv run pmp user set-roles sam --role model_engineer
+uv run pmp user reset-password sam
+uv run pmp user deactivate sam
+uv run pmp audit --entity user
+uv run pmp audit --from -7d --csv audit.csv
+```
+
+Passwords are typed at a hidden prompt. Over the API: `POST /api/v1/auth/login` (browser
+cookie plus a CSRF token for the `X-CSRF-Token` header) or `POST /api/v1/auth/token` (bearer
+token), then `GET /api/v1/auth/me`. Administrators manage API keys at `/api/v1/api-keys` and
+search the audit trail at `/api/v1/audit` (CSV at `/api/v1/audit.csv`). Try them at
+`http://127.0.0.1:8000/api/v1/docs`. For plain-HTTP local development set
+`PMP_SESSION_COOKIE_SECURE=false` so the browser keeps the cookie.
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
