@@ -23,8 +23,9 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 3.1 Model definitions and alert rules | Done | Models with Draft versions, sensors, periods, safe operating-mode filters, alert rules; K-101 defined from `data/demo/models/k101.json` |
 | 3.2 Baseline training job | Done | K-101 trained on 157,398 of 158,400 cycles of demo history and validated on 42,584; artefact with SHA-256 |
 | 3.3 Artefacts and version lifecycle | Done | Deploy, pause, resume, retire, reject; deploy supersedes; one version in service (database-enforced); SHA-256 checked on every load; per-worker cache |
-| 4.1 Scoring runtime | Built | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
-| 4.2 Alert engine | Next | |
+| 4.1 Scoring runtime | Done | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
+| 4.2 Alert engine | Built | ISA-18.2 lifecycle (UCS Figure 6) with persistence, on-delay, deadband clearing and escalation; evaluated in the scoring transaction; acknowledge, shelve (reason, 7-day maximum), unshelve and expiry; Out of service follows the model; priority matrix with re-prioritising; event log, audit, traceability record and NOTIFY; `pmp alert` commands; AC-03 alert reference sequences; final check on my Mac in progress |
+| 4.3 Health roll-up | Next | |
 
 ## How I work
 
@@ -380,8 +381,14 @@ None of these block the current work.
 - [x] **Order of the cycle checks (4.1):** Coverage is checked before the operating mode, as in UCS Figure 5, so when data stops the status says "Insufficient data" rather than "Not in operating mode".
 - [x] **Process pool (4.1):** ARC §5.1 allows scoring across a process pool. One process already scores 100 models and 5,000 tags in 5.5 s (budget 30 s), so the pool is not built yet; it is added in Phase 7 if AAKR needs it, with `make perf-scoring` as the check.
 - [x] **Sensors that did not move in training (2.3):** The spec gives q = |r| / R and z = r / σ but nothing for R = 0 or σ = 0 (a sensor that was constant in training, such as a fixed-speed machine's speed). R is floored at 1 % of the instrument range and σ at 1 % of R, and the floor is recorded with the sensor's scale.
-- [x] **"A sensor z warning active" (2.3, 4.2):** UCS §6.5 makes the band Watch or Alert when a sensor z warning or alert is "active". I read "active" as an active sensor alert (after persistence), the same as in the alert lifecycle. Until the alert engine exists (4.2), the band uses each usable sensor's current |z| against its limits.
+- [x] **"A sensor z warning active" (2.3, 4.2):** UCS §6.5 makes the band Watch or Alert when a sensor z warning or alert is "active". I read "active" as an active sensor alert (after persistence), the same as in the alert lifecycle. Since 4.2 the band uses the active sensor alerts of usable sensors (before that, each sensor's current |z|).
 - [x] **Built-in detectors (2.2):** Built-in algorithms are listed in the code; only third-party plug-ins come through the `pmp.algorithms` entry point. Both pass the same contract suite before use, and a plug-in cannot take a built-in's name.
+- [x] **Severity while active (4.2):** An alert escalates from Warning to Alert on the same alert but never drops back to Warning while its condition is active; it ends only by clearing (UCS §6.6 deadband), so operators don't see an alert flap between severities.
+- [x] **Which cycles count for persistence (4.2):** Only cycles that were evaluated (status Running) count towards n of m, on-delay and clearing. Insufficient-data and not-in-operating-mode cycles are skipped and leave open alerts as they are.
+- [x] **Supersede keeps alerts (4.2):** Deploying a new version of a model keeps its open alerts, since the rules belong to the model, not the version. Out of service only applies when the model has no deployed version (paused or retired); on redeploy those alerts return to Normal and the rules start counting afresh.
+- [x] **Missing criticality (4.2):** Equipment must have a class, but a model could sit on a higher-level asset without one. Such an asset counts as C, the lowest priority, rather than blocking alerts.
+- [x] **Alarm returns while RTN-unacknowledged (4.2):** UCS Figure 6 doesn't say what happens when the condition comes back before anyone acknowledges. The same alert goes back to Active-Unacknowledged (ISA-18.2), rather than a second alert being raised.
+- [x] **Shelved alerts keep evaluating (4.2):** While an alert is shelved its rule keeps running, so at expiry (or unshelve) it goes to Active-Unacknowledged if the condition is still active, otherwise to Normal.
 - [x] **Preview warning (2.1):** The 20 % warning (UC-04 3a) is checked per tag, so one sensor that would be excluded most of the time isn't hidden by an average over many healthy ones.
 
 **Open: spec conflicts (I follow the proposed answer until told otherwise)**
@@ -389,7 +396,7 @@ None of these block the current work.
 - [ ] **Flatline status (2.1, 6.3):** Wireframes 03 and 07 label a flatlined sensor "Failure", but UCS §6.1 says "Maintenance required". Proposed: follow UCS §6.1.
 - [ ] **Alert limits (3.1, 7.3):** ARC §6.2 makes a version immutable once Validated, with limits stored on it, while UCS §6.4 says limits stay editable until deployment. Proposed: proposed limits stay on the immutable version, and active limits live on `alert_rule`, editable and audited.
 - [ ] **Hierarchy depth (1.1):** FR-REG-01 specifies five levels, but UC-03 and the wireframes use Site › Unit › Equipment. Built as: variable depth up to five levels.
-- [ ] **Unshelve (4.2):** UCS Figure 6 has no transition for unshelving early. Proposed: re-evaluate the condition as on expiry.
+- [ ] **Unshelve (4.2):** UCS Figure 6 has no transition for unshelving early. Proposed: re-evaluate the condition as on expiry. Built this way.
 - [ ] **Not in operating mode (4.1):** UCS §6.5 doesn't give a band for this status. Proposed: no Health value, shown as Unknown with the reason "Not in operating mode", and alert rules not evaluated.
 - [ ] **Alert list sort (6.4):** PDS §4.2 says unacknowledged first, but the wireframe caption says priority, then age. Proposed: follow PDS.
 - [ ] **Fleet roll-up figures (4.3):** Wireframe 01 shows Site A at 38 while its lowest child is 41. Proposed: test against the UCS §6.5 rule, not the wireframe figures.

@@ -197,6 +197,29 @@ uv run pmp score once K-101 main              # score the latest cycle by hand
 `make perf-scoring` runs the NFR-PERF-01 check (100 models, 5,000 tags, within 30 s) in a
 separate `pmp_perf` database.
 
+## Alerts
+
+Each scored cycle also runs the model's alert rules (the DI rule and any sensor |z| rules)
+in the same transaction. An alert follows the ISA-18.2 lifecycle of PMP-UCS-001 Figure 6:
+it is raised when the limit is exceeded in n of the last m evaluated cycles (default 3 of 5)
+and after the on-delay, escalates from Warning to Alert, and clears once the value has stayed
+below the warning limit less the deadband (default 10 %) for 5 cycles. Priority comes from
+the asset's criticality and the severity (P1 to P4). Pausing or retiring a model puts its
+alerts out of service. Every change is logged, audited and announced on the event channel,
+and each raised alert stores what it was based on (model version, inputs with their sample
+times and data-quality states, top contributors).
+
+```
+cd backend
+uv run pmp alert list                                  # open alerts, unacknowledged first
+uv run pmp alert show 12                               # trace and history of one alert
+uv run pmp alert ack 12 13 --comment "checking"
+uv run pmp alert shelve 12 --reason "valve work" --for 8h   # at most 7 days
+uv run pmp alert unshelve 12
+uv run pmp alert matrix show                           # criticality x severity -> priority
+uv run pmp alert matrix set A Warning P1
+```
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data

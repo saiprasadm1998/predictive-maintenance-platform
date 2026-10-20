@@ -8,12 +8,16 @@ worker roles travel over PostgreSQL LISTEN/NOTIFY (added in sub-phase 5.3).
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, TypeVar
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
 
@@ -47,3 +51,15 @@ class EventBus:
                         getattr(handler, "__qualname__", repr(handler)),
                         type(event).__name__,
                     )
+
+
+EVENT_CHANNEL = "pmp_events"  # LISTEN/NOTIFY channel from the worker role to the web role
+
+
+def notify(session: Session, payload: dict[str, Any]) -> None:
+    """Queue a NOTIFY in the caller's transaction: delivered only if it commits (5.3 relays
+    these to browsers as server-sent events)."""
+    session.execute(
+        text("SELECT pg_notify(:channel, :payload)"),
+        {"channel": EVENT_CHANNEL, "payload": json.dumps(payload, default=str)},
+    )

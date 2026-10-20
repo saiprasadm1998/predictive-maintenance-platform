@@ -586,3 +586,11 @@ def make_training_handler(
         return run_training(database, int(payload["version_id"]), artefact_base)
 
     return handle
+
+
+def model_asset_code(session: Session, model_id: int) -> str:
+    """The code of the asset a model monitors (cheap: for per-cycle use)."""
+    model = session.get(Model, model_id)
+    if model is None:
+        raise ModelError(f"Model {model_id} does not exist")
+    return get_asset_by_id(session, model.asset_id).code

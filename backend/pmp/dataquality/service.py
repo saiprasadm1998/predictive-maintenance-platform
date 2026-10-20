@@ -289,6 +289,7 @@ class SensorReading:
 
     value: float | None  # latest sample at or before the cycle (sample-and-hold)
     state: SensorState
+    sample_ts: datetime | None = None  # that sample's time (alert traceability, NFR-ACC-01)
 
 
 def evaluate_sensors(
@@ -335,11 +336,13 @@ def read_sensors(
     }
     for tag in tags:
         params = params_by_tag[tag.id]
-        samples = Samples.from_rows(recent[tag.id][-params.flatline_window :])
+        rows_for_tag = recent[tag.id][-params.flatline_window :]
+        samples = Samples.from_rows(rows_for_tag)
         excluded = bool(_excluded_mask(to_ns(at), excl.get(tag.id, [])).any())
         state = evaluate_sensor(samples, _config(tag, refs.get(tag.id)), params, at, excluded)
         value = float(samples.value[-1]) if len(samples.value) else None
-        readings[tag.id] = SensorReading(value, state)
+        sample_ts = rows_for_tag[-1][0] if rows_for_tag else None
+        readings[tag.id] = SensorReading(value, state, sample_ts)
 
         stored = stored_rows.get(tag.id)
         if stored is None:

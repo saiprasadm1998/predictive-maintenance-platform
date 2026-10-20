@@ -17,6 +17,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
+from pmp.alerting import expire_shelves, sync_out_of_service
 from pmp.core import Database, EventBus, LockKey, try_advisory_lock
 from pmp.modelling import ActiveVersion, ModelCache, list_active_versions
 from pmp.scoring.runtime import CycleResult, last_cycles, mark_out_of_service, score_models
@@ -59,6 +60,7 @@ class Scheduler:
                 self._last = last_cycles(session)
         last = self._last
         mark_out_of_service(self.database, (v.model_id for v in active))
+        self._alert_housekeeping(now, active)
 
         due: dict[datetime, list[ActiveVersion]] = defaultdict(list)
         for version in active:
@@ -73,6 +75,15 @@ class Scheduler:
                 last[version.version_id] = cycle
             results += batch
         return results
+
+    def _alert_housekeeping(self, now: datetime, active: list[ActiveVersion]) -> None:
+        """Shelving that has run out ends, and alerts follow their model in and out of
+        service (paused or retired models; UC-10)."""
+        deployed = [v.model_id for v in active if v.status.value == "Deployed"]
+        with self.database.session() as session:
+            changes = expire_shelves(session, now) + sync_out_of_service(session, deployed, now)
+        for change in changes:
+            self.bus.publish(change)
 
     def run_forever(self, stop: threading.Event) -> None:
         """Wait to become the leader, then tick until stopped. Closing the connection

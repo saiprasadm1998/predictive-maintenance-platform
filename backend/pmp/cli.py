@@ -1,5 +1,5 @@
 """Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
-score | demo | apikey`.
+score | alert | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -28,12 +28,25 @@ from sqlalchemy.orm import Session
 from pmp.alerting import (
     DEFAULT_SENSOR_ALERT,
     DEFAULT_SENSOR_WARNING,
+    MAX_SHELVE,
+    AlertChanged,
+    AlertError,
     AlertRuleError,
     AlertRuleSpec,
+    AlertView,
     RuleKind,
+    Severity,
+    acknowledge,
+    alert_history,
+    get_alert,
+    get_priority_matrix,
     list_alert_rules,
+    list_alerts,
     require_di_rule,
     set_alert_rules,
+    set_priority,
+    shelve,
+    unshelve,
 )
 from pmp.api import create_app
 from pmp.core import (
@@ -92,7 +105,14 @@ from pmp.modelling import (
     save_draft,
     start_training,
 )
-from pmp.registry import ImportFailedError, ImportReport, TagView, import_files, list_tags
+from pmp.registry import (
+    ImportFailedError,
+    ImportReport,
+    TagView,
+    get_tags,
+    import_files,
+    list_tags,
+)
 from pmp.scoring import (
     CycleResult,
     Scheduler,
@@ -124,6 +144,18 @@ def _when(value: str) -> datetime:
 
 _TIME_OPTIONS = ("--from", "--at")
 _RELATIVE = re.compile(r"-\d+[mhd]")
+
+
+_DURATION = re.compile(r"^(\d+)([mhd])$")
+
+
+def _duration(value: str) -> timedelta:
+    """A duration such as 30m, 8h or 2d."""
+    match = _DURATION.match(value.strip())
+    if not match:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a duration such as 30m, 8h or 2d")
+    unit = {"m": "minutes", "h": "hours", "d": "days"}[match.group(2)]
+    return timedelta(**{unit: int(match.group(1))})
 
 
 def _attach_relative_times(argv: Sequence[str]) -> list[str]:
@@ -262,6 +294,35 @@ def build_parser() -> argparse.ArgumentParser:
     score_once.add_argument("name")
     score_once.add_argument("--at", type=_when, help="cycle time: e.g. -5m or ISO 8601")
     score_commands.add_parser("status", help="each model's runtime status and latest score")
+
+    alert = commands.add_parser("alert", help="alerts: list, acknowledge, shelve; priority matrix")
+    alert_commands = alert.add_subparsers(dest="alert_command", required=True)
+    alert_list = alert_commands.add_parser("list", help="open alerts (or --all)")
+    alert_list.add_argument("--all", action="store_true", help="include closed (Normal) alerts")
+    alert_show = alert_commands.add_parser("show", help="one alert with its trace and history")
+    alert_show.add_argument("id", type=int)
+    alert_ack = alert_commands.add_parser("ack", help="acknowledge one or more alerts")
+    alert_ack.add_argument("ids", type=int, nargs="+")
+    alert_ack.add_argument("--comment")
+    alert_shelve = alert_commands.add_parser("shelve", help="shelve alerts for a limited time")
+    alert_shelve.add_argument("ids", type=int, nargs="+")
+    alert_shelve.add_argument("--reason", required=True)
+    alert_shelve.add_argument(
+        "--for",
+        dest="duration",
+        type=_duration,
+        required=True,
+        help=f"how long: e.g. 30m, 8h, 2d (at most {MAX_SHELVE.days} days)",
+    )
+    alert_unshelve = alert_commands.add_parser("unshelve", help="end shelving early")
+    alert_unshelve.add_argument("ids", type=int, nargs="+")
+    matrix = alert_commands.add_parser("matrix", help="priority matrix (FR-ALM-04)")
+    matrix_commands = matrix.add_subparsers(dest="matrix_command", required=True)
+    matrix_commands.add_parser("show", help="criticality x severity -> priority")
+    matrix_set = matrix_commands.add_parser("set", help="change one cell")
+    matrix_set.add_argument("criticality", choices=["A", "B", "C"])
+    matrix_set.add_argument("severity", choices=[s.value for s in Severity])
+    matrix_set.add_argument("priority", choices=["P1", "P2", "P3", "P4"])
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -695,6 +756,85 @@ def _print_cycle(result: CycleResult) -> None:
         excluded = [s.tag for s in output.sensors if not s.usable]
         if excluded:
             print(f"  excluded: {', '.join(excluded)}")
+    for change in result.alerts:
+        _print_change(change)
+
+
+def _print_change(change: AlertChanged) -> None:
+    previous = change.previous.value if change.previous else "-"
+    print(
+        f"  alert {change.alert_id}: {change.action}  {previous} -> {change.state.value}  "
+        f"{change.severity.value} {change.priority}"
+    )
+
+
+def _alert_line(alert: AlertView, models: dict[int, str], tags: dict[int, str]) -> str:
+    what = "DI" if alert.tag_id is None else tags.get(alert.tag_id, f"tag {alert.tag_id}")
+    condition = "active" if alert.condition_active else "cleared"
+    shelved = f"  until {alert.shelved_until:%Y-%m-%d %H:%M}" if alert.shelved_until else ""
+    return (
+        f"{alert.id:>5}  {alert.priority}  {alert.severity.value:<7} {alert.state.value:<24} "
+        f"{models.get(alert.model_id, alert.model_id)!s:<20} {what:<18} "
+        f"raised {alert.raised_at:%Y-%m-%d %H:%M}  {condition}{shelved}"
+    )
+
+
+def _run_alert(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    actor = Actor.system()
+    now = datetime.now(UTC)
+    try:
+        with database.session() as session:
+            command = args.alert_command
+            changes: list[AlertChanged] = []
+            if command in ("list", "show"):
+                models = {m.id: f"{m.asset_code} / {m.name}" for m in list_models(session)}
+                alerts = (
+                    list_alerts(session, open_only=not args.all)
+                    if command == "list"
+                    else [get_alert(session, args.id)]
+                )
+                tag_ids = {a.tag_id for a in alerts if a.tag_id is not None}
+                tags = {t.id: t.source_name for t in get_tags(session, tag_ids)}
+                if not alerts:
+                    print("No open alerts.")
+                for a in alerts:
+                    print(_alert_line(a, models, tags))
+                if command == "show":
+                    print(json.dumps(alerts[0].trace, indent=2, default=str))
+                    for e in alert_history(session, args.id):
+                        print(
+                            f"  {e.ts:%Y-%m-%d %H:%M:%S}  {e.action:<14} "
+                            f"{e.from_state or '-'} -> {e.to_state}  {e.comment or ''}"
+                        )
+            elif command == "ack":
+                changes = acknowledge(session, actor, args.ids, now, args.comment)
+            elif command == "shelve":
+                changes = shelve(
+                    session, actor, args.ids, now, reason=args.reason, duration=args.duration
+                )
+            elif command == "unshelve":
+                changes = unshelve(session, actor, args.ids, now)
+            elif args.matrix_command == "set":
+                changes = set_priority(
+                    session, actor, args.criticality, Severity(args.severity), args.priority, now
+                )
+                print(f"{args.criticality} / {args.severity} -> {args.priority}")
+            else:
+                matrix = get_priority_matrix(session)
+                print("Criticality  Warning  Alert")
+                for c in ("A", "B", "C"):
+                    warning = matrix.get((c, Severity.WARNING), "-")
+                    alarm = matrix.get((c, Severity.ALERT), "-")
+                    print(f"{c:<12} {warning:<8} {alarm}")
+            for change in changes:
+                _print_change(change)
+    except AlertError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    return 0
 
 
 def _run_score(settings: Settings, args: argparse.Namespace) -> int:
@@ -820,6 +960,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_model(settings, args))
     elif args.command == "score":
         sys.exit(_run_score(settings, args))
+    elif args.command == "alert":
+        sys.exit(_run_alert(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
     elif args.command == "apikey":

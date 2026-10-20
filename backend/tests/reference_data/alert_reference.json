@@ -1,0 +1,90 @@
+{
+  "description": "Hand-authored alert sequences (UCS §6.6, ISA-18.2). DI rule warning 15, alert 25 unless stated; 60 s cycles; null = cycle not evaluated. 'expect' is the state after each cycle: N Normal, AU Active-Unacknowledged, AA Active-Acknowledged, RU RTN-Unacknowledged; severity W Warning, A Alert.",
+  "cases": [
+    {
+      "name": "3-of-5 ignores two isolated exceedances and raises on the third",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 5, 20, 5, 20],
+      "expect": ["N", "N", "N", "N", "AU:W"]
+    },
+    {
+      "name": "two exceedances in five never raise",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 5, 5, 20, 5, 5, 5, 20, 5],
+      "expect": ["N", "N", "N", "N", "N", "N", "N", "N", "N"]
+    },
+    {
+      "name": "raises straight to Alert when the alert level persists",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [30, 30, 30],
+      "expect": ["N", "N", "AU:A"]
+    },
+    {
+      "name": "escalates Warning to Alert once the alert level persists",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 30, 30, 30],
+      "expect": ["N", "N", "AU:W", "AU:W", "AU:W", "AU:A"]
+    },
+    {
+      "name": "severity does not drop while the condition is active",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [30, 30, 30, 20, 20, 20, 20],
+      "expect": ["N", "N", "AU:A", "AU:A", "AU:A", "AU:A", "AU:A"]
+    },
+    {
+      "name": "clears after 5 cycles below warning less 10 % deadband (13.5); unacknowledged -> RTN",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 13, 13, 13, 13, 13],
+      "expect": ["N", "N", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "RU:W"]
+    },
+    {
+      "name": "inside the deadband (14) does not count towards clearing",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 14, 14, 14, 14, 14, 14],
+      "expect": ["N", "N", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W"]
+    },
+    {
+      "name": "a cycle above the threshold restarts the clearing count",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 10, 10, 10, 10, 14, 10, 10, 10, 10, 10],
+      "expect": ["N", "N", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "RU:W"]
+    },
+    {
+      "name": "acknowledged then cleared goes to Normal",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 10, 10, 10, 10, 10],
+      "acknowledge_at": [3],
+      "expect": ["N", "N", "AU:W", "AA:W", "AA:W", "AA:W", "AA:W", "N"]
+    },
+    {
+      "name": "RTN-unacknowledged that returns goes back to Active-Unacknowledged",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, 20, 20, 10, 10, 10, 10, 10, 20, 20, 20],
+      "expect": ["N", "N", "AU:W", "AU:W", "AU:W", "AU:W", "AU:W", "RU:W", "RU", "RU", "AU:W"]
+    },
+    {
+      "name": "on-delay of 180 s holds the raise until the condition has lasted 3 minutes",
+      "rule": {"warning": 15, "alert": 25, "on_delay_s": 180},
+      "values": [20, 20, 20, 20, 20],
+      "expect": ["N", "N", "N", "AU:W", "AU:W"]
+    },
+    {
+      "name": "on-delay restarts when the condition drops",
+      "rule": {"warning": 15, "alert": 25, "on_delay_s": 180},
+      "values": [20, 20, 20, 5, 20, 20, 20, 20],
+      "expect": ["N", "N", "N", "N", "N", "N", "N", "AU:W"]
+    },
+    {
+      "name": "cycles not evaluated (Insufficient data) do not count",
+      "rule": {"warning": 15, "alert": 25},
+      "values": [20, null, 20, null, null, 20],
+      "expect": ["N", "N", "N", "N", "N", "AU:W"]
+    },
+    {
+      "name": "1-of-1 raises on the first exceedance",
+      "rule": {"warning": 15, "alert": 25, "persistence_n": 1, "persistence_m": 1, "clear_cycles": 1},
+      "values": [16, 10],
+      "expect": ["AU:W", "RU:W"]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ Public interface of the module (ARC-001 §4.1). Other modules may import only
 what this file exports, never the module's internal files.
 """
 
+from pmp.core import EVENT_CHANNEL
 from pmp.modelling import RANGE_FLOOR, SIGMA_FLOOR, ScaleError, SensorScale, scale_with_floors
 from pmp.scoring.outputs import (
     Band,
@@ -23,7 +24,6 @@ from pmp.scoring.outputs import (
     health_score,
 )
 from pmp.scoring.runtime import (
-    EVENT_CHANNEL,
     CycleResult,
     RuntimeStatusView,
     ScoreComputed,

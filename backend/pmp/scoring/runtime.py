@@ -9,8 +9,10 @@ For every deployed model at cycle time T:
 3. Not in the operating mode -> status "Not in operating mode", Health Unknown.
 4. Otherwise scale, predict every sensor from the usable ones, and compute residual, q, z,
    DI, contributions, Health and band (pmp.scoring.outputs).
-5. Write the score, the sensor outputs and the runtime status in one transaction, with a
-   NOTIFY for the live stream (5.3); the alert engine joins this transaction in 4.2.
+5. Evaluate the model's alert rules (pmp.alerting) on DI and each usable sensor's |z|; the
+   band then follows the DI limits and the active sensor alerts (UCS §6.5).
+6. Write the score, the sensor outputs, the runtime status and the alert changes in one
+   transaction, with a NOTIFY for the live stream (5.3).
 
 A cycle already written is never written again (the score table's key), so a cycle run
 twice after a crash creates no duplicates, and late data never changes a past score.
@@ -18,20 +20,26 @@ twice after a crash creates no duplicates, and late data never changes a past sc
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from typing import Any
 
 import pandas as pd
-from sqlalchemy import func, select, text
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from pmp.alerting import RuleKind, list_alert_rules
-from pmp.core import Database, Event, EventBus
+from pmp.alerting import (
+    AlertChanged,
+    RuleKind,
+    active_sensor_alerts,
+    evaluate_cycle,
+    list_alert_rules,
+)
+from pmp.core import Database, Event, EventBus, notify
 from pmp.dataquality import MIN_COVERAGE, Reference, SensorReading, read_sensors
 from pmp.modelling import ActiveVersion, LoadedModel, ModelCache, ModelError, parse_expression
 from pmp.scoring.models import RuntimeStatusRow, ScoreRow, SensorOutputRow
@@ -43,11 +51,12 @@ from pmp.scoring.outputs import (
     ScoringError,
     SensorInput,
     SensorLimits,
+    Severity,
+    band_for,
     compute_outputs,
 )
 
 logger = logging.getLogger(__name__)
-EVENT_CHANNEL = "pmp_events"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -71,6 +80,7 @@ class CycleResult:
     reason: str | None
     output: ModelOutput | None
     written: bool  # False when this cycle had already been scored
+    alerts: tuple[AlertChanged, ...] = ()
 
     @property
     def band(self) -> Band:
@@ -231,10 +241,7 @@ def _notify(session: Session, result: CycleResult) -> None:
         "health": output.health if output else None,
         "di": output.di if output else None,
     }
-    session.execute(
-        text("SELECT pg_notify(:channel, :payload)"),
-        {"channel": EVENT_CHANNEL, "payload": json.dumps(payload)},
-    )
+    notify(session, payload)
 
 
 def write_result(session: Session, model: LoadedModel | None, result: CycleResult) -> bool:
@@ -322,6 +329,8 @@ def score_models(
         for result in results:
             if result.written:
                 bus.publish(result.event())
+                for change in result.alerts:
+                    bus.publish(change)
     return results
 
 
@@ -338,13 +347,85 @@ def _score_one(
             result = CycleResult(
                 model.model_id, model.version_id, cycle, status, reason, output, False
             )
+            if not _cycle_is_new(session, result):
+                return result
+            changes: list[AlertChanged] = []
+            if status is RuntimeStatus.RUNNING and output is not None:
+                changes, output = _alerts(session, model, readings, limits, output, cycle)
+                result = replace(result, output=output)
             written = write_result(session, model, result)
-        return CycleResult(model.model_id, model.version_id, cycle, status, reason, output, written)
+        return replace(result, written=written, alerts=tuple(changes))
     except Exception as error:  # one model failing never stops the others
         logger.exception("Scoring model %s at %s failed", model.model_id, cycle)
         return _record_error_ids(
             database, model.model_id, model.version_id, cycle, f"{type(error).__name__}: {error}"
         )
+
+
+def _cycle_is_new(session: Session, result: CycleResult) -> bool:
+    """A cycle already scored is never evaluated again: alerts must not count it twice."""
+    return session.get(ScoreRow, (result.version_id, result.ts)) is None
+
+
+def _trace(
+    model: LoadedModel, readings: Mapping[int, SensorReading], output: ModelOutput
+) -> dict[str, Any]:
+    """What an alert stores to be traced back (NFR-ACC-01): inputs with their sample
+    times and data-quality states, and the top contributors."""
+    inputs = {}
+    for name, tag_id in model.tag_ids.items():
+        reading = readings.get(tag_id)
+        inputs[name] = {
+            "tag_id": tag_id,
+            "value": reading.value if reading else None,
+            "sample_ts": reading.sample_ts.isoformat() if reading and reading.sample_ts else None,
+            "dq": reading.state.status.value if reading else None,
+            "usable": bool(reading and reading.state.usable),
+        }
+    return {
+        "di": output.di,
+        "health": output.health,
+        "coverage": output.coverage,
+        "contributions": [
+            {"tag": s.tag, "share": s.contribution, "z": s.z} for s in output.top_contributors()
+        ],
+        "inputs": inputs,
+    }
+
+
+def _alerts(
+    session: Session,
+    model: LoadedModel,
+    readings: Mapping[int, SensorReading],
+    limits: Limits,
+    output: ModelOutput,
+    cycle: datetime,
+) -> tuple[list[AlertChanged], ModelOutput]:
+    """Run the alert engine for a Running cycle, then set the band from the DI limits and
+    the active sensor alerts (not the raw |z|, UCS §6.5)."""
+    assert output.di is not None
+    z = {
+        model.tag_ids[s.tag]: s.z
+        for s in output.sensors
+        if s.usable and s.z is not None and math.isfinite(s.z)
+    }
+    changes = evaluate_cycle(
+        session,
+        model_id=model.model_id,
+        version_id=model.version_id,
+        ts=cycle,
+        di=output.di,
+        z=z,
+        trace=_trace(model, readings, output),
+    )
+    names = {tag_id: name for name, tag_id in model.tag_ids.items()}
+    usable = {s.tag for s in output.sensors if s.usable}
+    severities = [
+        Severity(severity.value)
+        for tag_id, severity in active_sensor_alerts(session, model.model_id).items()
+        if names.get(tag_id) in usable
+    ]
+    return changes, replace(output, band=band_for(output.di, limits, severities))
 
 
 def _record_error(

@@ -21,7 +21,7 @@ from pmp.core.apikeys import (
 from pmp.core.audit import Actor, ActorType, AuditLog, audit_change, record_audit
 from pmp.core.config import LogFormat, Settings, get_settings
 from pmp.core.db import Base, Database, LockKey, advisory_lock, try_advisory_lock
-from pmp.core.events import Event, EventBus
+from pmp.core.events import EVENT_CHANNEL, Event, EventBus, notify
 from pmp.core.jobs import (
     Job,
     JobHandler,
@@ -42,6 +42,7 @@ from pmp.core.logging import configure_logging, log_context, request_id_var, use
 from pmp.core.migrate import run_migrations
 
 __all__ = [
+    "EVENT_CHANNEL",
     "Actor",
     "ActorType",
     "ApiKeyError",
@@ -75,6 +76,7 @@ __all__ = [
     "issue_api_key",
     "list_api_keys",
     "log_context",
+    "notify",
     "queue_depth",
     "record_audit",
     "report_progress",

@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pandas as pd
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 
 from pmp.alerting import AlertRuleSpec, RuleKind, require_di_rule, set_alert_rules
@@ -117,6 +117,8 @@ def test_deploy_pause_resume_supersede_and_retire(plant: Database, tmp_path: Pat
     seen: list[object] = []
     bus.subscribe(ModelStatusChanged, seen.append)
     bus.subscribe(ModelDeployed, seen.append)
+    with plant.session() as s:  # the audit log is shared with other tests: count from here
+        first_audit = s.scalar(select(func.coalesce(func.max(AuditLog.id), 0)))
 
     with plant.session() as s:
         change_status(s, ACTOR, "EQ-1", "main", Action.DEPLOY, bus=bus)
@@ -143,7 +145,9 @@ def test_deploy_pause_resume_supersede_and_retire(plant: Database, tmp_path: Pat
     ]
     with plant.session() as s:
         actions = s.scalars(
-            select(AuditLog.action).where(AuditLog.entity == "model_version").order_by(AuditLog.id)
+            select(AuditLog.action)
+            .where(AuditLog.entity == "model_version", AuditLog.id > first_audit)
+            .order_by(AuditLog.id)
         ).all()
     assert [a for a in actions if a not in ("train_start", "train_validated")] == [
         "deploy",
