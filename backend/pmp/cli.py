@@ -28,11 +28,11 @@ from sqlalchemy.orm import Session
 from pmp.alerting import (
     DEFAULT_SENSOR_ALERT,
     DEFAULT_SENSOR_WARNING,
-    MAX_SHELVE,
     AlertChanged,
     AlertError,
     AlertRuleError,
     AlertRuleSpec,
+    AlertState,
     AlertView,
     RuleKind,
     Severity,
@@ -43,6 +43,7 @@ from pmp.alerting import (
     list_alert_rules,
     list_alerts,
     require_di_rule,
+    rule_states,
     set_alert_rules,
     set_priority,
     shelve,
@@ -100,6 +101,7 @@ from pmp.modelling import (
     get_model,
     list_active_versions,
     list_models,
+    make_training_failure_handler,
     make_training_handler,
     run_training,
     save_draft,
@@ -119,6 +121,7 @@ from pmp.scoring import (
     CycleResult,
     NodeHealth,
     Scheduler,
+    deployed_references,
     get_runtime_statuses,
     health_tree,
     latest_due_cycle,
@@ -316,7 +319,7 @@ def build_parser() -> argparse.ArgumentParser:
         dest="duration",
         type=_duration,
         required=True,
-        help=f"how long: e.g. 30m, 8h, 2d (at most {MAX_SHELVE.days} days)",
+        help="how long: e.g. 30m, 8h, 2d (at most PMP_ALERT_MAX_SHELVE_DAYS, default 7)",
     )
     alert_unshelve = alert_commands.add_parser("unshelve", help="end shelving early")
     alert_unshelve.add_argument("ids", type=int, nargs="+")
@@ -392,7 +395,11 @@ def _run_worker(settings: Settings) -> None:
     registry = JobRegistry()
     uploads = Path(settings.artefact_dir) / "uploads"
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
-    registry.register(TRAIN_JOB, make_training_handler(database, Path(settings.artefact_dir)))
+    registry.register(
+        TRAIN_JOB,
+        make_training_handler(database, Path(settings.artefact_dir)),
+        on_failed=make_training_failure_handler(database),
+    )
     stop = threading.Event()
     scheduler = Scheduler(database, grace_s=settings.scoring_grace_s)
     scheduler_thread = threading.Thread(
@@ -523,15 +530,28 @@ def _run_dq(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
         with database.session() as session:
+            references = deployed_references(session, ModelCache())
             if args.dq_command == "status":
+                # evaluated with the deployed models' training statistics, as the scoring
+                # cycle does, and shown without storing: the scheduler owns stored statuses
                 tags = list_tags(session, args.asset)
                 at = args.at or datetime.now(UTC)
-                evaluate_sensors(session, at, [t.id for t in tags])
+                states = evaluate_sensors(
+                    session, at, [t.id for t in tags], references=references, store=False
+                )
+                stored = {v.tag_id: v for v in get_sensor_statuses(session, states)}
                 print(f"Sensor status at {at:%Y-%m-%d %H:%M:%S} UTC")
-                for v in get_sensor_statuses(session, [t.id for t in tags]):
+                for t in sorted(tags, key=lambda t: (t.asset_code, t.source_name)):
+                    state = states[t.id]
+                    known = stored.get(t.id)
+                    since = (
+                        f"since {known.since:%Y-%m-%d %H:%M}"
+                        if known and (known.status, known.rule) == (state.status, state.rule)
+                        else ""
+                    )
                     print(
-                        f"{v.asset_code:<10} {v.source_name:<28} {v.status.value:<22} "
-                        f"{v.rule.value:<18} {v.effect.value:<16} since {v.since:%Y-%m-%d %H:%M}"
+                        f"{t.asset_code:<10} {t.source_name:<28} {state.status.value:<22} "
+                        f"{state.rule.value:<18} {state.effect.value:<16} {since}"
                     )
                 return 0
 
@@ -560,7 +580,7 @@ def _run_dq(settings: Settings, args: argparse.Namespace) -> int:
                     proposed.pop(name, None)
                 else:
                     proposed[name] = value
-            report = preview_rules(session, scope, proposed, days=args.days)
+            report = preview_rules(session, scope, proposed, days=args.days, references=references)
             print(report.summary())
             if args.dq_command == "preview":
                 return 0
@@ -669,6 +689,7 @@ def _print_model(session: Session, model: ModelView) -> None:
         print(f"  operating mode:     {text}")
     names = {s.tag_id: s.source_name for s in latest.sensors}
     print("Alert rules:")
+    states = rule_states(session, model.id)
     for rule in list_alert_rules(session, model.id):
         spec = rule.spec
         target = (
@@ -679,7 +700,8 @@ def _print_model(session: Session, model: ModelView) -> None:
         print(
             f"  {target:<24} warning {spec.warning:g}  alert {spec.alert:g}  "
             f"{spec.persistence_n} of {spec.persistence_m}  on-delay {spec.on_delay_s} s  "
-            f"deadband {spec.deadband:.0%} for {spec.clear_cycles}"
+            f"deadband {spec.deadband:.0%} for {spec.clear_cycles}  "
+            f"[{states.get(rule.id, AlertState.NORMAL).value}]"
             + ("" if spec.enabled else "  (disabled)")
         )
 
@@ -784,7 +806,8 @@ def _alert_line(alert: AlertView, models: dict[int, str], tags: dict[int, str]) 
     condition = "active" if alert.condition_active else "cleared"
     shelved = f"  until {alert.shelved_until:%Y-%m-%d %H:%M}" if alert.shelved_until else ""
     return (
-        f"{alert.id:>5}  {alert.priority}  {alert.severity.value:<7} {alert.state.value:<24} "
+        f"{alert.id:>5}  {alert.priority or '—':<2}  {alert.severity.value:<7} "
+        f"{alert.state.value:<24} "
         f"{models.get(alert.model_id, alert.model_id)!s:<20} {what:<18} "
         f"raised {alert.raised_at:%Y-%m-%d %H:%M}  {condition}{shelved}"
     )
@@ -794,15 +817,15 @@ _BAND_ORDER = (Band.ALERT, Band.WATCH, Band.UNKNOWN, Band.HEALTHY)
 
 
 def _print_node(node: NodeHealth, depth: int = 0) -> None:
-    band = node.band.value if node.band else "Not monitored"
+    band = node.band.value if node.band else "No model"
     health = f"{node.health:3.0f}" if node.health is not None else "  -"
     counts = " · ".join(f"{b.value} {node.counts[b]}" for b in _BAND_ORDER if node.counts.get(b))
     label = f"{'  ' * depth}{node.code}"
     worst = f"  worst: {node.worst}" if node.children and node.worst else ""
     print(f"{label:<28} {band:<14} {health}  {counts}{worst}")
     for model in node.models:
-        status = model.status.value if model.status else "not scored yet"
-        print(f"{'  ' * (depth + 1)}- model {model.name}: {model.band.value} ({status})")
+        detail = model.why or (model.status.value if model.status else "")
+        print(f"{'  ' * (depth + 1)}- model {model.name}: {model.band.value} ({detail})")
     for child in node.children:
         _print_node(child, depth + 1)
 
@@ -857,7 +880,13 @@ def _run_alert(settings: Settings, args: argparse.Namespace) -> int:
                 changes = acknowledge(session, actor, args.ids, now, args.comment)
             elif command == "shelve":
                 changes = shelve(
-                    session, actor, args.ids, now, reason=args.reason, duration=args.duration
+                    session,
+                    actor,
+                    args.ids,
+                    now,
+                    reason=args.reason,
+                    duration=args.duration,
+                    max_duration=timedelta(days=settings.alert_max_shelve_days),
                 )
             elif command == "unshelve":
                 changes = unshelve(session, actor, args.ids, now)

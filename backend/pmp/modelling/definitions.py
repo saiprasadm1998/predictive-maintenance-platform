@@ -81,6 +81,9 @@ class ModelDefinition:
     params: Mapping[str, Any] = field(default_factory=dict)
 
 
+MIN_CYCLE_S = 10  # FR-RUN-01: default 60 s, minimum 10 s
+
+
 def check_definition(
     definition: ModelDefinition,
     asset_tags: Collection[str],
@@ -106,6 +109,13 @@ def check_definition(
     foreign = [n for n in dict.fromkeys(names) if n not in asset_tags]
     if foreign:
         problems.append(f"Not tags of {definition.asset_code}: {', '.join(foreign)}")
+
+    cycle_s = definition.params.get("cycle_s", 60)
+    if isinstance(cycle_s, bool) or not isinstance(cycle_s, int) or cycle_s < MIN_CYCLE_S:
+        problems.append(
+            f"Scoring cycle (params.cycle_s) must be a whole number of seconds, at least "
+            f"{MIN_CYCLE_S} (FR-RUN-01; default 60)"
+        )
 
     if not definition.training_periods:
         problems.append("Select at least one training period")

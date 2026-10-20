@@ -59,8 +59,8 @@ def test_figure_6_transitions(state: AlertState, trigger: Trigger, target: Alert
     assert transition(state, trigger) is target
 
 
-@pytest.mark.parametrize("state", [S.ACTIVE_UNACK, S.ACTIVE_ACK, S.RTN_UNACK, S.SHELVED])
-def test_any_open_alert_goes_out_of_service(state: AlertState) -> None:
+@pytest.mark.parametrize("state", [S.NORMAL, S.ACTIVE_UNACK, S.ACTIVE_ACK, S.RTN_UNACK, S.SHELVED])
+def test_any_state_goes_out_of_service(state: AlertState) -> None:
     assert transition(state, Trigger.OUT_OF_SERVICE) is S.OUT_OF_SERVICE
 
 
@@ -73,7 +73,6 @@ def test_any_open_alert_goes_out_of_service(state: AlertState) -> None:
         (S.RTN_UNACK, Trigger.SHELVE),
         (S.SHELVED, Trigger.ACK),
         (S.OUT_OF_SERVICE, Trigger.ACK),
-        (S.NORMAL, Trigger.OUT_OF_SERVICE),
         (S.ACTIVE_ACK, Trigger.RAISE),
     ],
 )
@@ -171,3 +170,15 @@ def test_severity_never_drops_while_active(data: list[float]) -> None:
     for before, after in itertools.pairwise(steps):
         if before.state is S.ACTIVE_UNACK and after.state is S.ACTIVE_UNACK:
             assert not (before.severity is Severity.ALERT and after.severity is Severity.WARNING)
+
+
+def test_escalation_needs_a_new_acknowledgement() -> None:
+    """An escalation from Warning to Alert returns an acknowledged alert to
+    Active-Unacknowledged (decision 4.4, ISA-18.2)."""
+    steps = replay(di_rule(), [20, 20, 20, 30, 30, 30], START, acknowledge_at=[3])
+    assert [(s.state, s.severity) for s in steps[2:]] == [
+        (S.ACTIVE_UNACK, Severity.WARNING),
+        (S.ACTIVE_ACK, Severity.WARNING),
+        (S.ACTIVE_ACK, Severity.WARNING),
+        (S.ACTIVE_UNACK, Severity.ALERT),
+    ]

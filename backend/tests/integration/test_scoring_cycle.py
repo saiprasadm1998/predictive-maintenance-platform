@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -15,15 +16,17 @@ from sqlalchemy.engine import make_url
 
 from pmp import cli
 from pmp.alerting import AlertRuleSpec, RuleKind, set_alert_rules
-from pmp.core import Actor, Database, EventBus, get_settings
+from pmp.core import Actor, Database, EventBus, LockKey, get_settings, lock_for_transaction
 from pmp.ingestion import Quality, SampleRow, write_samples
 from pmp.modelling import (
     Action,
+    ModelCache,
     ModelDefinition,
     Period,
     SensorChoice,
     change_status,
     get_model,
+    list_active_versions,
     run_training,
     save_draft,
     start_training,
@@ -44,6 +47,7 @@ from pmp.scoring import (
     Scheduler,
     ScoreComputed,
     get_runtime_statuses,
+    score_models,
 )
 
 pytestmark = pytest.mark.integration
@@ -292,3 +296,51 @@ def test_only_one_scheduler_leads(deployed: Database) -> None:
     assert not first.is_alive()
     assert not second.is_alive()
     assert len(_scores(deployed)) == 1
+
+
+def test_sensor_outputs_keep_the_data_quality_state(deployed: Database) -> None:
+    """UCS §6.1: every cycle keeps each sensor's NE 107 status, the rule and whether it was
+    used, also when the cycle had insufficient data (PDS SCR-03 lists the unusable)."""
+    scheduler = Scheduler(deployed, clock=Clock(LIVE + timedelta(minutes=2, seconds=30)))
+    scheduler.tick()
+    scheduler.clock = Clock(LIVE + timedelta(hours=3, seconds=30))  # data stopped at 1 h
+    result = scheduler.tick()[0]
+    assert result.status is RuntimeStatus.INSUFFICIENT_DATA
+    with deployed.session() as s:
+        rows = s.execute(
+            text("SELECT ts, dq_status, dq_rule, used FROM sensor_output ORDER BY ts, tag_id")
+        ).all()
+    running = {(st, rule, used) for ts, st, rule, used in rows if ts == LIVE + timedelta(minutes=2)}
+    stopped = {(st, rule, used) for ts, st, rule, used in rows if ts == result.ts}
+    assert running == {("Good", "none", True)}
+    assert stopped == {("Failure", "stale", False)}
+
+
+def test_two_writers_never_count_a_cycle_twice(deployed: Database) -> None:
+    """If two workers ever score the same cycle, the per-version lock makes the second
+    wait for the first and then find the cycle done, so its alerts are not evaluated
+    again (ARC §1.2: no duplicates)."""
+    Scheduler(deployed, clock=Clock(LIVE + timedelta(minutes=4, seconds=30))).tick()
+    with deployed.session() as s:
+        version = list_active_versions(s)[0]
+    cycle = LIVE + timedelta(minutes=5)
+    results: list[bool] = []
+
+    def run() -> None:
+        results.extend(r.written for r in score_models(deployed, cycle, [version], ModelCache()))
+
+    with deployed.session() as holder:  # another writer is in the middle of this version
+        lock_for_transaction(holder, LockKey.SCORE_CYCLE, version.version_id)
+        second = threading.Thread(target=run)
+        second.start()
+        second.join(timeout=2)
+        assert second.is_alive()  # waiting for the lock, nothing written yet
+        assert results == []
+    second.join(timeout=30)
+    assert results == [True]
+    run()  # the cycle is now done: found under the lock, alerts untouched
+    assert results == [True, False]
+    with deployed.session() as s:
+        levels = s.execute(text("SELECT levels FROM alert_rule_state")).scalars().all()
+    assert levels
+    assert all(len(lv) == 2 for lv in levels)  # the earlier cycle and this one, once

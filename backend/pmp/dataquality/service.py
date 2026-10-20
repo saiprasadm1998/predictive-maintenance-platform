@@ -299,12 +299,14 @@ def evaluate_sensors(
     *,
     references: Mapping[int, Reference] | None = None,
     bus: EventBus | None = None,
+    store: bool = True,
 ) -> dict[int, SensorState]:
-    """Evaluate the rules for each tag at cycle time `at` and store the statuses.
+    """Evaluate the rules for each tag at cycle time `at` and (unless `store` is False)
+    store the statuses.
 
-    `SensorStatusChanged` is published for every tag whose status or rule changed.
+    `SensorStatusChanged` is published for every tag whose stored status or rule changed.
     """
-    readings = read_sensors(session, at, tag_ids, references=references, bus=bus)
+    readings = read_sensors(session, at, tag_ids, references=references, bus=bus, store=store)
     return {tag_id: reading.state for tag_id, reading in readings.items()}
 
 
@@ -315,10 +317,12 @@ def read_sensors(
     *,
     references: Mapping[int, Reference] | None = None,
     bus: EventBus | None = None,
+    store: bool = True,
 ) -> dict[int, SensorReading]:
     """Each tag's held value and state at cycle time `at`; statuses are stored as in
     evaluate_sensors. The scoring cycle (4.1) calls this with the deployed models'
-    training statistics as references."""
+    training statistics as references. A stored status is never replaced by one
+    evaluated for an earlier time."""
     tags = _tags(session, tag_ids)
     rows = _current_rows(session)
     excl = _exclusions(session, (t.id for t in tags), at, at)
@@ -344,7 +348,11 @@ def read_sensors(
         sample_ts = rows_for_tag[-1][0] if rows_for_tag else None
         readings[tag.id] = SensorReading(value, state, sample_ts)
 
+        if not store:
+            continue
         stored = stored_rows.get(tag.id)
+        if stored is not None and stored.evaluated_at > at:
+            continue
         if stored is None:
             session.add(
                 SensorStatus(

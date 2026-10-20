@@ -12,7 +12,15 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import pytest
 
-from pmp.dataquality import DEFAULTS, DataQualityError, Effect, Ne107, Rule, RuleParams
+from pmp.dataquality import (
+    DEFAULTS,
+    PARAM_NAMES,
+    DataQualityError,
+    Effect,
+    Ne107,
+    Rule,
+    RuleParams,
+)
 from pmp.dataquality.domain import (
     RULE_ORDER,
     Samples,
@@ -322,3 +330,10 @@ def test_switches_accept_on_off_words() -> None:
         "stale": True,
         "flatline_window": 20,
     }
+
+
+def test_the_bad_quality_rule_cannot_be_switched_off() -> None:
+    """PRD FR-ING-05: bad-quality samples are always excluded from scoring."""
+    with pytest.raises(DataQualityError, match="cannot be changed"):
+        parse_overrides({"bad_quality": "off"})
+    assert "bad_quality" not in PARAM_NAMES

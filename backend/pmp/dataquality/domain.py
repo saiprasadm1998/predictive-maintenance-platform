@@ -104,11 +104,11 @@ class RuleParams:
     """Thresholds and on/off switches. Defaults are the UCS §6.1 defaults.
 
     Percentages are of the sensor's reference range (training range once a model is
-    deployed, instrument range before). Manual exclusion cannot be switched off, and a
+    deployed, instrument range before). Bad source quality and manual exclusion cannot be
+    switched off (bad samples are always excluded from scoring, PRD FR-ING-05), and a
     sensor with no sample at all is always reported Stale.
     """
 
-    bad_quality: bool = True
     stale: bool = True
     stale_factor: float = 3.0  # times the expected sampling interval
     out_of_range: bool = True
@@ -140,6 +140,11 @@ def parse_overrides(overrides: Mapping[str, Any]) -> dict[str, Any]:
     """Validate a partial set of parameters; strings like 'off' or '30' are accepted."""
     parsed: dict[str, Any] = {}
     for name, raw in overrides.items():
+        if name == "bad_quality":
+            raise DataQualityError(
+                "The bad-quality rule cannot be changed: bad samples are always excluded "
+                "from scoring (FR-ING-05)"
+            )
         if name not in PARAM_NAMES:
             raise DataQualityError(
                 f"Unknown rule parameter {name!r}; known: {', '.join(PARAM_NAMES)}"
@@ -328,7 +333,7 @@ def evaluate_rules(
     uncertain = has & (quality == _UNCERTAIN)
 
     conditions = [
-        bad & params.bad_quality,
+        bad,
         no_data | (stale & params.stale),
         excluded,
         out & params.out_of_range,

@@ -93,8 +93,11 @@ def _check_columns(path: Path, options: BackfillOptions) -> None:
         raise ProblemError(400, "invalid_file", "File cannot be imported", str(error)) from None
 
 
-def _queue(request: Request, upload_id: str, options: BackfillOptions, preview: bool) -> QueuedJob:
+def _queue(
+    request: Request, key_id: int, upload_id: str, options: BackfillOptions, preview: bool
+) -> QueuedJob:
     payload = {
+        "key_id": key_id,  # only this key may read the job (ARC §1.2: ingest keys write only)
         "upload": _find_upload(request, upload_id).name,
         "options": options.to_payload(),
         "preview": preview,
@@ -123,7 +126,7 @@ def upload_history(
     value_column: Annotated[str, Form()] = "value",
     quality_column: Annotated[str, Form()] = "quality",
 ) -> QueuedJob:
-    authenticate_api_key(request, ApiKeyScope.INGEST)
+    key = authenticate_api_key(request, ApiKeyScope.INGEST)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUFFIXES:
         raise ProblemError(
@@ -161,7 +164,7 @@ def upload_history(
     except ProblemError:
         path.unlink(missing_ok=True)
         raise
-    return _queue(request, upload_id, options, preview)
+    return _queue(request, key.id, upload_id, options, preview)
 
 
 @router.post(
@@ -171,11 +174,11 @@ def upload_history(
     summary="Import a file that was uploaded for preview",
 )
 def load_history(request: Request, upload_id: str, body: LoadRequest) -> QueuedJob:
-    authenticate_api_key(request, ApiKeyScope.INGEST)
+    key = authenticate_api_key(request, ApiKeyScope.INGEST)
     path = _find_upload(request, upload_id)
     options = BackfillOptions(**body.model_dump())
     _check_columns(path, options)
-    return _queue(request, upload_id, options, preview=False)
+    return _queue(request, key.id, upload_id, options, preview=False)
 
 
 @router.get(
@@ -185,10 +188,12 @@ def load_history(request: Request, upload_id: str, body: LoadRequest) -> QueuedJ
     summary="Status, progress and result of a background job",
 )
 def job_status(request: Request, job_id: int) -> JobView:
-    authenticate_api_key(request, ApiKeyScope.INGEST)
+    key = authenticate_api_key(request, ApiKeyScope.INGEST)
     with database_of(request).session() as session:
         job = get_job(session, job_id)
-    if job is None:
+    # an ingest key sees only the history imports it started (training results and other
+    # jobs stay private); user access to all jobs comes with 5.2
+    if job is None or job.type != BACKFILL_JOB or job.payload.get("key_id") != key.id:
         raise ProblemError(404, "not_found", "Job not found")
     return JobView(
         id=job.id,

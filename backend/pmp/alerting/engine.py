@@ -47,6 +47,7 @@ class Severity(StrEnum):
 
 class Trigger(StrEnum):
     RAISE = "raise"  # condition persistent (also re-activates an RTN-unacknowledged alert)
+    ESCALATE = "escalate"  # Warning -> Alert on the same alert: to be acknowledged again
     CLEAR = "clear"  # condition returned to normal
     ACK = "acknowledge"
     SHELVE = "shelve"
@@ -69,7 +70,11 @@ TRANSITIONS: dict[tuple[AlertState, Trigger], AlertState] = {
     (S.ACTIVE_ACK, Trigger.SHELVE): S.SHELVED,
     (S.SHELVED, Trigger.EXPIRE_ACTIVE): S.ACTIVE_UNACK,
     (S.SHELVED, Trigger.EXPIRE_NORMAL): S.NORMAL,
-    **{(state, Trigger.OUT_OF_SERVICE): S.OUT_OF_SERVICE for state in _ANY_OPEN},
+    (S.ACTIVE_UNACK, Trigger.ESCALATE): S.ACTIVE_UNACK,
+    (S.ACTIVE_ACK, Trigger.ESCALATE): S.ACTIVE_UNACK,
+    (S.SHELVED, Trigger.ESCALATE): S.SHELVED,
+    # Figure 6: "Normal --> OutOfService: model paused"; any state moves there
+    **{(state, Trigger.OUT_OF_SERVICE): S.OUT_OF_SERVICE for state in (S.NORMAL, *_ANY_OPEN)},
     (S.OUT_OF_SERVICE, Trigger.RETURN_TO_SERVICE): S.NORMAL,
 }
 
@@ -173,6 +178,8 @@ def replay(
                 if not condition_active:
                     state = transition(state, Trigger.RAISE)
                     condition_active = True
+                elif result.raise_to is not severity:
+                    state = transition(state, Trigger.ESCALATE)
                 severity = result.raise_to
             elif result.cleared:
                 state = transition(state, Trigger.CLEAR)

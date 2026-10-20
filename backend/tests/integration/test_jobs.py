@@ -19,6 +19,7 @@ from pmp.core import (
     enqueue,
     fail,
     fail_expired,
+    heartbeat,
     queue_depth,
 )
 
@@ -165,7 +166,7 @@ def test_expired_job_with_no_attempts_left_is_failed(clean_jobs: Database) -> No
 
     with db.session() as session:
         assert claim(session, "worker-b") is None
-        assert fail_expired(session) == 1
+        assert len(fail_expired(session)) == 1
     assert _job(db, job_id).status == JobStatus.FAILED
 
 
@@ -214,3 +215,72 @@ def test_worker_runs_handlers_and_records_outcomes(clean_jobs: Database) -> None
     unknown = _job(db, unknown_id)
     assert unknown.status == JobStatus.FAILED
     assert "No handler" in (unknown.last_error or "")
+
+
+def test_heartbeat_keeps_a_long_job_from_being_reclaimed(clean_jobs: Database) -> None:
+    """A job that runs past the lock timeout keeps its lock while it is alive (4.4)."""
+    db = clean_jobs
+    with db.session() as session:
+        job_id = enqueue(session, "train")
+        claim(session, "worker-a")
+        session.execute(
+            text("UPDATE job SET locked_at = now() - interval '9 minutes' WHERE id = :id"),
+            {"id": job_id},
+        )
+    with db.session() as session:
+        assert heartbeat(session, job_id, "worker-a")
+        assert not heartbeat(session, job_id, "worker-b")  # only the holder renews
+    with db.session() as session:
+        session.execute(text("SELECT 1"))
+        assert claim(session, "worker-b") is None
+
+
+def test_a_late_outcome_from_a_worker_that_lost_the_job_is_ignored(clean_jobs: Database) -> None:
+    db = clean_jobs
+    with db.session() as session:
+        job_id = enqueue(session, "train")
+        claim(session, "worker-a")
+        session.execute(
+            text("UPDATE job SET locked_at = now() - interval '1 hour' WHERE id = :id"),
+            {"id": job_id},
+        )
+    with db.session() as session:
+        assert claim(session, "worker-b") is not None
+    with db.session() as session:
+        complete(session, job_id, {"by": "a"}, worker="worker-a")  # too late: ignored
+    assert _job(db, job_id).status == JobStatus.RUNNING
+    with db.session() as session:
+        complete(session, job_id, {"by": "b"}, worker="worker-b")
+    job = _job(db, job_id)
+    assert (job.status, job.result) == (JobStatus.SUCCEEDED, {"by": "b"})
+
+
+def test_a_job_lost_for_good_tells_its_module(clean_jobs: Database) -> None:
+    db = clean_jobs
+    seen: list[tuple[Mapping[str, Any], str]] = []
+    registry = JobRegistry()
+    registry.register("train", lambda payload: None, on_failed=lambda p, e: seen.append((p, e)))
+    with db.session() as session:
+        job_id = enqueue(session, "train", {"version_id": 7}, max_attempts=1)
+        claim(session, "worker-a")
+        session.execute(
+            text("UPDATE job SET locked_at = now() - interval '1 hour' WHERE id = :id"),
+            {"id": job_id},
+        )
+    Worker(db, registry, name="w").expire_locks()
+    assert seen == [({"version_id": 7}, "worker lost: lock expired")]
+
+
+def test_a_handler_failing_for_good_tells_its_module(clean_jobs: Database) -> None:
+    db = clean_jobs
+    seen: list[str] = []
+
+    def broken(payload: Mapping[str, Any]) -> None:
+        raise RuntimeError("boom")
+
+    registry = JobRegistry()
+    registry.register("train", broken, on_failed=lambda p, e: seen.append(e))
+    with db.session() as session:
+        enqueue(session, "train", max_attempts=1)
+    assert Worker(db, registry, name="w").run_once()
+    assert seen == ["RuntimeError: boom"]

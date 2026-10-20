@@ -29,6 +29,7 @@ class LockKey(IntEnum):
 
     MIGRATIONS = 7_410_001
     SCHEDULER = 7_410_002
+    SCORE_CYCLE = 7_410_003  # with a model version ID: one writer per version and cycle
 
 
 class Database:
@@ -67,3 +68,29 @@ def try_advisory_lock(connection: Connection, key: LockKey) -> bool:
     ).scalar_one()
     connection.commit()
     return bool(acquired)
+
+
+def lock_for_transaction(session: Session, key: LockKey, item: int) -> None:
+    """Take a transaction-level advisory lock on (key, item), waiting until it is free.
+    PostgreSQL releases it at commit or rollback."""
+    session.execute(
+        text("SELECT pg_advisory_xact_lock(:key, :item)"), {"key": int(key), "item": item}
+    )
+
+
+def holds_advisory_lock(connection: Connection, key: LockKey) -> bool:
+    """Whether this connection still holds the session-level lock `key` (False if the
+    connection has dropped, which releases it)."""
+    try:
+        held = connection.execute(
+            text(
+                "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' "
+                "AND pid = pg_backend_pid() AND granted "
+                "AND ((classid::bigint << 32) | objid::bigint) = :key"
+            ),
+            {"key": int(key)},
+        ).scalar_one()
+        connection.commit()
+    except Exception:
+        return False
+    return bool(held)

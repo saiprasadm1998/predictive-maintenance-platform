@@ -140,3 +140,22 @@ def test_upload_needs_an_ingest_key(env: dict[str, Any]) -> None:
         data={"source": SOURCE},
     )
     assert response.status_code == 401
+
+
+def test_an_ingest_key_reads_only_its_own_history_jobs(env: dict[str, Any]) -> None:
+    """ARC §1.2: a leaked ingest key can only write samples; it cannot read other jobs."""
+    job_id = _upload(env, preview=True).json()["job_id"]
+    with env["db"].session() as s:
+        other = issue_api_key(s, ACTOR, name="other", scope=ApiKeyScope.INGEST).key
+        s.execute(
+            text(
+                "INSERT INTO job (type, payload, status, attempts, max_attempts) "
+                "VALUES ('model.train', '{\"version_id\": 1}', 'succeeded', 1, 5)"
+            )
+        )
+        training_id = s.execute(text("SELECT max(id) FROM job")).scalar_one()
+    client = env["client"]
+    assert client.get(f"/api/v1/jobs/{job_id}", headers=env["headers"]).status_code == 200
+    stranger = {"Authorization": f"ApiKey {other}"}
+    assert client.get(f"/api/v1/jobs/{job_id}", headers=stranger).status_code == 404
+    assert client.get(f"/api/v1/jobs/{training_id}", headers=env["headers"]).status_code == 404

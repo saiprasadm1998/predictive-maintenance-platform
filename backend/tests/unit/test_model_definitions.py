@@ -156,3 +156,11 @@ def test_definition_files_accept_relative_and_absolute_times() -> None:
 def test_malformed_files_are_reported(data: dict[str, object], message: str) -> None:
     with pytest.raises(ModelError, match=message):
         definition_from_dict(data, T0)
+
+
+@pytest.mark.parametrize("cycle_s", [5, 0, 9.5, "60", True])
+def test_the_scoring_cycle_is_at_least_10_seconds(cycle_s: object) -> None:
+    """FR-RUN-01: default 60 s, minimum 10 s."""
+    definition = replace(GOOD, params={"cycle_s": cycle_s})
+    with pytest.raises(ModelError, match="at least 10"):
+        check_definition(definition, TAGS, {"median"})

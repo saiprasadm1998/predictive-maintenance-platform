@@ -93,6 +93,7 @@ class AlertRuleState(Base):
     clear_count: Mapped[int] = mapped_column(Integer)
     condition_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_cycle: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    out_of_service: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class PriorityEntry(Base):

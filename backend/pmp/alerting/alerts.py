@@ -57,7 +57,7 @@ class AlertView:
     tag_id: int | None
     state: AlertState
     severity: Severity
-    priority: str
+    priority: str | None  # None while out of service (shown as "—", wireframe 02)
     raised_at: datetime
     version_id: int
     condition_active: bool
@@ -76,7 +76,7 @@ def _view(row: Alert) -> AlertView:
         tag_id=row.tag_id,
         state=AlertState(row.state),
         severity=Severity(row.severity),
-        priority=row.priority,
+        priority=None if row.state == AlertState.OUT_OF_SERVICE else row.priority,
         raised_at=row.raised_at,
         version_id=row.version_id,
         condition_active=row.condition_active,
@@ -246,9 +246,11 @@ def evaluate_cycle(
             sensor = z.get(rule.tag_id) if rule.tag_id is not None else None
             value = abs(sensor) if sensor is not None else None
         alert = open_alerts.get(rule.id)
+        stored = memories.get(rule.id)
         if value is None or (alert is not None and alert.state == AlertState.OUT_OF_SERVICE):
             continue
-        stored = memories.get(rule.id)
+        if stored is not None and stored.out_of_service:
+            continue  # the model's return to service is handled by sync_out_of_service
         memory = (
             RuleMemory(tuple(stored.levels), stored.clear_count, stored.condition_since)
             if stored
@@ -340,7 +342,9 @@ def _raise(
             return [_apply(session, alert, Trigger.RAISE, ts, system)]
         return []
     alert.severity, alert.priority = severity.value, priority  # escalation to Alert
-    return [_record(session, alert, "escalate", AlertState(alert.state), ts, system)]
+    if alert.state == AlertState.ACTIVE_ACK:  # the new severity is acknowledged afresh
+        alert.ack_by = alert.ack_at = None
+    return [_apply(session, alert, Trigger.ESCALATE, ts, system)]
 
 
 # ------------------------------------------------------------------ operator actions (UC-10)
@@ -436,31 +440,57 @@ def expire_shelves(session: Session, now: datetime) -> list[AlertChanged]:
 def sync_out_of_service(
     session: Session, in_service: Iterable[int], now: datetime
 ) -> list[AlertChanged]:
-    """Out of service follows the model (UC-10: set by model state, not by users): a model
-    not deployed (paused, retired) puts its open alerts out of service; when it is deployed
-    again they return to Normal and its rules start counting afresh."""
+    """Out of service follows the model (UC-10: set by model state, not by users; UCS
+    Figure 6: any state, Normal included, moves to Out of service when the model is
+    paused or retired). Rules are taken out of service with their alerts, and their
+    persistence memory is cleared, so when the model is deployed again every rule starts
+    counting afresh and its alerts return to Normal.
+
+    Only rules that have run at least once are affected: a draft model's rules never
+    were in service.
+    """
     deployed = set(in_service)
     system = Actor.system()
     changes = []
-    rows = session.scalars(select(Alert).where(Alert.state.in_(_OPEN))).all()
-    returned_models = set()
-    for row in rows:
+    for row in session.scalars(select(Alert).where(Alert.state.in_(_OPEN))).all():
         if row.state == AlertState.OUT_OF_SERVICE:
             if row.model_id in deployed:
                 row.condition_active = False
                 changes.append(_apply(session, row, Trigger.RETURN_TO_SERVICE, now, system))
-                returned_models.add(row.model_id)
         elif row.model_id not in deployed:
+            row.condition_active = False
+            row.shelved_until = row.shelve_reason = None
             changes.append(_apply(session, row, Trigger.OUT_OF_SERVICE, now, system))
-    if returned_models:
-        rule_ids = session.scalars(
-            select(AlertRule.id).where(AlertRule.model_id.in_(returned_models))
-        ).all()
-        for memory in session.scalars(
-            select(AlertRuleState).where(AlertRuleState.rule_id.in_(rule_ids))
-        ).all():
-            session.delete(memory)
+
+    memories = session.execute(
+        select(AlertRuleState, AlertRule.model_id).join(
+            AlertRule, AlertRule.id == AlertRuleState.rule_id
+        )
+    ).all()
+    for memory, model_id in memories:
+        out = model_id not in deployed
+        if out != memory.out_of_service:
+            memory.out_of_service = out
+            memory.levels, memory.clear_count, memory.condition_since = [], 0, None
     return changes
+
+
+def rule_states(session: Session, model_id: int) -> dict[int, AlertState]:
+    """Each of a model's rules in Figure 6 terms: its open alert's state, Out of service
+    while the model is not in service, otherwise Normal."""
+    rules = session.scalars(select(AlertRule.id).where(AlertRule.model_id == model_id)).all()
+    states = dict.fromkeys(rules, AlertState.NORMAL)
+    for memory in session.scalars(
+        select(AlertRuleState).where(AlertRuleState.rule_id.in_(rules))
+    ).all():
+        if memory.out_of_service:
+            states[memory.rule_id] = AlertState.OUT_OF_SERVICE
+    for alert in session.scalars(
+        select(Alert).where(Alert.rule_id.in_(rules), Alert.state.in_(_OPEN))
+    ).all():
+        if alert.rule_id is not None:
+            states[alert.rule_id] = AlertState(alert.state)
+    return states
 
 
 def set_priority(
@@ -509,7 +539,7 @@ def list_alerts(
     session: Session, *, open_only: bool = True, model_id: int | None = None
 ) -> list[AlertView]:
     """Open alerts by default (not Normal): unacknowledged first, then priority, then age
-    (PDS §4.2)."""
+    (PDS §4.2); out-of-service alerts last (wireframe 02)."""
     query = select(Alert)
     if open_only:
         query = query.where(Alert.state.in_(_OPEN))
@@ -519,7 +549,12 @@ def list_alerts(
     unacknowledged = {AlertState.ACTIVE_UNACK, AlertState.RTN_UNACK}
     return sorted(
         views,
-        key=lambda v: (v.state not in unacknowledged, v.priority, v.raised_at),
+        key=lambda v: (
+            v.state is AlertState.OUT_OF_SERVICE,
+            v.state not in unacknowledged,
+            v.priority or "",
+            v.raised_at,
+        ),
     )
 
 

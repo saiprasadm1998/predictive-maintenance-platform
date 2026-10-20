@@ -18,7 +18,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from pmp.alerting import expire_shelves, sync_out_of_service
-from pmp.core import Database, EventBus, LockKey, try_advisory_lock
+from pmp.core import Database, EventBus, LockKey, holds_advisory_lock, try_advisory_lock
 from pmp.modelling import ActiveVersion, ModelCache, list_active_versions
 from pmp.scoring.runtime import CycleResult, last_cycles, mark_out_of_service, score_models
 
@@ -86,8 +86,19 @@ class Scheduler:
             self.bus.publish(change)
 
     def run_forever(self, stop: threading.Event) -> None:
-        """Wait to become the leader, then tick until stopped. Closing the connection
-        on the way out releases the lock for another worker."""
+        """Lead while holding the lock, ticking until stopped. If the lock connection
+        drops, PostgreSQL releases the lock: this worker stops leading (checked before
+        every tick) and waits to take it again, so two workers never lead at once.
+        Closing the connection on the way out releases the lock for another worker."""
+        while not stop.is_set():
+            try:
+                self._lead(stop)
+            except Exception:
+                logger.exception("Scheduler connection failed; trying to lead again")
+                stop.wait(5.0)
+        logger.info("Scoring scheduler stopped")
+
+    def _lead(self, stop: threading.Event) -> None:
         with self.database.engine.connect() as connection:
             while not stop.is_set() and not try_advisory_lock(connection, LockKey.SCHEDULER):
                 stop.wait(5.0)
@@ -95,9 +106,12 @@ class Scheduler:
                 return
             logger.info("Scoring scheduler started as the leader")
             while not stop.is_set():
+                if not holds_advisory_lock(connection, LockKey.SCHEDULER):
+                    logger.warning("Scheduler lost its leader lock; stepping down")
+                    self._last = None  # re-read the last cycles when leading again
+                    return
                 try:
                     self.tick()
                 except Exception:
                     logger.exception("Scoring tick failed; trying again next tick")
                 stop.wait(self.poll_s)
-        logger.info("Scoring scheduler stopped")

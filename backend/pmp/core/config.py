@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     ingest_rate_limit: float = Field(default=50.0, gt=0)  # requests per second per API key
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted
     retention_months: int = Field(default=24, ge=1)
+    alert_max_shelve_days: int = Field(default=7, ge=1)  # UCS §6.6: configurable maximum
     log_level: str = "INFO"
     log_format: LogFormat = LogFormat.JSON
     web_host: str = "127.0.0.1"

@@ -20,7 +20,15 @@ from pmp.core.apikeys import (
 )
 from pmp.core.audit import Actor, ActorType, AuditLog, audit_change, record_audit
 from pmp.core.config import LogFormat, Settings, get_settings
-from pmp.core.db import Base, Database, LockKey, advisory_lock, try_advisory_lock
+from pmp.core.db import (
+    Base,
+    Database,
+    LockKey,
+    advisory_lock,
+    holds_advisory_lock,
+    lock_for_transaction,
+    try_advisory_lock,
+)
 from pmp.core.events import EVENT_CHANNEL, Event, EventBus, notify
 from pmp.core.jobs import (
     Job,
@@ -35,6 +43,7 @@ from pmp.core.jobs import (
     fail,
     fail_expired,
     get_job,
+    heartbeat,
     queue_depth,
     report_progress,
 )
@@ -73,8 +82,11 @@ __all__ = [
     "fail_expired",
     "get_job",
     "get_settings",
+    "heartbeat",
+    "holds_advisory_lock",
     "issue_api_key",
     "list_api_keys",
+    "lock_for_transaction",
     "log_context",
     "notify",
     "queue_depth",

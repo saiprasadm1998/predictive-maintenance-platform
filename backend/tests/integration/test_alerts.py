@@ -28,6 +28,7 @@ from pmp.alerting import (
     expire_shelves,
     get_alert,
     list_alerts,
+    rule_states,
     set_alert_rules,
     set_priority,
     shelve,
@@ -292,3 +293,47 @@ def test_alert_commands(
     assert "unshelved" in out
     assert "A            P2       P1" in out
     assert "Cannot acknowledge an alert that is Active-Acknowledged" in err
+
+
+def test_rules_go_out_of_service_with_the_model_and_restart_afresh(db: Database) -> None:
+    """UCS Figure 6: Normal -> Out of service when the model is paused; on its return
+    the rules count afresh, so cycles from before the pause never complete a 3 of 5."""
+    _rules(db, AlertRuleSpec(RuleKind.DI, 10, 200))  # DI ~30: every cycle exceeds
+    scheduler = _scheduler(db)
+    assert _run(scheduler, 2) == []  # 2 of 5 so far
+    with db.session() as s:
+        model_id = get_model(s, "EQ-1", "main").id
+        change_status(s, ACTOR, "EQ-1", "main", Action.PAUSE)
+    _run(scheduler, 1)
+    with db.session() as s:
+        assert set(rule_states(s, model_id).values()) == {AlertState.OUT_OF_SERVICE}
+        change_status(s, ACTOR, "EQ-1", "main", Action.RESUME)
+    assert _run(scheduler, 2) == []  # would have raised here if the old cycles counted
+    with db.session() as s:
+        assert set(rule_states(s, model_id).values()) == {AlertState.NORMAL}
+    assert [c.action for c in _run(scheduler, 1)] == ["raise"]
+
+
+def test_out_of_service_alerts_have_no_priority_and_come_last(db: Database) -> None:
+    alert_id = _raise_one(db)
+    with db.session() as s:
+        shelve(s, ACTOR, [alert_id], LIVE, reason="work", duration=timedelta(hours=1))
+        change_status(s, ACTOR, "EQ-1", "main", Action.PAUSE)
+    _run(_scheduler(db, minutes=2), 1)
+    with db.session() as s:
+        view = get_alert(s, alert_id)
+    assert (view.state, view.priority) == (AlertState.OUT_OF_SERVICE, None)
+    assert (view.shelved_until, view.shelve_reason) == (None, None)
+
+
+def test_escalation_is_acknowledged_again(db: Database) -> None:
+    alert_id = _raise_one(db)  # Warning, DI ~30
+    with db.session() as s:
+        acknowledge(s, ACTOR, [alert_id], LIVE)
+    _rules(db, AlertRuleSpec(RuleKind.DI, 10, 20, persistence_n=1, persistence_m=1))
+    changes = _run(_scheduler(db, minutes=2), 1)
+    assert [(c.action, c.previous, c.state, c.severity) for c in changes] == [
+        ("escalate", AlertState.ACTIVE_ACK, AlertState.ACTIVE_UNACK, Severity.ALERT)
+    ]
+    with db.session() as s:
+        assert get_alert(s, alert_id).ack_at is None

@@ -39,9 +39,16 @@ from pmp.alerting import (
     evaluate_cycle,
     list_alert_rules,
 )
-from pmp.core import Database, Event, EventBus, notify
+from pmp.core import Database, Event, EventBus, LockKey, lock_for_transaction, notify
 from pmp.dataquality import MIN_COVERAGE, Reference, SensorReading, read_sensors
-from pmp.modelling import ActiveVersion, LoadedModel, ModelCache, ModelError, parse_expression
+from pmp.modelling import (
+    ActiveVersion,
+    LoadedModel,
+    ModelCache,
+    ModelError,
+    list_active_versions,
+    parse_expression,
+)
 from pmp.scoring.models import RuntimeStatusRow, ScoreRow, SensorOutputRow
 from pmp.scoring.outputs import (
     Band,
@@ -133,6 +140,23 @@ def references_for(models: Iterable[LoadedModel]) -> dict[int, Reference]:
     return refs
 
 
+def deployed_references(session: Session, cache: ModelCache) -> dict[int, Reference]:
+    """Training statistics of every Deployed model's sensors, so data-quality previews and
+    status checks judge spikes and flatlines exactly as the scoring cycle does."""
+    loaded = []
+    for version in sorted(list_active_versions(session), key=lambda v: v.version_id):
+        if version.status.value != "Deployed":
+            continue
+        try:
+            loaded.append(cache.get(session, version.version_id))
+        except ModelError:
+            logger.warning(
+                "Model version %s cannot load; its sensors use the instrument range",
+                version.version_id,
+            )
+    return references_for(loaded)
+
+
 def _usable_value(reading: SensorReading | None) -> float | None:
     if reading is None or reading.value is None or not math.isfinite(reading.value):
         return None
@@ -159,10 +183,12 @@ def evaluate(
         return compute_outputs(inputs, model.scales, limits, status)
 
     if missing or share < MIN_COVERAGE:
+        unusable = [n for n in model.sensors if usable[n] is None]
         reason = (
             f"Required sensor not usable: {', '.join(missing)}"
             if missing
-            else f"Coverage {share:.0%} (needs {MIN_COVERAGE:.0%})"
+            else f"Coverage {share:.0%} (needs {MIN_COVERAGE:.0%}); "
+            f"not usable: {', '.join(unusable)}"
         )
         return RuntimeStatus.INSUFFICIENT_DATA, reason, plain(RuntimeStatus.INSUFFICIENT_DATA)
 
@@ -244,8 +270,29 @@ def _notify(session: Session, result: CycleResult) -> None:
     notify(session, payload)
 
 
-def write_result(session: Session, model: LoadedModel | None, result: CycleResult) -> bool:
-    """Write one model's cycle in the caller's transaction. False if already written."""
+def _dq_columns(reading: SensorReading | None) -> dict[str, Any]:
+    """A sensor's data-quality state at this cycle, kept with its output (UCS §6.1: NE 107
+    status, the rule that set it, and whether the value was used)."""
+    if reading is None:
+        return {"dq_status": "Failure", "dq_rule": "stale", "used": False}
+    return {
+        "dq_status": reading.state.status.value,
+        "dq_rule": reading.state.rule.value,
+        "used": reading.state.usable,
+    }
+
+
+def write_result(
+    session: Session,
+    model: LoadedModel | None,
+    result: CycleResult,
+    readings: Mapping[int, SensorReading] | None = None,
+) -> bool:
+    """Write one model's cycle in the caller's transaction. False if already written.
+
+    Sensor outputs are written for every cycle that reached the data-quality step, so an
+    Insufficient-data cycle still shows which sensors were unusable and why (PDS SCR-03).
+    """
     output = result.output
     inserted = session.execute(
         insert(ScoreRow)
@@ -265,7 +312,8 @@ def write_result(session: Session, model: LoadedModel | None, result: CycleResul
     ).first()
     if inserted is None:
         return False
-    if output is not None and model is not None and result.status is RuntimeStatus.RUNNING:
+    if output is not None and model is not None:
+        readings = readings or {}
         rows = [
             {
                 "version_id": result.version_id,
@@ -277,7 +325,7 @@ def write_result(session: Session, model: LoadedModel | None, result: CycleResul
                 "q": s.q,
                 "z": s.z,
                 "contribution": s.contribution,
-                "dq_status": "usable" if s.usable else "excluded",
+                **_dq_columns(readings.get(model.tag_ids[s.tag])),
             }
             for s in output.sensors
         ]
@@ -347,13 +395,14 @@ def _score_one(
             result = CycleResult(
                 model.model_id, model.version_id, cycle, status, reason, output, False
             )
-            if not _cycle_is_new(session, result):
+            lock_for_transaction(session, LockKey.SCORE_CYCLE, model.version_id)
+            if not _cycle_is_new(session, result):  # checked under the lock: never twice
                 return result
             changes: list[AlertChanged] = []
             if status is RuntimeStatus.RUNNING and output is not None:
                 changes, output = _alerts(session, model, readings, limits, output, cycle)
                 result = replace(result, output=output)
-            written = write_result(session, model, result)
+            written = write_result(session, model, result, readings)
         return replace(result, written=written, alerts=tuple(changes))
     except Exception as error:  # one model failing never stops the others
         logger.exception("Scoring model %s at %s failed", model.model_id, cycle)

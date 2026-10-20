@@ -7,9 +7,12 @@ children). Band order, worst first: Alert, Watch, Unknown, Healthy. Unknown rank
 Healthy so an asset that cannot be assessed never makes its parent look healthy, and
 below Watch so it never hides a real deviation (decision 4.3).
 
-Models that are paused, retired or never deployed are not in service: they do not count
-towards any band. An asset with no model in service is "not monitored" (no band, no
-Health), and so is a parent with only such assets beneath it.
+A model counts as Unknown, with its reason, while its status is Insufficient data, Not in
+operating mode, Paused, Error or not scored yet (UCS §6.5). A retired model (Out of
+service) counts as Unknown only while its asset has no other model in service, so a
+decommissioned model never greys out an asset that is monitored by another (decision 4.4).
+Models never deployed count for nothing: an asset with no counting model has no band and
+no Health ("no model"), and so has a parent with only such assets beneath it.
 
 `roll_up` is pure; `health_tree` reads the registry and the latest runtime statuses, so the
 result is always as of the latest cycle.
@@ -20,21 +23,21 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
-from pmp.modelling import list_active_versions
+from pmp.modelling import list_active_versions, model_assets
 from pmp.registry import AssetLevel, AssetView, Criticality, list_subtree
 from pmp.scoring.outputs import Band, RuntimeStatus
 from pmp.scoring.runtime import get_runtime_statuses
 
 RANK = {Band.HEALTHY: 0, Band.UNKNOWN: 1, Band.WATCH: 2, Band.ALERT: 3}
-NOT_IN_SERVICE = {RuntimeStatus.PAUSED, RuntimeStatus.OUT_OF_SERVICE}
 
 
 @dataclass(frozen=True)
 class ModelHealth:
-    """One model in service at its latest cycle (band Unknown until first scored)."""
+    """One counting model at its latest cycle. `status` None: deployed, not scored yet."""
 
     model_id: int
     asset_id: int
@@ -42,6 +45,16 @@ class ModelHealth:
     band: Band
     health: float | None
     status: RuntimeStatus | None = None
+    reason: str | None = None  # why Unknown (UC-08 2a: shown on hover)
+    last_cycle: datetime | None = None  # latest scored cycle (stale-data banner, PDS SCR-01)
+
+    @property
+    def why(self) -> str | None:
+        """The Unknown reason in words: the status, plus its detail if any."""
+        if self.band is not Band.UNKNOWN:
+            return None
+        status = self.status.value if self.status else "Not scored yet"
+        return f"{status}: {self.reason}" if self.reason else status
 
 
 @dataclass(frozen=True)
@@ -51,7 +64,7 @@ class NodeHealth:
     name: str
     level: AssetLevel
     criticality: Criticality | None
-    band: Band | None  # None: not monitored
+    band: Band | None  # None: no model counts here
     health: float | None  # lowest Health beneath (Running models only)
     counts: Mapping[Band, int]  # monitored assets at or beneath this one, by their own band
     models: tuple[ModelHealth, ...]  # this asset's own models in service
@@ -139,27 +152,65 @@ def roll_up(assets: Sequence[AssetView], models: Iterable[ModelHealth]) -> list[
 
 
 def model_healths(session: Session) -> list[ModelHealth]:
-    """Every Deployed model at its latest cycle. A model deployed but not scored yet, or
-    whose last status is for another version, is Unknown until its next cycle."""
+    """Every counting model at its latest cycle (see the module docstring)."""
     statuses = {v.model_id: v for v in get_runtime_statuses(session)}
+    active = list_active_versions(session)
+    in_service_assets = {v.asset_id for v in active}
     healths = []
-    for version in list_active_versions(session):
-        if version.status.value != "Deployed":
-            continue  # paused: not in service
+    for version in active:
         status = statuses.get(version.model_id)
+        if version.status.value == "Paused":
+            healths.append(
+                ModelHealth(
+                    version.model_id,
+                    version.asset_id,
+                    version.name,
+                    Band.UNKNOWN,
+                    None,
+                    RuntimeStatus.PAUSED,
+                    last_cycle=status.last_cycle if status else None,
+                )
+            )
+            continue
         current = (
             status is not None
             and status.version_id == version.version_id
-            and status.status not in NOT_IN_SERVICE
+            and status.status not in (RuntimeStatus.PAUSED, RuntimeStatus.OUT_OF_SERVICE)
         )
+        if status is None or not current:
+            healths.append(
+                ModelHealth(version.model_id, version.asset_id, version.name, Band.UNKNOWN, None)
+            )
+            continue
         healths.append(
             ModelHealth(
                 model_id=version.model_id,
                 asset_id=version.asset_id,
                 name=version.name,
-                band=status.band if current and status else Band.UNKNOWN,
-                health=status.health if current and status else None,
-                status=status.status if current and status else None,
+                band=status.band,
+                health=status.health,
+                status=status.status,
+                reason=status.reason,
+                last_cycle=status.last_cycle,
+            )
+        )
+    assets = model_assets(session)
+    active_ids = {v.model_id for v in active}
+    for model_id, status in statuses.items():
+        if model_id in active_ids or model_id not in assets:
+            continue
+        asset_id, name = assets[model_id]
+        if asset_id in in_service_assets:
+            continue  # retired, but its asset is monitored by another model
+        healths.append(
+            ModelHealth(
+                model_id,
+                asset_id,
+                name,
+                Band.UNKNOWN,
+                None,
+                RuntimeStatus.OUT_OF_SERVICE,
+                last_cycle=status.last_cycle,
             )
         )
     return healths

@@ -37,7 +37,9 @@ class SensorOutputRow(Base):
     q: Mapped[float | None] = mapped_column(Float)
     z: Mapped[float | None] = mapped_column(Float)
     contribution: Mapped[float | None] = mapped_column(Float)
-    dq_status: Mapped[str] = mapped_column(String(30))
+    dq_status: Mapped[str] = mapped_column(String(30))  # NE 107 status (decision 4.4)
+    dq_rule: Mapped[str | None] = mapped_column(String(30))
+    used: Mapped[bool | None] = mapped_column(Boolean)
 
 
 class RuntimeStatusRow(Base):

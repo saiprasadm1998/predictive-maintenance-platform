@@ -588,9 +588,25 @@ def make_training_handler(
     return handle
 
 
+def make_training_failure_handler(database: Database) -> Callable[[Mapping[str, Any], str], None]:
+    """When a training job fails for good without finishing (e.g. the worker kept being
+    lost), its version leaves Training for Failed, as ARC Figure 7 requires."""
+
+    def on_failed(payload: Mapping[str, Any], error: str) -> None:
+        _mark_failed(database, int(payload["version_id"]), f"Training job failed: {error}")
+
+    return on_failed
+
+
 def model_asset_code(session: Session, model_id: int) -> str:
     """The code of the asset a model monitors (cheap: for per-cycle use)."""
     model = session.get(Model, model_id)
     if model is None:
         raise ModelError(f"Model {model_id} does not exist")
     return get_asset_by_id(session, model.asset_id).code
+
+
+def model_assets(session: Session) -> dict[int, tuple[int, str]]:
+    """Every model's asset ID and name, by model ID (one query; for the health roll-up)."""
+    rows = session.execute(select(Model.id, Model.asset_id, Model.name)).tuples().all()
+    return {model_id: (asset_id, name) for model_id, asset_id, name in rows}

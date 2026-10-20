@@ -24,6 +24,7 @@ from pmp.modelling import (
     SensorChoice,
     VersionStatus,
     get_model,
+    make_training_failure_handler,
     make_training_handler,
     run_training,
     save_draft,
@@ -204,3 +205,18 @@ def test_k101_is_scored_live_after_deployment(models: tuple[Database, Path]) -> 
     excluded = [s.tag for s in result.output.sensors if not s.usable]
     assert "K101.TI1018.PV" in excluded
     assert result.output.coverage >= 0.7
+
+
+def test_a_training_job_lost_for_good_leaves_the_version_failed(
+    models: tuple[Database, Path],
+) -> None:
+    """ARC Figure 7: Training ends Validated or Failed, even if the worker keeps dying."""
+    db, _ = models
+    with db.session() as s:
+        save_draft(s, ACTOR, DEFINITION)
+        view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
+    make_training_failure_handler(db)({"version_id": view.id}, "worker lost: lock expired")
+    with db.session() as s:
+        version = get_model(s, "K-101", "main").latest
+    assert version.status is VersionStatus.FAILED
+    assert version.error == "Training job failed: worker lost: lock expired"

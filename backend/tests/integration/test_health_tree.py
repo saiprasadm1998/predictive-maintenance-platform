@@ -43,7 +43,8 @@ def _tree(db: Database) -> dict[str, NodeHealth]:
 def test_roll_up_follows_the_latest_cycle(db: Database, tmp_path: Path) -> None:
     tree = _tree(db)
     assert tree["EQ-1"].band is Band.UNKNOWN  # deployed, not scored yet
-    assert tree["EQ-0"].band is None  # no model: not monitored
+    assert tree["EQ-0"].band is None  # no model: no band
+    assert tree["EQ-1"].models[0].why == "Not scored yet"
     assert tree["SITE-A"].band is Band.UNKNOWN
 
     _deploy(db, tmp_path / "second", "bearings")
@@ -52,7 +53,9 @@ def test_roll_up_follows_the_latest_cycle(db: Database, tmp_path: Path) -> None:
     tree = _tree(db)
     eq1 = tree["EQ-1"]
     assert len(eq1.models) == 2
-    healths = [r.output.health for r in results.values() if r.output and r.output.health]
+    healths = [
+        r.output.health for r in results.values() if r.output and r.output.health is not None
+    ]
     assert eq1.health == min(healths)
     assert eq1.band is worst_band(r.band for r in results.values())
     assert tree["SITE-A"].band is eq1.band
@@ -60,20 +63,40 @@ def test_roll_up_follows_the_latest_cycle(db: Database, tmp_path: Path) -> None:
     assert tree["SITE-A"].counts == {eq1.band: 1}
     assert tree["SITE-A"].worst == "EQ-1"
 
-    # a model change shows on the next read: pausing one leaves only the other
+    # a model change shows on the next read: a paused model is Unknown (UCS §6.5)
     with db.session() as s:
         change_status(s, ACTOR, "EQ-1", "bearings", Action.PAUSE)
     scheduler.clock.now += timedelta(minutes=1)  # type: ignore[attr-defined]
     scheduler.tick()
     tree = _tree(db)
-    assert [m.name for m in tree["EQ-1"].models] == ["main"]
+    bearings = next(m for m in tree["EQ-1"].models if m.name == "bearings")
+    assert (bearings.band, bearings.why) == (Band.UNKNOWN, "Paused")
+    assert eq1.band is not None
+    assert tree["EQ-1"].band is worst_band([Band.UNKNOWN, eq1.band])
 
     with db.session() as s:
         change_status(s, ACTOR, "EQ-1", "main", Action.PAUSE)
     tree = _tree(db)
-    assert tree["EQ-1"].band is None
-    assert tree["SITE-A"].band is None
-    assert tree["SITE-A"].counts == {}
+    assert (tree["EQ-1"].band, tree["EQ-1"].health) == (Band.UNKNOWN, None)
+    assert tree["SITE-A"].counts == {Band.UNKNOWN: 1}
+
+    # retired: Out of service. It counts as Unknown only while no other model watches the
+    # asset (a paused one still does)
+    with db.session() as s:
+        change_status(s, ACTOR, "EQ-1", "bearings", Action.RETIRE)
+    scheduler.clock.now += timedelta(minutes=1)  # type: ignore[attr-defined]
+    scheduler.tick()  # records Out of service for the retired model
+    assert {m.name: m.why for m in _tree(db)["EQ-1"].models} == {"main": "Paused"}
+    with db.session() as s:
+        change_status(s, ACTOR, "EQ-1", "main", Action.RETIRE)
+    scheduler.clock.now += timedelta(minutes=1)  # type: ignore[attr-defined]
+    scheduler.tick()
+    tree = _tree(db)
+    assert {m.name: m.why for m in tree["EQ-1"].models} == {
+        "main": "Out of service",
+        "bearings": "Out of service",
+    }
+    assert tree["SITE-A"].band is Band.UNKNOWN
 
 
 def test_subtree_and_command(
@@ -99,5 +122,5 @@ def test_subtree_and_command(
     assert "SITE-A" in out
     assert "  EQ-1" in out
     assert "- model main: " in out
-    assert "Not monitored" in out  # EQ-0
+    assert "No model" in out  # EQ-0
     assert "'NOPE' does not exist" in err
