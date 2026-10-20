@@ -220,6 +220,20 @@ uv run pmp alert matrix show                           # criticality x severity 
 uv run pmp alert matrix set A Warning P1
 ```
 
+## Health roll-up
+
+Health rolls up the asset hierarchy (PMP-UCS-001 §6.5): equipment takes the worst band and
+lowest Health of its models in service, and every level above takes the worst band and
+lowest Health beneath it, with a count of assets per band. The order, worst first, is
+Alert, Watch, Unknown, Healthy. Assets with no model in service show as not monitored. It is
+worked out from the latest cycle each time it is read.
+
+```
+cd backend
+uv run pmp health tree            # the whole hierarchy
+uv run pmp health tree K-101      # one asset and everything beneath it
+```
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
