@@ -26,8 +26,9 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 4.1 Scoring runtime | Done | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
 | 4.2 Alert engine | Done | ISA-18.2 lifecycle (UCS Figure 6) with persistence, on-delay, deadband clearing and escalation; evaluated in the scoring transaction; acknowledge, shelve (reason, 7-day maximum), unshelve and expiry; Out of service follows the model; priority matrix with re-prioritising; event log, audit, traceability record and NOTIFY; `pmp alert` commands; AC-03 alert reference sequences; |
 | 4.3 Health roll-up | Done | Worst band and lowest Health from models up through equipment, units, sites and the enterprise; counts of assets per band; not-monitored assets; computed on read from the latest cycle; `pmp health tree`; the REST endpoint comes with the other asset endpoints in 5.2 |
-| 4.4 Spec alignment | Built | Full audit of Phases 0–4 against PRD, UCS, ARC, PDS, GAP and the design sources; fixes in data quality, roll-up, alert lifecycle, scoring cycle, job queue and the ingest API (see decisions marked 4.4); final check on my Mac in progress |
-| 5.1 Users, access control and audit review | Next | |
+| 4.4 Spec alignment | Done | Full audit of Phases 0–4 against PRD, UCS, ARC, PDS, GAP and the design sources; fixes in data quality, roll-up, alert lifecycle, scoring cycle, job queue and the ingest API (see decisions marked 4.4) |
+| 5.1 Users, access control and audit review | Built | Users with Argon2id passwords, role assignments with optional hierarchy scope, sessions (cookie with CSRF, or bearer token), lockout and idle timeout; the ARC §9.2 matrix checked in the services and unit-tested cell by cell; API key administration and the audit search with CSV export over the API; `pmp user` and `pmp audit`; final check on my Mac in progress |
+| 5.2 REST API | Next | |
 
 ## How I work
 
@@ -416,6 +417,14 @@ None of these block the current work.
 - [x] **Lost jobs (4.4):** Workers renew a running job's lock every third of the timeout, only the worker holding a job may finish it, and a job that fails for good tells its module, so a training version never stays in Training.
 - [x] **DIref (4.4):** UCS §6.2 calls 2 × the alert limit the default. It stays fixed at 2 × until per-model limits are edited in 7.3, where it becomes a model setting.
 - [x] **Settings added (4.4):** `PMP_ALERT_MAX_SHELVE_DAYS` (default 7, UCS §6.6 "configurable maximum").
+- [x] **Passwords (5.1):** The spec only asks for Argon2id. Rules: at least 12 characters and not containing the username; no forced character classes (NIST SP 800-63B).
+- [x] **Session lifetime (5.1):** Besides the 30-minute idle timeout (ARC §9.3), a session lasts at most 12 hours (`PMP_SESSION_MAX_HOURS`), so a session kept busy all day still needs a fresh sign-in.
+- [x] **Role assignments (5.1):** UC-17 assigns "roles and an optional site scope", so a user holds one or more (role, scope) pairs, for example Analyst for SITE-A plus Viewer everywhere. A scope covers the asset and everything beneath it; actions not tied to an asset (users, keys, audit, global data-quality rules, the priority matrix) need an unscoped role.
+- [x] **Priority matrix (5.1):** ARC §9.2 doesn't list it. It configures alerting, so it goes with "Models: alert limits": Model Engineer.
+- [x] **The command line is trusted (5.1):** `pmp` commands run as the system actor, since whoever can run them can already reach the database. Every web and API action runs as the signed-in user and is checked against the matrix. The first Administrator is created with `pmp user create`.
+- [x] **Users are never deleted (5.1):** They are deactivated, so audit entries always name a real account. The table is `app_user` (`user` is reserved in PostgreSQL).
+- [x] **Key-use logging (5.1):** Successful API-key use is a security event (ARC §9.3 FR 6), but the gateway calls many times a minute, so each key is logged at most every 5 minutes; failures are always logged.
+- [x] **Read scoping (5.1, 5.2):** Scoped users must only see their part of the hierarchy. The matrix gives everyone "view"; filtering lists and the event stream by scope comes with the endpoints in 5.2 and 5.3 (`Principal.visible_scopes`).
 - [x] **Preview warning (2.1):** The 20 % warning (UC-04 3a) is checked per tag, so one sensor that would be excluded most of the time isn't hidden by an average over many healthy ones.
 
 **Open: spec conflicts (I follow the proposed answer until told otherwise)**
@@ -433,7 +442,7 @@ None of these block the current work.
 - [ ] **Preview per sample (2.1):** UC-04 3a says "> 20 % of samples"; the preview counts per cycle (minute). They differ only for tags not sampled every minute.
 - [ ] **Contributions when every residual is zero (2.3):** FR-DIA-01 says contributions add up to 100 %; with every residual exactly zero there is nothing to share, and all are 0.
 - [ ] **Wireframes against the UCS (6.x):** P-202 is Unknown in wireframe 01 but its alert is Out of service in 02; TI-1016 is excluded in 04 but not in 03 or 07; the sensor KPI is "sensor faults" (01, FR-VIS-01), "sensors in Failure" (SCR-01) or "Failure" (07); 07 shows a spike as a lasting status though the rule is per sample; UC-09 2a lets a user close an alert, which Figure 6 doesn't allow. Proposed: follow the UCS and settle the screens in Phase 6.
-- [ ] **Administrator and the registry (5.1):** The ARC §9.2 matrix and UCS give Administrators registry and import rights; the PRD's Administrator row doesn't list them. Proposed: follow ARC §9.2.
+- [ ] **Administrator and the registry (5.1):** The ARC §9.2 matrix and UCS give Administrators registry and import rights; the PRD's Administrator row doesn't list them. Proposed: follow ARC §9.2. Built this way.
 - [ ] **Not in operating mode (4.1):** UCS §6.5 doesn't give a band for this status. Proposed: no Health value, shown as Unknown with the reason "Not in operating mode", and alert rules not evaluated.
 - [ ] **Alert list sort (6.4):** PDS §4.2 says unacknowledged first, but the wireframe caption says priority, then age. Proposed: follow PDS.
 - [ ] **Fleet roll-up figures (4.3):** Wireframe 01 shows Site A at 38 while its lowest child is 41. Proposed: test against the UCS §6.5 rule, not the wireframe figures.
