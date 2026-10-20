@@ -478,7 +478,30 @@ def list_subtree(session: Session, code: str | None = None) -> list[AssetView]:
         root = _require_asset(session, code)
         query = query.where(text("path <@ CAST(:root AS ltree)").bindparams(root=root.path))
     assets = session.scalars(query.order_by(Asset.path)).all()
-    return [_asset_view(session, a) for a in assets]
+    type_ids = {a.asset_type_id for a in assets if a.asset_type_id is not None}
+    codes = (
+        dict(
+            session.execute(select(AssetType.id, AssetType.code).where(AssetType.id.in_(type_ids)))
+            .tuples()
+            .all()
+        )
+        if type_ids
+        else {}
+    )
+    return [
+        AssetView(
+            id=a.id,
+            code=a.code,
+            name=a.name,
+            level=AssetLevel(a.level),
+            path=a.path,
+            parent_id=a.parent_id,
+            criticality=Criticality(a.criticality) if a.criticality else None,
+            asset_type_code=codes.get(a.asset_type_id) if a.asset_type_id is not None else None,
+            description=a.description,
+        )
+        for a in assets
+    ]
 
 
 def list_ancestors(session: Session, code: str) -> list[AssetView]:

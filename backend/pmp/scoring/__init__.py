@@ -23,6 +23,14 @@ from pmp.scoring.outputs import (
     compute_outputs,
     health_score,
 )
+from pmp.scoring.rollup import (
+    ModelHealth,
+    NodeHealth,
+    health_tree,
+    model_healths,
+    roll_up,
+    worst_band,
+)
 from pmp.scoring.runtime import (
     CycleResult,
     RuntimeStatusView,
@@ -43,7 +51,9 @@ __all__ = [
     "Band",
     "CycleResult",
     "Limits",
+    "ModelHealth",
     "ModelOutput",
+    "NodeHealth",
     "RuntimeStatus",
     "RuntimeStatusView",
     "ScaleError",
@@ -60,10 +70,14 @@ __all__ = [
     "evaluate",
     "get_runtime_statuses",
     "health_score",
+    "health_tree",
     "last_cycles",
     "latest_due_cycle",
     "limits_for",
+    "model_healths",
     "references_for",
+    "roll_up",
     "scale_with_floors",
     "score_models",
+    "worst_band",
 ]

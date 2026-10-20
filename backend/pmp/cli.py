@@ -1,5 +1,5 @@
 """Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
-score | alert | demo | apikey`.
+score | alert | health | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -108,15 +108,19 @@ from pmp.modelling import (
 from pmp.registry import (
     ImportFailedError,
     ImportReport,
+    RegistryError,
     TagView,
     get_tags,
     import_files,
     list_tags,
 )
 from pmp.scoring import (
+    Band,
     CycleResult,
+    NodeHealth,
     Scheduler,
     get_runtime_statuses,
+    health_tree,
     latest_due_cycle,
     score_models,
 )
@@ -323,6 +327,13 @@ def build_parser() -> argparse.ArgumentParser:
     matrix_set.add_argument("criticality", choices=["A", "B", "C"])
     matrix_set.add_argument("severity", choices=[s.value for s in Severity])
     matrix_set.add_argument("priority", choices=["P1", "P2", "P3", "P4"])
+
+    health = commands.add_parser("health", help="health roll-up over the asset hierarchy")
+    health_commands = health.add_subparsers(dest="health_command", required=True)
+    health_tree_cmd = health_commands.add_parser(
+        "tree", help="band, Health and counts for every asset (or one asset's subtree)"
+    )
+    health_tree_cmd.add_argument("asset", nargs="?", help="only this asset and below")
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -779,6 +790,41 @@ def _alert_line(alert: AlertView, models: dict[int, str], tags: dict[int, str]) 
     )
 
 
+_BAND_ORDER = (Band.ALERT, Band.WATCH, Band.UNKNOWN, Band.HEALTHY)
+
+
+def _print_node(node: NodeHealth, depth: int = 0) -> None:
+    band = node.band.value if node.band else "Not monitored"
+    health = f"{node.health:3.0f}" if node.health is not None else "  -"
+    counts = " · ".join(f"{b.value} {node.counts[b]}" for b in _BAND_ORDER if node.counts.get(b))
+    label = f"{'  ' * depth}{node.code}"
+    worst = f"  worst: {node.worst}" if node.children and node.worst else ""
+    print(f"{label:<28} {band:<14} {health}  {counts}{worst}")
+    for model in node.models:
+        status = model.status.value if model.status else "not scored yet"
+        print(f"{'  ' * (depth + 1)}- model {model.name}: {model.band.value} ({status})")
+    for child in node.children:
+        _print_node(child, depth + 1)
+
+
+def _run_health(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            roots = health_tree(session, args.asset)
+        if not roots:
+            print("No assets.")
+        print(f"{'Asset':<28} {'Band':<14} Health  Assets by band")
+        for root in roots:
+            _print_node(root)
+        return 0
+    except RegistryError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
 def _run_alert(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     actor = Actor.system()
@@ -960,6 +1006,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_model(settings, args))
     elif args.command == "score":
         sys.exit(_run_score(settings, args))
+    elif args.command == "health":
+        sys.exit(_run_health(settings, args))
     elif args.command == "alert":
         sys.exit(_run_alert(settings, args))
     elif args.command == "demo":

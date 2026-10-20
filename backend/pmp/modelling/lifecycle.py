@@ -222,6 +222,7 @@ class ActiveVersion:
     version: int
     status: VersionStatus
     cycle_s: int
+    asset_id: int
 
 
 def list_active_versions(session: Session) -> list[ActiveVersion]:
@@ -241,6 +242,7 @@ def list_active_versions(session: Session) -> list[ActiveVersion]:
             version=version.version,
             status=VersionStatus(version.status),
             cycle_s=int((version.params or {}).get("cycle_s", 60)),
+            asset_id=model.asset_id,
         )
         for version, model in rows
     ]
