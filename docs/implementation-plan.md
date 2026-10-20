@@ -25,7 +25,8 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 3.3 Artefacts and version lifecycle | Done | Deploy, pause, resume, retire, reject; deploy supersedes; one version in service (database-enforced); SHA-256 checked on every load; per-worker cache |
 | 4.1 Scoring runtime | Done | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
 | 4.2 Alert engine | Done | ISA-18.2 lifecycle (UCS Figure 6) with persistence, on-delay, deadband clearing and escalation; evaluated in the scoring transaction; acknowledge, shelve (reason, 7-day maximum), unshelve and expiry; Out of service follows the model; priority matrix with re-prioritising; event log, audit, traceability record and NOTIFY; `pmp alert` commands; AC-03 alert reference sequences; |
-| 4.3 Health roll-up | Built | Worst band and lowest Health from models up through equipment, units, sites and the enterprise; counts of assets per band; not-monitored assets; computed on read from the latest cycle; `pmp health tree`; the REST endpoint comes with the other asset endpoints in 5.2; final check on my Mac in progress |
+| 4.3 Health roll-up | Done | Worst band and lowest Health from models up through equipment, units, sites and the enterprise; counts of assets per band; not-monitored assets; computed on read from the latest cycle; `pmp health tree`; the REST endpoint comes with the other asset endpoints in 5.2 |
+| 4.4 Spec alignment | Built | Full audit of Phases 0–4 against PRD, UCS, ARC, PDS, GAP and the design sources; fixes in data quality, roll-up, alert lifecycle, scoring cycle, job queue and the ingest API (see decisions marked 4.4); final check on my Mac in progress |
 | 5.1 Users, access control and audit review | Next | |
 
 ## How I work
@@ -178,6 +179,12 @@ In Phase 4 the system goes live: every deployed model is scored each cycle, aler
 - Test: roll-up unit tests on the demo hierarchy, including Unknown and out-of-service models. I test against the spec rule, not the wireframe numbers, which don't add up (see questions).
 - Done when: the roll-up returns the correct result for the demo hierarchy and a model change shows on the next cycle. (Changed in 4.3: the hierarchy endpoint is built in 5.2 with the other asset endpoints, once user login exists.)
 
+**4.4 Spec alignment** (added after a full audit against all Rev A documents)
+
+- Build: bad source quality always excluded (FR-ING-05); paused, retired and errored models Unknown in the roll-up with their reason and last cycle (UCS §6.5, UC-08 2a); alert rules out of service with their model, Normal included, and counting afresh on return (UCS Figure 6); escalation acknowledged again; a per-version lock and a leader check every tick so a cycle is never counted twice; job lock heartbeats, ownership checks and a failure hook so a lost training job ends Failed (ARC Figure 7); ingest keys read only their own history jobs (ARC §1.2); data-quality preview and status judged with the deployed models' training statistics; the NE 107 status, rule and use of every sensor kept with each cycle's outputs, Insufficient-data cycles included; the scoring cycle checked at save (minimum 10 s); the shelving maximum as a setting; out-of-service alerts without priority and listed last.
+- Test: each fix has a test that fails without it.
+- Done when: every mismatch the audit found is fixed or logged below.
+
 ## Phase 5: Security, API and events
 
 In Phase 5 I put access control in front of everything built so far, then expose it through a documented API and a live event stream.
@@ -209,6 +216,11 @@ In Phase 5 I put access control in front of everything built so far, then expose
 ## Phase 6: Front end for Release 1
 
 In Phase 6 I build every Release 1 screen, following PMP-PDS-001 and the HTML wireframes. Every read uses the public API.
+
+**6.0 Demo story for the screens** (found in the 4.4 audit)
+
+- Build: demo models for P-104A, K-201, P-202, P-205, F-3 and E-110 so every wireframe screen has data; criticality as the wireframes imply (K-201 and F-3 class B); the missing story pieces (P-205 RTN-unacknowledged alert, F-3 Warning, VI-2010 in Function check); TI-1016 not required on K-101; the TI-1012 ramp timed for the 6.5-day forecast (Phase 8).
+- Done when: the demo plant produces every state the wireframes show.
 
 **6.1 App shell, design system and accessibility** (PDS §2.2, §3, §5, §6, §8, NFR-USE-02)
 
@@ -364,6 +376,7 @@ None of these block the current work.
 - [ ] **Database and hosting (phases 0.3, 9.1, OI-04):** Is PostgreSQL with TimescaleDB approved for production (Timescale License), or should I plan for native partitioning? Where will it be hosted, and which SMTP relay will notifications use?
 - [ ] **Priority matrix (phase 4.2, OI-05):** Are criticality classes A, B, C and the P1 to P4 matrix in UCS §6.6 acceptable for the pilot?
 - [ ] **Stretch items:** Should I keep the Release 3 items as stretch goals, or drop them?
+- [ ] **PCA and MQTT (GAP C-04, C-12):** PCA (FR-MOD-05, Should, R2) and MQTT ingestion (FR-ING-02, Should, R1) are in scope in GAP-001 but planned as stretch. OK to defer both? (asked Usama)
 - [ ] **Spec changes (all phases):** The documents are Rev A and not yet approved. Who decides on errors and conflicts, and should they be logged as spec changes?
 
 **Decisions I've made while building (tell me if any should change)**
@@ -386,22 +399,41 @@ None of these block the current work.
 - [x] **Built-in detectors (2.2):** Built-in algorithms are listed in the code; only third-party plug-ins come through the `pmp.algorithms` entry point. Both pass the same contract suite before use, and a plug-in cannot take a built-in's name.
 - [x] **Severity while active (4.2):** An alert escalates from Warning to Alert on the same alert but never drops back to Warning while its condition is active; it ends only by clearing (UCS §6.6 deadband), so operators don't see an alert flap between severities.
 - [x] **Which cycles count for persistence (4.2):** Only cycles that were evaluated (status Running) count towards n of m, on-delay and clearing. Insufficient-data and not-in-operating-mode cycles are skipped and leave open alerts as they are.
-- [x] **Supersede keeps alerts (4.2):** Deploying a new version of a model keeps its open alerts, since the rules belong to the model, not the version. Out of service only applies when the model has no deployed version (paused or retired); on redeploy those alerts return to Normal and the rules start counting afresh.
+- [x] **Supersede keeps alerts (4.2):** Deploying a new version of a model keeps its open alerts, since the rules belong to the model, not the version. Out of service only applies when the model has no deployed version (paused or retired); on redeploy those alerts return to Normal and the rules start counting afresh (since 4.4 also for rules that had no open alert).
 - [x] **Missing criticality (4.2):** Equipment must have a class, but a model could sit on a higher-level asset without one. Such an asset counts as C, the lowest priority, rather than blocking alerts.
 - [x] **Alarm returns while RTN-unacknowledged (4.2):** UCS Figure 6 doesn't say what happens when the condition comes back before anyone acknowledges. The same alert goes back to Active-Unacknowledged (ISA-18.2), rather than a second alert being raised.
 - [x] **Shelved alerts keep evaluating (4.2):** While an alert is shelved its rule keeps running, so at expiry (or unshelve) it goes to Active-Unacknowledged if the condition is still active, otherwise to Normal.
 - [x] **Unknown in the roll-up (4.3):** Band order, worst first: Alert, Watch, Unknown, Healthy. An asset that can't be assessed never makes its parent look Healthy, and never hides a real Watch or Alert.
-- [x] **Not monitored (4.3):** Models that are paused, retired or never deployed don't count towards any band. An asset with no model in service, or a parent with only such assets beneath it, shows "Not monitored" with no band and no Health. A deployed model not scored yet counts as Unknown.
+- [x] **Unknown in the roll-up (4.3, changed in 4.4):** UCS §6.5 makes Paused, Out of service and Error Unknown, so a paused or errored model counts as Unknown with its reason. A retired model counts as Unknown only while its asset has no other model in service (deployed or paused), so a decommissioned model never greys out an asset another model watches. Models never deployed count for nothing: an asset with none of the above shows "No model" (no band, no Health). (4.3 first showed paused and retired models as "Not monitored"; the audit found that against §6.5.)
 - [x] **What the counts count (4.3):** Each node's counts are the monitored assets at or beneath it, by their own band (an asset with two models counts once), so a site reads "Alert 1 · Watch 2 · Healthy 9".
 - [x] **Weighted roll-up by criticality (4.3):** Not built. The UCS §6.5 rule is worst-of, the plan marks weighting optional, and it would make the figures harder to explain. Moved to the stretch list.
+- [x] **Bad quality is always excluded (4.4):** UC-04 lets users switch rules on and off, but FR-ING-05 says bad-quality samples are always excluded from scoring, so the bad-quality rule can't be switched off. The other rules still can.
+- [x] **Out of service per rule (4.4):** Figure 6 moves an alert from Normal to Out of service when the model is paused. Rules have no alert while Normal, so each rule carries its own out-of-service flag (shown in `pmp model show`); open alerts move with it. Shelving details are cleared when a shelved alert goes out of service.
+- [x] **Escalation is acknowledged again (4.4):** The spec is silent. An escalation from Warning to Alert returns an acknowledged alert to Active-Unacknowledged (ISA-18.2: a higher severity needs a new acknowledgement). A shelved alert stays shelved.
+- [x] **Per-cycle data-quality state (4.4):** `sensor_output.dq_status` holds the NE 107 status (it held usable/excluded before), with the rule and whether the value was used beside it. Outputs are written for Insufficient-data and Not-in-operating-mode cycles too, without predictions, and the Insufficient-data reason names the unusable sensors.
+- [x] **Data-quality preview and status (4.4):** Both now use the deployed models' training statistics, as scoring does. `pmp dq status` shows the statuses without storing them (the scheduler stores them), and a stored status is never replaced by one evaluated for an earlier time.
+- [x] **Ingest keys and jobs (4.4):** An ingest key may still upload history (it writes samples, which ARC §1.2 allows) but reads only the history jobs it started. Rate limits for history uploads come with 5.2.
+- [x] **Lost jobs (4.4):** Workers renew a running job's lock every third of the timeout, only the worker holding a job may finish it, and a job that fails for good tells its module, so a training version never stays in Training.
+- [x] **DIref (4.4):** UCS §6.2 calls 2 × the alert limit the default. It stays fixed at 2 × until per-model limits are edited in 7.3, where it becomes a model setting.
+- [x] **Settings added (4.4):** `PMP_ALERT_MAX_SHELVE_DAYS` (default 7, UCS §6.6 "configurable maximum").
 - [x] **Preview warning (2.1):** The 20 % warning (UC-04 3a) is checked per tag, so one sensor that would be excluded most of the time isn't hidden by an average over many healthy ones.
 
 **Open: spec conflicts (I follow the proposed answer until told otherwise)**
 
 - [ ] **Flatline status (2.1, 6.3):** Wireframes 03 and 07 label a flatlined sensor "Failure", but UCS §6.1 says "Maintenance required". Proposed: follow UCS §6.1.
 - [ ] **Alert limits (3.1, 7.3):** ARC §6.2 makes a version immutable once Validated, with limits stored on it, while UCS §6.4 says limits stay editable until deployment. Proposed: proposed limits stay on the immutable version, and active limits live on `alert_rule`, editable and audited.
-- [ ] **Hierarchy depth (1.1):** FR-REG-01 specifies five levels, but UC-03 and the wireframes use Site › Unit › Equipment. Built as: variable depth up to five levels.
-- [ ] **Unshelve (4.2):** UCS Figure 6 has no transition for unshelving early. Proposed: re-evaluate the condition as on expiry. Built this way.
+- [ ] **Hierarchy depth (1.1):** FR-REG-01 specifies five levels (Enterprise › Site › Area › Unit › Equipment) and UC-03 four (Site, Area, Unit, Equipment), but the wireframes skip Area (Site › Unit › Equipment). Built as: variable depth up to five levels.
+- [ ] **Unshelve (4.2):** UC-10 1b lets a user end shelving early, but UCS Figure 6 has no transition for it. Proposed: re-evaluate the condition as on expiry. Built this way.
+- [ ] **Latency vs grace (4.1, 5.3, 9.2):** NFR-PERF-02 and FR-VIS-03 want a new score in the browser within one cycle plus 5 s of the sample, but ARC §5.1 waits a 20 s grace after each cycle, so the worst case is about one cycle plus 25 s. Proposed: keep the grace (late gateway samples matter more) and measure the requirement from the cycle's scoring time; to be confirmed.
+- [ ] **Grace per source (4.1):** ARC §5.1 says the grace is configurable per source; one setting applies to all (`PMP_SCORING_GRACE_S`). Proposed: per source when a second gateway exists.
+- [ ] **Events vs one transaction (4.2):** ARC §4 has alerting consume ScoreComputed events, but ARC §5.1 commits score and alert changes in one transaction. Built: scoring calls the alert engine through its public interface inside the cycle's transaction; the event is still published after commit.
+- [ ] **Deploy while paused (3.3):** ARC Figure 7 has no Paused → Superseded edge. Built: deploying a new version supersedes the version in service whether Deployed or Paused, so there is always at most one.
+- [ ] **Deadband reference (4.2):** UCS §6.6 doesn't say which limit the deadband applies to. Built: clearing is below the warning limit less the deadband, for both severities.
+- [ ] **Manual exclusion order (2.1):** UCS §6.1 puts manual exclusion third (after Bad and Stale); Figure 5 and UC-14 imply it overrides the rules. Built: as §6.1.
+- [ ] **Preview per sample (2.1):** UC-04 3a says "> 20 % of samples"; the preview counts per cycle (minute). They differ only for tags not sampled every minute.
+- [ ] **Contributions when every residual is zero (2.3):** FR-DIA-01 says contributions add up to 100 %; with every residual exactly zero there is nothing to share, and all are 0.
+- [ ] **Wireframes against the UCS (6.x):** P-202 is Unknown in wireframe 01 but its alert is Out of service in 02; TI-1016 is excluded in 04 but not in 03 or 07; the sensor KPI is "sensor faults" (01, FR-VIS-01), "sensors in Failure" (SCR-01) or "Failure" (07); 07 shows a spike as a lasting status though the rule is per sample; UC-09 2a lets a user close an alert, which Figure 6 doesn't allow. Proposed: follow the UCS and settle the screens in Phase 6.
+- [ ] **Administrator and the registry (5.1):** The ARC §9.2 matrix and UCS give Administrators registry and import rights; the PRD's Administrator row doesn't list them. Proposed: follow ARC §9.2.
 - [ ] **Not in operating mode (4.1):** UCS §6.5 doesn't give a band for this status. Proposed: no Health value, shown as Unknown with the reason "Not in operating mode", and alert rules not evaluated.
 - [ ] **Alert list sort (6.4):** PDS §4.2 says unacknowledged first, but the wireframe caption says priority, then age. Proposed: follow PDS.
 - [ ] **Fleet roll-up figures (4.3):** Wireframe 01 shows Site A at 38 while its lowest child is 41. Proposed: test against the UCS §6.5 rule, not the wireframe figures.
