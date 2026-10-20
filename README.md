@@ -101,7 +101,9 @@ check), out of instrument range (Out of specification), flatline, spike and unce
 (Maintenance required), otherwise Good. Defaults can be overridden globally, per asset-type
 role or per tag; each save is a new, audited version and applies from the next cycle. Saving
 previews the effect on the last 30 days first and refuses if a tag would be excluded more
-than 20 % of the time, unless `--yes` is given.
+than 20 % of the time, unless `--yes` is given. The bad-quality rule can't be switched off
+(bad samples are always excluded). Previews and `dq status` use the deployed models'
+training ranges, as scoring does.
 
 ```
 cd backend
@@ -110,7 +112,7 @@ uv run pmp dq preview --tag K101.TI1018.PV spike_pct=30   # effect of a change, 
 uv run pmp dq set --tag K101.SI1001.PV flatline_used=on --comment "constant-speed machine"
 uv run pmp dq set --role centrifugal_pump/flow stale_factor=5
 uv run pmp dq show --tag K101.SI1001.PV                   # overrides, history, effective values
-uv run pmp dq status --asset K-101                        # evaluate now and list statuses
+uv run pmp dq status --asset K-101                        # evaluate now (not stored)
 ```
 
 `NAME=default` removes an override. Parameter names: `pmp dq set --help`.
@@ -205,7 +207,9 @@ it is raised when the limit is exceeded in n of the last m evaluated cycles (def
 and after the on-delay, escalates from Warning to Alert, and clears once the value has stayed
 below the warning limit less the deadband (default 10 %) for 5 cycles. Priority comes from
 the asset's criticality and the severity (P1 to P4). Pausing or retiring a model puts its
-alerts out of service. Every change is logged, audited and announced on the event channel,
+alerts and rules out of service. An escalation needs a new acknowledgement. Shelving lasts at
+most 7 days (`PMP_ALERT_MAX_SHELVE_DAYS`). Every change is logged, audited and announced on
+the event channel,
 and each raised alert stores what it was based on (model version, inputs with their sample
 times and data-quality states, top contributors).
 
@@ -214,7 +218,7 @@ cd backend
 uv run pmp alert list                                  # open alerts, unacknowledged first
 uv run pmp alert show 12                               # trace and history of one alert
 uv run pmp alert ack 12 13 --comment "checking"
-uv run pmp alert shelve 12 --reason "valve work" --for 8h   # at most 7 days
+uv run pmp alert shelve 12 --reason "valve work" --for 8h
 uv run pmp alert unshelve 12
 uv run pmp alert matrix show                           # criticality x severity -> priority
 uv run pmp alert matrix set A Warning P1
@@ -225,8 +229,9 @@ uv run pmp alert matrix set A Warning P1
 Health rolls up the asset hierarchy (PMP-UCS-001 §6.5): equipment takes the worst band and
 lowest Health of its models in service, and every level above takes the worst band and
 lowest Health beneath it, with a count of assets per band. The order, worst first, is
-Alert, Watch, Unknown, Healthy. Assets with no model in service show as not monitored. It is
-worked out from the latest cycle each time it is read.
+Alert, Watch, Unknown, Healthy. A paused, errored or not-yet-scored model is Unknown with its
+reason; a retired one only while its asset has no other model. Assets with no model show
+"No model". It is worked out from the latest cycle each time it is read.
 
 ```
 cd backend
