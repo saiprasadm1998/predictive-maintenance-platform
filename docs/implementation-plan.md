@@ -24,8 +24,9 @@ What changed in Rev C: I added a progress section, recorded the decisions I made
 | 3.2 Baseline training job | Done | K-101 trained on 157,398 of 158,400 cycles of demo history and validated on 42,584; artefact with SHA-256 |
 | 3.3 Artefacts and version lifecycle | Done | Deploy, pause, resume, retire, reject; deploy supersedes; one version in service (database-enforced); SHA-256 checked on every load; per-worker cache |
 | 4.1 Scoring runtime | Done | Scheduler leader in the worker, cycles on the clock with a 20 s grace; DQ, coverage and operating mode before prediction; score, sensor_output and runtime_status written in one transaction with NOTIFY; no duplicates, no back-fill; NFR-PERF-01 check (`make perf-scoring`): 100 models and 5,000 tags in 5.5 s against a 30 s budget; final check on my Mac in progress |
-| 4.2 Alert engine | Built | ISA-18.2 lifecycle (UCS Figure 6) with persistence, on-delay, deadband clearing and escalation; evaluated in the scoring transaction; acknowledge, shelve (reason, 7-day maximum), unshelve and expiry; Out of service follows the model; priority matrix with re-prioritising; event log, audit, traceability record and NOTIFY; `pmp alert` commands; AC-03 alert reference sequences; final check on my Mac in progress |
-| 4.3 Health roll-up | Next | |
+| 4.2 Alert engine | Done | ISA-18.2 lifecycle (UCS Figure 6) with persistence, on-delay, deadband clearing and escalation; evaluated in the scoring transaction; acknowledge, shelve (reason, 7-day maximum), unshelve and expiry; Out of service follows the model; priority matrix with re-prioritising; event log, audit, traceability record and NOTIFY; `pmp alert` commands; AC-03 alert reference sequences; |
+| 4.3 Health roll-up | Built | Worst band and lowest Health from models up through equipment, units, sites and the enterprise; counts of assets per band; not-monitored assets; computed on read from the latest cycle; `pmp health tree`; the REST endpoint comes with the other asset endpoints in 5.2; final check on my Mac in progress |
+| 5.1 Users, access control and audit review | Next | |
 
 ## How I work
 
@@ -175,7 +176,7 @@ In Phase 4 the system goes live: every deployed model is scored each cycle, aler
 
 - Build: an asset takes the worst band and lowest Health of its models; units, areas and sites take the worst band of their children (the Health bar shows the minimum of the children, per PDS), with counts per band; optional weighted roll-up by criticality.
 - Test: roll-up unit tests on the demo hierarchy, including Unknown and out-of-service models. I test against the spec rule, not the wireframe numbers, which don't add up (see questions).
-- Done when: the hierarchy endpoint returns a correct roll-up and updates within one cycle of a model change.
+- Done when: the roll-up returns the correct result for the demo hierarchy and a model change shows on the next cycle. (Changed in 4.3: the hierarchy endpoint is built in 5.2 with the other asset endpoints, once user login exists.)
 
 ## Phase 5: Security, API and events
 
@@ -343,7 +344,7 @@ In Phase 9 I prove the system works under realistic conditions and hand it over 
 
 ## Stretch (only if Release 1 and 2 are done)
 
-If I finish Release 1 and 2 early, I'll pick up the Release 3 "Should" items and a few optional ones, roughly in this order: MQTT ingestion (FR-ING-02, Should, R1, depends on OI-01), PCA algorithm (FR-MOD-05, Should, R2), scheduled re-forecasts (FR-PRG-03), webhooks and daily digest (FR-NOT-02, -03), library proposals from closed cases (FR-ADV-02), case search (FR-CAS-04), similar cases and fault tree (FR-DIA-04, -05), alert KPIs and reports (FR-ALM-05, FR-VIS-05, SCR-15), asset comparison (FR-VIS-04), calculated tags (FR-MOD-11), a reference third-party plug-in (FR-MOD-09) and OIDC single sign-on (FR-SEC-03). Release 4 items (FR-MOD-10, FR-CAS-05) are out of scope.
+If I finish Release 1 and 2 early, I'll pick up the Release 3 "Should" items and a few optional ones, roughly in this order: MQTT ingestion (FR-ING-02, Should, R1, depends on OI-01), PCA algorithm (FR-MOD-05, Should, R2), scheduled re-forecasts (FR-PRG-03), webhooks and daily digest (FR-NOT-02, -03), library proposals from closed cases (FR-ADV-02), case search (FR-CAS-04), similar cases and fault tree (FR-DIA-04, -05), alert KPIs and reports (FR-ALM-05, FR-VIS-05, SCR-15), asset comparison (FR-VIS-04), calculated tags (FR-MOD-11), a reference third-party plug-in (FR-MOD-09), a health roll-up weighted by criticality (4.3) and OIDC single sign-on (FR-SEC-03). Release 4 items (FR-MOD-10, FR-CAS-05) are out of scope.
 
 ## Questions I need answered
 
@@ -389,6 +390,10 @@ None of these block the current work.
 - [x] **Missing criticality (4.2):** Equipment must have a class, but a model could sit on a higher-level asset without one. Such an asset counts as C, the lowest priority, rather than blocking alerts.
 - [x] **Alarm returns while RTN-unacknowledged (4.2):** UCS Figure 6 doesn't say what happens when the condition comes back before anyone acknowledges. The same alert goes back to Active-Unacknowledged (ISA-18.2), rather than a second alert being raised.
 - [x] **Shelved alerts keep evaluating (4.2):** While an alert is shelved its rule keeps running, so at expiry (or unshelve) it goes to Active-Unacknowledged if the condition is still active, otherwise to Normal.
+- [x] **Unknown in the roll-up (4.3):** Band order, worst first: Alert, Watch, Unknown, Healthy. An asset that can't be assessed never makes its parent look Healthy, and never hides a real Watch or Alert.
+- [x] **Not monitored (4.3):** Models that are paused, retired or never deployed don't count towards any band. An asset with no model in service, or a parent with only such assets beneath it, shows "Not monitored" with no band and no Health. A deployed model not scored yet counts as Unknown.
+- [x] **What the counts count (4.3):** Each node's counts are the monitored assets at or beneath it, by their own band (an asset with two models counts once), so a site reads "Alert 1 · Watch 2 · Healthy 9".
+- [x] **Weighted roll-up by criticality (4.3):** Not built. The UCS §6.5 rule is worst-of, the plan marks weighting optional, and it would make the figures harder to explain. Moved to the stretch list.
 - [x] **Preview warning (2.1):** The 20 % warning (UC-04 3a) is checked per tag, so one sensor that would be excluded most of the time isn't hidden by an average over many healthy ones.
 
 **Open: spec conflicts (I follow the proposed answer until told otherwise)**
