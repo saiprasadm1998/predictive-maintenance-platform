@@ -10,10 +10,10 @@ from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
 
 import pmp
-from pmp.api import backfill, ingest
+from pmp.api import admin, auth, backfill, ingest
 from pmp.api.problems import ProblemError, problem_response
 from pmp.api.ratelimit import RateLimiter
-from pmp.core import Database, Settings, log_context
+from pmp.core import AccessDeniedError, Database, Settings, log_context
 
 REQUEST_ID_HEADER = "X-Request-ID"
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -67,11 +67,17 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
             )
         )
 
+    @app.exception_handler(AccessDeniedError)
+    async def handle_denied(_request: Request, error: AccessDeniedError) -> Response:
+        return problem_response(ProblemError(403, "forbidden", "Not allowed", str(error)))
+
     @app.get("/healthz", tags=["operations"], summary="Liveness check")
     def healthz() -> dict[str, str]:
         """Returns OK while the process is serving requests. Does not touch the database."""
         return {"status": "ok"}
 
+    app.include_router(auth.router)
+    app.include_router(admin.router)
     app.include_router(ingest.router)
     app.include_router(backfill.router)
     return app

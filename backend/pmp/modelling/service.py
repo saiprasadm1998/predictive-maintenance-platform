@@ -24,7 +24,15 @@ import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor, Database, audit_change, enqueue, report_progress
+from pmp.core import (
+    Actor,
+    Database,
+    Permission,
+    audit_change,
+    authorize,
+    enqueue,
+    report_progress,
+)
 from pmp.dataquality import assess_series, cycle_grid
 from pmp.modelling.algorithms.contract import DetectorError
 from pmp.modelling.algorithms.registry import available_detectors, get_detector
@@ -239,6 +247,7 @@ def save_draft(session: Session, actor: Actor, definition: ModelDefinition) -> M
     asset = find_asset(session, definition.asset_code)
     if asset is None:
         raise ModelError(f"Asset {definition.asset_code!r} does not exist")
+    authorize(actor, Permission.MODELS, asset.path, what=f"models on {asset.code}")
     tags = list_tags(session, definition.asset_code)
     resolved, problems = _resolve_tags(tags, definition)
     enabled = [d.name for d in available_detectors() if d.enabled]
@@ -405,6 +414,7 @@ def start_training(
     when the caller runs the training itself, as `pmp model train --now` does).
     """
     model = get_model(session, asset_code, name)
+    authorize(actor, Permission.MODELS, asset_path(session, asset_code), what=f"{asset_code}")
     version = session.get_one(ModelVersion, model.latest.id)
     if version.status != VersionStatus.DRAFT.value:
         raise ModelError(
@@ -598,6 +608,12 @@ def make_training_failure_handler(database: Database) -> Callable[[Mapping[str, 
     return on_failed
 
 
+def asset_path(session: Session, asset_code: str) -> str | None:
+    """The asset's hierarchy path, for permission checks (None if it does not exist)."""
+    asset = find_asset(session, asset_code)
+    return asset.path if asset else None
+
+
 def model_asset_code(session: Session, model_id: int) -> str:
     """The code of the asset a model monitors (cheap: for per-cycle use)."""
     model = session.get(Model, model_id)
@@ -608,5 +624,5 @@ def model_asset_code(session: Session, model_id: int) -> str:
 
 def model_assets(session: Session) -> dict[int, tuple[int, str]]:
     """Every model's asset ID and name, by model ID (one query; for the health roll-up)."""
-    rows = session.execute(select(Model.id, Model.asset_id, Model.name)).tuples().all()
+    rows = session.execute(select(Model.id, Model.asset_id, Model.name)).all()
     return {model_id: (asset_id, name) for model_id, asset_id, name in rows}

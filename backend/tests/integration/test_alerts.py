@@ -34,8 +34,18 @@ from pmp.alerting import (
     shelve,
     unshelve,
 )
-from pmp.core import Database, EventBus, get_settings
+from pmp.core import (
+    AccessDeniedError,
+    Actor,
+    Database,
+    EventBus,
+    Principal,
+    Role,
+    RoleAssignment,
+    get_settings,
+)
 from pmp.modelling import Action, change_status, get_model
+from pmp.registry import AssetLevel, AssetSpec, find_asset, upsert_asset
 from pmp.scoring import EVENT_CHANNEL, Band, RuntimeStatus, Scheduler
 from tests.integration.test_scoring_cycle import (  # noqa: F401  (deployed is a fixture)
     ACTOR,
@@ -337,3 +347,25 @@ def test_escalation_is_acknowledged_again(db: Database) -> None:
     ]
     with db.session() as s:
         assert get_alert(s, alert_id).ack_at is None
+
+
+def test_only_analysts_and_model_engineers_act_on_alerts_in_their_scope(db: Database) -> None:
+    """ARC §9.2: acknowledge / shelve alerts: Analyst and Model Engineer, within scope."""
+    alert_id = _raise_one(db)
+    with db.session() as s:
+        site_a = find_asset(s, "SITE-A")
+        assert site_a is not None
+        other = upsert_asset(s, ACTOR, AssetSpec("SITE-Z", "Elsewhere", AssetLevel.SITE))
+        site_z = find_asset(s, "SITE-Z")
+    assert other is not None
+    assert site_z is not None
+
+    def as_(role: Role, scope: int | None = None) -> Actor:
+        return Actor.user(Principal(42, "pat", (RoleAssignment(role, scope),)))
+
+    for refused in (as_(Role.VIEWER), as_(Role.ADMINISTRATOR), as_(Role.ANALYST, site_z.id)):
+        with db.session() as s, pytest.raises(AccessDeniedError):
+            acknowledge(s, refused, [alert_id], LIVE)
+    with db.session() as s:
+        acknowledge(s, as_(Role.ANALYST, site_a.id), [alert_id], LIVE)
+        assert get_alert(s, alert_id).state is AlertState.ACTIVE_ACK

@@ -28,8 +28,8 @@ from pmp.alerting.engine import (
     transition,
 )
 from pmp.alerting.models import Alert, AlertEvent, AlertRule, AlertRuleState, PriorityEntry
-from pmp.core import Actor, Event, audit_change, notify
-from pmp.modelling import model_asset_code
+from pmp.core import Actor, Event, Permission, audit_change, authorize, notify
+from pmp.modelling import asset_path, model_asset_code
 from pmp.registry import find_asset
 
 MAX_SHELVE = timedelta(days=7)  # UCS §6.6: up to 7 days (configurable maximum)
@@ -359,6 +359,14 @@ def _load(session: Session, alert_ids: Iterable[int]) -> list[Alert]:
     return list(rows)
 
 
+def _authorize_rows(session: Session, actor: Actor, rows: Sequence[Alert]) -> None:
+    """Acknowledge and shelve need the right on every alert's asset (ARC §9.2), checked
+    before any change: bulk actions are all or nothing."""
+    for model_id in sorted({r.model_id for r in rows}):
+        code = model_asset_code(session, model_id)
+        authorize(actor, Permission.ALERT_ACTIONS, asset_path(session, code), what=code)
+
+
 def _check_all(rows: Sequence[Alert], trigger: Trigger) -> None:
     """Bulk actions are all or nothing: refuse if any alert cannot take the action."""
     problems = []
@@ -379,6 +387,7 @@ def acknowledge(
     comment: str | None = None,
 ) -> list[AlertChanged]:
     rows = _load(session, alert_ids)
+    _authorize_rows(session, actor, rows)
     _check_all(rows, Trigger.ACK)
     changes = []
     for row in rows:
@@ -403,6 +412,7 @@ def shelve(
     if not timedelta(0) < duration <= max_duration:
         raise AlertError(f"Shelving lasts more than 0 and at most {max_duration}")
     rows = _load(session, alert_ids)
+    _authorize_rows(session, actor, rows)
     _check_all(rows, Trigger.SHELVE)
     changes = []
     for row in rows:
@@ -424,6 +434,7 @@ def unshelve(
 ) -> list[AlertChanged]:
     """End shelving early: re-evaluated as at expiry (implementation plan, conflict 4.2)."""
     rows = _load(session, alert_ids)
+    _authorize_rows(session, actor, rows)
     not_shelved = [r.id for r in rows if r.state != AlertState.SHELVED]
     if not_shelved:
         raise AlertError(f"Not shelved: alert {', '.join(map(str, not_shelved))}")
@@ -503,6 +514,7 @@ def set_priority(
 ) -> list[AlertChanged]:
     """Change one matrix cell (FR-ALM-04): audited, and open alerts it covers are
     re-prioritised."""
+    authorize(actor, Permission.MODELS, what="the priority matrix")  # decision 5.1
     if criticality not in ("A", "B", "C") or priority not in ("P1", "P2", "P3", "P4"):
         raise AlertError("Criticality is A, B or C and priority P1 to P4")
     entry = session.get(PriorityEntry, (criticality, severity.value))

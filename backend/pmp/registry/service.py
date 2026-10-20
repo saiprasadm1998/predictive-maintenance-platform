@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor, audit_change
+from pmp.core import Actor, Permission, audit_change, authorize
 from pmp.registry.domain import (
     AssetLevel,
     Criticality,
@@ -252,6 +252,7 @@ def _tag_view(session: Session, tag: Tag) -> TagView:
 def upsert_asset_type(
     session: Session, actor: Actor, *, code: str, name: str, description: str = ""
 ) -> Change:
+    authorize(actor, Permission.REGISTRY, what="asset types")
     code = check_code(code, "Asset type code")
     name = check_name(name, "Asset type name")
     description = description.strip()
@@ -287,6 +288,7 @@ def upsert_asset_type(
 
 
 def upsert_role(session: Session, actor: Actor, type_code: str, role: RoleSpec) -> Change:
+    authorize(actor, Permission.REGISTRY, what="asset-type roles")
     asset_type = _require_type(session, type_code)
     code = check_role_code(role.code)
     name = check_name(role.name, "Role name")
@@ -347,6 +349,10 @@ def upsert_asset(session: Session, actor: Actor, spec: AssetSpec) -> Change:
     name = check_name(spec.name, "Asset name")
     check_criticality(spec.level, spec.criticality)
     parent = _require_asset(session, spec.parent_code) if spec.parent_code else None
+    existing_asset = _find_asset(session, code)
+    authorize(actor, Permission.REGISTRY, parent.path if parent else None, what=f"asset {code}")
+    if existing_asset is not None:  # moving or changing it also needs rights where it is
+        authorize(actor, Permission.REGISTRY, existing_asset.path, what=f"asset {code}")
     check_parent_level(spec.level, AssetLevel(parent.level) if parent else None)
     type_id = _require_type(session, spec.asset_type_code).id if spec.asset_type_code else None
     criticality = spec.criticality.value if spec.criticality else None
@@ -412,6 +418,10 @@ def move_asset(session: Session, actor: Actor, code: str, new_parent_code: str |
     """Move an asset and its whole subtree under a new parent (or to the top)."""
     asset = _require_asset(session, code)
     new_parent = _require_asset(session, new_parent_code) if new_parent_code else None
+    authorize(actor, Permission.REGISTRY, asset.path, what=f"asset {code}")
+    authorize(
+        actor, Permission.REGISTRY, new_parent.path if new_parent else None, what=f"asset {code}"
+    )
     if new_parent is not None and is_descendant_path(new_parent.path, asset.path):
         raise RegistryError(
             f"Cannot move {code!r} under {new_parent.code!r}: that is the asset itself "
@@ -479,15 +489,12 @@ def list_subtree(session: Session, code: str | None = None) -> list[AssetView]:
         query = query.where(text("path <@ CAST(:root AS ltree)").bindparams(root=root.path))
     assets = session.scalars(query.order_by(Asset.path)).all()
     type_ids = {a.asset_type_id for a in assets if a.asset_type_id is not None}
-    codes = (
-        dict(
-            session.execute(select(AssetType.id, AssetType.code).where(AssetType.id.in_(type_ids)))
-            .tuples()
-            .all()
-        )
-        if type_ids
-        else {}
-    )
+    codes: dict[int, str] = {}
+    if type_ids:
+        rows = session.execute(
+            select(AssetType.id, AssetType.code).where(AssetType.id.in_(type_ids))
+        ).all()
+        codes = {row.id: row.code for row in rows}
     return [
         AssetView(
             id=a.id,
@@ -529,6 +536,7 @@ def upsert_tag(
     """Create or update a tag keyed on (source, source_name), and set its role if given."""
     spec = spec.validated()
     asset = _require_asset(session, spec.asset_code)
+    authorize(actor, Permission.REGISTRY, asset.path, what=f"tags of {asset.code}")
     role: TypeRole | None = None
     if role_code:
         role = _resolve_role(session, asset, check_role_code(role_code))

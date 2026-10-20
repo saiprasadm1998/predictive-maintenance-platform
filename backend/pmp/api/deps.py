@@ -1,15 +1,38 @@
-"""Shared request dependencies: database, settings, API-key authentication."""
+"""Shared request dependencies: database, settings, user sessions, API-key authentication."""
 
 from __future__ import annotations
 
+import ipaddress
 import logging
+import time
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Request
 
 from pmp.api.problems import ProblemError
-from pmp.core import ApiKeyScope, ApiKeyView, Database, Settings, get_settings, verify_api_key
+from pmp.core import (
+    ActiveSession,
+    Actor,
+    ApiKeyScope,
+    ApiKeyView,
+    Database,
+    Settings,
+    SignInPolicy,
+    csrf_matches,
+    get_settings,
+    resolve_session,
+    verify_api_key,
+)
 
 logger = logging.getLogger(__name__)
+security_log = logging.getLogger("pmp.security")
+
+SESSION_COOKIE = "pmp_session"
+CSRF_HEADER = "X-CSRF-Token"
+_SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+KEY_USE_LOG_EVERY_S = 300.0  # successful key use is logged at most every 5 min per key
+_key_use_logged: dict[int, float] = {}
 
 
 def settings_of(request: Request) -> Settings:
@@ -57,6 +80,7 @@ def authenticate_api_key(request: Request, scope: ApiKeyScope) -> ApiKeyView:
             "The key is unknown or has been revoked.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+    _log_key_use(view, client)
     if view.scope is not scope:
         logger.warning(
             "API key %s (scope %s) refused for %s", view.prefix, view.scope, request.url.path
@@ -68,3 +92,87 @@ def authenticate_api_key(request: Request, scope: ApiKeyScope) -> ApiKeyView:
             f"This endpoint needs a key with scope '{scope.value}'.",
         )
     return view
+
+
+def _log_key_use(view: ApiKeyView, client: str) -> None:
+    """Key use is a security event (ARC §9.3 FR 6); the gateway calls many times a
+    minute, so each key is logged at most every 5 minutes."""
+    now = time.monotonic()
+    if now - _key_use_logged.get(view.id, -KEY_USE_LOG_EVERY_S) < KEY_USE_LOG_EVERY_S:
+        return
+    _key_use_logged[view.id] = now
+    security_log.info(
+        "API key used: %s (%s) from %s",
+        view.prefix,
+        view.scope.value,
+        client,
+        extra={"event": "api_key_used", "key_prefix": view.prefix, "ip": client},
+    )
+
+
+def policy_of(request: Request) -> SignInPolicy:
+    settings = settings_of(request)
+    return SignInPolicy(
+        max_failures=settings.login_max_failures,
+        lockout=timedelta(minutes=settings.login_lockout_minutes),
+        idle_timeout=timedelta(minutes=settings.session_idle_minutes),
+        max_age=timedelta(hours=settings.session_max_hours),
+    )
+
+
+def client_ip(request: Request) -> str | None:
+    """The client's IP address, if it is one (stored as INET in sessions and the audit)."""
+    host = request.client.host if request.client else None
+    try:
+        return str(ipaddress.ip_address(host)) if host else None
+    except ValueError:
+        return None
+
+
+@dataclass(frozen=True)
+class SignedIn:
+    """The signed-in user of a request: `actor` goes to every service call."""
+
+    actor: Actor
+    session: ActiveSession
+    token: str
+    via_cookie: bool
+
+
+def _unauthorized(detail: str) -> ProblemError:
+    return ProblemError(
+        401, "unauthorized", "Sign in first", detail, headers={"WWW-Authenticate": "Bearer"}
+    )
+
+
+def signed_in(request: Request) -> SignedIn:
+    """The user behind `Authorization: Bearer <token>` or the session cookie.
+
+    Requests that change something with the cookie must echo the session's CSRF token in
+    the X-CSRF-Token header (ARC §9.1 C2); bearer tokens are not sent automatically by
+    browsers, so they need none.
+    """
+    scheme, _, bearer = request.headers.get("authorization", "").partition(" ")
+    via_cookie = scheme.lower() != "bearer" or not bearer.strip()
+    token = request.cookies.get(SESSION_COOKIE, "") if via_cookie else bearer.strip()
+    if not token:
+        raise _unauthorized("Sign in with POST /api/v1/auth/login or send a bearer token.")
+    with database_of(request).session() as session:
+        active = resolve_session(session, token, datetime.now(UTC), policy=policy_of(request))
+    if active is None:
+        raise _unauthorized("The session has ended (signed out, idle for too long or expired).")
+    if (
+        via_cookie
+        and request.method not in _SAFE_METHODS
+        and not csrf_matches(active.csrf_token, request.headers.get(CSRF_HEADER))
+    ):
+        security_log.warning(
+            "CSRF token missing or wrong: %s %s",
+            request.method,
+            request.url.path,
+            extra={"event": "csrf_refused", "username": active.principal.username},
+        )
+        raise ProblemError(
+            403, "csrf_failed", "Missing or wrong CSRF token", f"Send the {CSRF_HEADER} header."
+        )
+    return SignedIn(Actor.user(active.principal, client_ip(request)), active, token, via_cookie)

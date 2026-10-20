@@ -16,8 +16,8 @@ from sqlalchemy.orm import Session
 
 from pmp.alerting.domain import AlertRuleError, AlertRuleSpec, RuleKind
 from pmp.alerting.models import AlertRule
-from pmp.core import Actor, audit_change
-from pmp.modelling import ModelError, get_model_by_id
+from pmp.core import Actor, Permission, audit_change, authorize
+from pmp.modelling import ModelError, asset_path, get_model_by_id
 
 _FIELDS = (
     "warning",
@@ -70,6 +70,12 @@ def set_alert_rules(
         model = get_model_by_id(session, model_id)
     except ModelError as error:
         raise AlertRuleError(str(error)) from None
+    authorize(
+        actor,
+        Permission.MODELS,
+        asset_path(session, model.asset_code),
+        what=f"alert limits on {model.asset_code}",
+    )
     keys = [r.key for r in rules]
     if sum(1 for r in rules if r.kind is RuleKind.DI) > 1:
         raise AlertRuleError("A model has at most one DI rule")

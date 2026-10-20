@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted
     retention_months: int = Field(default=24, ge=1)
     alert_max_shelve_days: int = Field(default=7, ge=1)  # UCS §6.6: configurable maximum
+    # sign-in (ARC §9.3): lockout after 5 failures for 15 min, 30-minute idle timeout
+    login_max_failures: int = Field(default=5, ge=1)
+    login_lockout_minutes: int = Field(default=15, ge=1)
+    session_idle_minutes: int = Field(default=30, ge=1)
+    session_max_hours: int = Field(default=12, ge=1)
+    session_cookie_secure: bool = True  # False only for plain-HTTP development
     log_level: str = "INFO"
     log_format: LogFormat = LogFormat.JSON
     web_host: str = "127.0.0.1"

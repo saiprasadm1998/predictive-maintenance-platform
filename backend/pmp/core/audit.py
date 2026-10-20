@@ -7,16 +7,20 @@ UPDATE, DELETE and TRUNCATE through a database trigger (migration 0001).
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+import csv
+import io
+import json
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Identity, Index, String, func
+from sqlalchemy import BigInteger, DateTime, Identity, Index, String, func, select
 from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from pmp.core.access import Permission, Principal, authorize
 from pmp.core.db import Base
 
 
@@ -28,11 +32,17 @@ class ActorType(StrEnum):
 
 @dataclass(frozen=True)
 class Actor:
-    """Who is making a change: passed to every service call that writes."""
+    """Who is making a change: passed to every service call that writes. A user actor
+    carries the Principal its permissions are checked against (5.1)."""
 
     actor_type: ActorType
     user_id: int | None = None
     ip: str | None = None
+    principal: Principal | None = field(default=None, compare=False, repr=False)
+
+    @classmethod
+    def user(cls, principal: Principal, ip: str | None = None) -> Actor:
+        return cls(ActorType.USER, principal.user_id, ip, principal)
 
     @classmethod
     def system(cls) -> Actor:
@@ -109,3 +119,109 @@ def audit_change(
         before=before,
         after=after,
     )
+
+
+# ------------------------------------------------------------------ review (UC-19)
+
+
+@dataclass(frozen=True)
+class AuditView:
+    id: int
+    ts: datetime
+    user_id: int | None
+    actor_type: str
+    entity: str
+    entity_id: str
+    action: str
+    before: Mapping[str, Any] | None
+    after: Mapping[str, Any] | None
+    ip: str | None
+
+
+@dataclass(frozen=True)
+class AuditFilter:
+    """UC-19: by period, user, entity type and entity."""
+
+    since: datetime | None = None
+    until: datetime | None = None
+    user_id: int | None = None
+    entity: str | None = None
+    entity_id: str | None = None
+
+
+def query_audit(
+    session: Session,
+    actor: Actor,
+    filters: AuditFilter = AuditFilter(),  # noqa: B008  (frozen)
+    *,
+    before_id: int | None = None,
+    limit: int = 100,
+) -> list[AuditView]:
+    """Audit entries, newest first, `limit` at a time; pass the last ID as `before_id` for
+    the next page. Only administrators review the audit log (ARC §9.2)."""
+    authorize(actor, Permission.AUDIT_LOG, what="the audit log")
+    query = select(AuditLog).order_by(AuditLog.id.desc()).limit(max(1, min(limit, 10_000)))
+    if filters.since is not None:
+        query = query.where(AuditLog.ts >= filters.since)
+    if filters.until is not None:
+        query = query.where(AuditLog.ts < filters.until)
+    if filters.user_id is not None:
+        query = query.where(AuditLog.user_id == filters.user_id)
+    if filters.entity:
+        query = query.where(AuditLog.entity == filters.entity)
+    if filters.entity_id:
+        query = query.where(AuditLog.entity_id == filters.entity_id)
+    if before_id is not None:
+        query = query.where(AuditLog.id < before_id)
+    return [
+        AuditView(
+            id=r.id,
+            ts=r.ts,
+            user_id=r.user_id,
+            actor_type=r.actor_type,
+            entity=r.entity,
+            entity_id=r.entity_id,
+            action=r.action,
+            before=(r.before_after or {}).get("before"),
+            after=(r.before_after or {}).get("after"),
+            ip=str(r.ip) if r.ip is not None else None,
+        )
+        for r in session.scalars(query).all()
+    ]
+
+
+CSV_COLUMNS = (
+    "id",
+    "ts",
+    "user_id",
+    "actor_type",
+    "entity",
+    "entity_id",
+    "action",
+    "before",
+    "after",
+    "ip",
+)
+
+
+def audit_csv(rows: Iterable[AuditView]) -> str:
+    """UC-19: export as CSV (before and after values as JSON)."""
+    out = io.StringIO()
+    writer = csv.writer(out, lineterminator="\n")
+    writer.writerow(CSV_COLUMNS)
+    for r in rows:
+        writer.writerow(
+            [
+                r.id,
+                r.ts.isoformat(),
+                r.user_id if r.user_id is not None else "",
+                r.actor_type,
+                r.entity,
+                r.entity_id,
+                r.action,
+                json.dumps(r.before, sort_keys=True, default=str) if r.before is not None else "",
+                json.dumps(r.after, sort_keys=True, default=str) if r.after is not None else "",
+                r.ip or "",
+            ]
+        )
+    return out.getvalue()

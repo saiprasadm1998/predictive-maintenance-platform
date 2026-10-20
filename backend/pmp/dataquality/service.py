@@ -19,7 +19,7 @@ import numpy.typing as npt
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor, EventBus, audit_change
+from pmp.core import Actor, EventBus, Permission, audit_change, authorize
 from pmp.dataquality.domain import (
     PREVIEW_WARN_SHARE,
     RULE_ORDER,
@@ -41,7 +41,14 @@ from pmp.dataquality.domain import (
 )
 from pmp.dataquality.models import DqRule, SensorExclusion, SensorStatus
 from pmp.ingestion import read_last_samples, read_last_samples_many, read_samples
-from pmp.registry import RegistryError, TagView, get_asset_type, get_tags, list_tags
+from pmp.registry import (
+    RegistryError,
+    TagView,
+    get_asset_by_id,
+    get_asset_type,
+    get_tags,
+    list_tags,
+)
 
 _NS = 1_000_000_000
 
@@ -98,6 +105,14 @@ def _role_key(tag: TagView) -> str | None:
     if tag.asset_type_code and tag.role_code:
         return f"{tag.asset_type_code}/{tag.role_code}"
     return None
+
+
+def _scope_path(session: Session, scope: RuleScope) -> str | None:
+    """The asset path a rule set applies to: a tag's asset; global and role rule sets
+    apply everywhere, so they need an unscoped Model Engineer."""
+    if scope.kind is not ScopeKind.TAG:
+        return None
+    return get_asset_by_id(session, get_tags(session, [int(scope.key)])[0].asset_id).path
 
 
 def _check_scope(session: Session, scope: RuleScope) -> None:
@@ -174,6 +189,7 @@ def save_rule_set(
     overrides for the scope (it inherits again), as a new version.
     """
     _check_scope(session, scope)
+    authorize(actor, Permission.DATA_QUALITY_RULES, _scope_path(session, scope), what=str(scope))
     parsed = parse_overrides(overrides)
     current = get_rule_set(session, scope)
     if current.version and current.overrides == parsed:

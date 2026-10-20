@@ -1,5 +1,5 @@
 """Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
-score | alert | health | demo | apikey`.
+score | alert | health | user | audit | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -10,6 +10,7 @@ endpoints (5.2) and screens (6.6) until they arrive. `pmp backup` is added in su
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import logging
 import re
@@ -54,17 +55,29 @@ from pmp.core import (
     Actor,
     ApiKeyError,
     ApiKeyScope,
+    AuditFilter,
     Database,
     JobRegistry,
+    Role,
+    RoleAssignment,
     Settings,
+    UserError,
     Worker,
+    audit_csv,
     configure_logging,
+    create_user,
     get_settings,
+    get_user,
     issue_api_key,
     list_api_keys,
+    list_users,
+    query_audit,
+    reset_password,
     revoke_api_key,
     rotate_api_key,
     run_migrations,
+    set_active,
+    set_roles,
 )
 from pmp.dataquality import (
     DEFAULTS,
@@ -112,6 +125,8 @@ from pmp.registry import (
     ImportReport,
     RegistryError,
     TagView,
+    find_asset,
+    get_asset_by_id,
     get_tags,
     import_files,
     list_tags,
@@ -362,6 +377,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     demo_replay.add_argument("--minutes", type=int, help="stop after this many minutes")
 
+    user = commands.add_parser("user", help="user accounts and roles (UC-17)")
+    user_commands = user.add_subparsers(dest="user_command", required=True)
+    roles_help = (
+        "role, optionally scoped: viewer, analyst, maintenance, model_engineer, "
+        "administrator; e.g. analyst@SITE-A (repeat for several)"
+    )
+    user_create = user_commands.add_parser("create", help="create a user (password prompted)")
+    user_create.add_argument("username")
+    user_create.add_argument("--name", default="", help="display name")
+    user_create.add_argument("--email")
+    user_create.add_argument(
+        "--role", dest="roles", action="append", required=True, help=roles_help
+    )
+    user_commands.add_parser("list", help="list users with their roles")
+    user_roles = user_commands.add_parser("set-roles", help="replace a user's roles")
+    user_roles.add_argument("username")
+    user_roles.add_argument("--role", dest="roles", action="append", required=True, help=roles_help)
+    for name, text in (
+        ("reset-password", "set a new password (prompted); unlocks the account, ends sessions"),
+        ("deactivate", "a leaver: no sign-in, sessions end (the account is kept for the audit)"),
+        ("activate", "allow a deactivated user to sign in again"),
+    ):
+        user_commands.add_parser(name, help=text).add_argument("username")
+
+    audit = commands.add_parser("audit", help="search or export the audit trail (UC-19)")
+    audit.add_argument("--from", dest="since", type=_when, help="e.g. -7d or ISO 8601")
+    audit.add_argument("--to", dest="until", type=_when)
+    audit.add_argument("--user", help="username")
+    audit.add_argument("--entity", help="entity type, e.g. alert, model_version, user")
+    audit.add_argument("--entity-id")
+    audit.add_argument("--limit", type=int, default=50)
+    audit.add_argument("--csv", type=Path, help="write a CSV file instead of printing")
+
     apikey = commands.add_parser("apikey", help="machine API keys for the gateway (FR-SEC-02)")
     apikey_commands = apikey.add_subparsers(dest="apikey_command", required=True)
     create = apikey_commands.add_parser("create", help="issue a key (shown once)")
@@ -435,6 +483,110 @@ def _run_registry_import(settings: Settings, args: argparse.Namespace) -> int:
     return 0 if report.ok else 1
 
 
+def _parse_roles(session: Session, specs: Sequence[str]) -> list[RoleAssignment]:
+    assignments = []
+    for spec in specs:
+        role_name, _, scope = spec.partition("@")
+        try:
+            role = Role(role_name.strip().lower())
+        except ValueError:
+            raise UserError(
+                f"Unknown role {role_name!r}; use one of {', '.join(r.value for r in Role)}"
+            ) from None
+        scope_id = None
+        if scope:
+            asset = find_asset(session, scope.strip())
+            if asset is None:
+                raise UserError(f"Asset {scope!r} does not exist")
+            scope_id = asset.id
+        assignments.append(RoleAssignment(role, scope_id))
+    return assignments
+
+
+def _roles_text(session: Session, assignments: Sequence[RoleAssignment]) -> str:
+    return ", ".join(
+        a.role.label
+        + (f" @ {get_asset_by_id(session, a.scope_asset_id).code}" if a.scope_asset_id else "")
+        for a in assignments
+    )
+
+
+def _ask_password(username: str) -> str:
+    first = getpass.getpass(f"New password for {username}: ")
+    if getpass.getpass("Repeat it: ") != first:
+        raise UserError("The passwords do not match")
+    return first
+
+
+def _run_user(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    actor = Actor.system()  # the command line is trusted: whoever runs it runs the server
+    try:
+        with database.session() as session:
+            command = args.user_command
+            if command == "create":
+                assignments = _parse_roles(session, args.roles)
+                password = _ask_password(args.username)
+                view = create_user(
+                    session,
+                    actor,
+                    username=args.username,
+                    display_name=args.name,
+                    password=password,
+                    assignments=assignments,
+                    email=args.email,
+                )
+                print(f"Created {view.username}: {_roles_text(session, view.assignments)}")
+            elif command == "list":
+                for u in list_users(session):
+                    state = "active" if u.active else "deactivated"
+                    if u.locked_until and u.locked_until > datetime.now(UTC):
+                        state = f"locked until {u.locked_until:%H:%M} UTC"
+                    last = f"{u.last_login_at:%Y-%m-%d %H:%M}" if u.last_login_at else "never"
+                    print(
+                        f"{u.id:>4}  {u.username:<20} {u.display_name:<24} {state:<20} "
+                        f"last sign-in {last:<16}  {_roles_text(session, u.assignments)}"
+                    )
+            elif command == "set-roles":
+                view = set_roles(session, actor, args.username, _parse_roles(session, args.roles))
+                print(f"{view.username}: {_roles_text(session, view.assignments)}")
+            elif command == "reset-password":
+                reset_password(session, actor, args.username, _ask_password(args.username))
+                print(f"Password reset for {args.username}; their sessions have ended.")
+            else:
+                view = set_active(session, actor, args.username, command == "activate")
+                print(f"{view.username} is now {'active' if view.active else 'deactivated'}.")
+    except UserError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    return 0
+
+
+def _run_audit(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            user_id = get_user(session, args.user).id if args.user else None
+            filters = AuditFilter(args.since, args.until, user_id, args.entity, args.entity_id)
+            limit = 10_000 if args.csv else args.limit
+            rows = query_audit(session, Actor.system(), filters, limit=limit)
+        if args.csv:
+            args.csv.write_text(audit_csv(rows), encoding="utf-8")
+            print(f"Wrote {len(rows)} entries to {args.csv}")
+            return 0
+        for r in rows:
+            who = r.user_id if r.user_id is not None else r.actor_type
+            print(f"{r.ts:%Y-%m-%d %H:%M:%S}  {r.entity}:{r.entity_id:<10} {r.action:<16} by {who}")
+        return 0
+    except UserError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
 def _run_apikey(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     actor = Actor.system()
@@ -455,7 +607,7 @@ def _run_apikey(settings: Settings, args: argparse.Namespace) -> int:
                 revoke_api_key(session, actor, args.id)
                 print(f"Key {args.id} revoked.")
             else:
-                for key in list_api_keys(session):
+                for key in list_api_keys(session, actor):
                     status = "active" if key.active else f"revoked {key.revoked_at:%Y-%m-%d}"
                     used = f"{key.last_used_at:%Y-%m-%d %H:%M}" if key.last_used_at else "never"
                     print(
@@ -1041,6 +1193,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_alert(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
+    elif args.command == "audit":
+        sys.exit(_run_audit(settings, args))
+    elif args.command == "user":
+        sys.exit(_run_user(settings, args))
     elif args.command == "apikey":
         sys.exit(_run_apikey(settings, args))
 

@@ -40,6 +40,16 @@ def _context() -> dict[str, str]:
     return {name: value for name, var in _CONTEXT_VARS.items() if (value := var.get()) is not None}
 
 
+# Structured fields a record may carry through `extra=` (security events, ARC §9.3 FR 6)
+EXTRA_FIELDS = ("event", "username", "user_id", "permission", "ip", "key_prefix")
+
+
+def _extra(record: logging.LogRecord) -> dict[str, Any]:
+    return {
+        name: value for name in EXTRA_FIELDS if (value := record.__dict__.get(name)) is not None
+    }
+
+
 class JsonFormatter(logging.Formatter):
     """One JSON object per line."""
 
@@ -53,6 +63,7 @@ class JsonFormatter(logging.Formatter):
         if module := _module_of(record.name):
             entry["module"] = module
         entry.update(_context())
+        entry.update(_extra(record))
         if record.exc_info:
             entry["exc_info"] = self.formatException(record.exc_info)
         return json.dumps(entry, default=str)
@@ -63,7 +74,7 @@ class TextFormatter(logging.Formatter):
 
     def format(self, record: logging.LogRecord) -> str:
         ts = datetime.fromtimestamp(record.created, tz=UTC).strftime("%H:%M:%S")
-        context = " ".join(f"{k}={v}" for k, v in _context().items())
+        context = " ".join(f"{k}={v}" for k, v in {**_context(), **_extra(record)}.items())
         line = f"{ts} {record.levelname:<7} {record.name}: {record.getMessage()}"
         if context:
             line = f"{line} [{context}]"

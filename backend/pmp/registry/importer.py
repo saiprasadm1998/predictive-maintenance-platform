@@ -27,7 +27,7 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor
+from pmp.core import Actor, Permission, authorize
 from pmp.registry.domain import (
     AssetLevel,
     Criticality,
@@ -539,6 +539,7 @@ def import_registry(
     On any problem nothing is written. The caller's transaction makes the import atomic:
     if anything fails while applying, the caller rolls back.
     """
+    authorize(actor, Permission.REGISTRY, what="registry import")
     report = ImportReport()
     plan, problems = validate(session, sheets)
     if problems:

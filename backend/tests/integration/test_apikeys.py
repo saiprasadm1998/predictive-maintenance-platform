@@ -49,7 +49,7 @@ def test_revoked_keys_stop_working(clean_ingestion: Database) -> None:
         revoke_api_key(s, ACTOR, issued.id)
     with clean_ingestion.session() as s:
         assert verify_api_key(s, issued.key) is None
-        assert not list_api_keys(s)[0].active
+        assert not list_api_keys(s, Actor.system())[0].active
 
 
 def test_rotation_overlaps_until_the_old_key_is_revoked(clean_ingestion: Database) -> None:

@@ -20,6 +20,7 @@ from enum import StrEnum
 from sqlalchemy import DateTime, Identity, Integer, String, func, select
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from pmp.core.access import Permission, authorize
 from pmp.core.audit import Actor, audit_change
 from pmp.core.db import Base
 
@@ -99,6 +100,7 @@ def _view(row: ApiKey) -> ApiKeyView:
 
 
 def issue_api_key(session: Session, actor: Actor, *, name: str, scope: ApiKeyScope) -> IssuedKey:
+    authorize(actor, Permission.ADMINISTRATION, what="API keys")
     name = name.strip()
     if not name:
         raise ApiKeyError("A key needs a name, e.g. 'Site A gateway'")
@@ -136,6 +138,7 @@ def verify_api_key(session: Session, key: str) -> ApiKeyView | None:
 
 
 def revoke_api_key(session: Session, actor: Actor, key_id: int) -> None:
+    authorize(actor, Permission.ADMINISTRATION, what="API keys")
     row = session.get(ApiKey, key_id)
     if row is None:
         raise ApiKeyError(f"API key {key_id} does not exist")
@@ -172,5 +175,6 @@ def rotate_api_key(session: Session, actor: Actor, key_id: int) -> IssuedKey:
     return issued
 
 
-def list_api_keys(session: Session) -> list[ApiKeyView]:
+def list_api_keys(session: Session, actor: Actor) -> list[ApiKeyView]:
+    authorize(actor, Permission.ADMINISTRATION, what="API keys")
     return [_view(r) for r in session.scalars(select(ApiKey).order_by(ApiKey.id)).all()]

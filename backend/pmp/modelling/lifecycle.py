@@ -24,10 +24,16 @@ from pathlib import Path
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pmp.core import Actor, Event, EventBus, audit_change
+from pmp.core import Actor, Event, EventBus, Permission, audit_change, authorize
 from pmp.modelling.definitions import ModelError, VersionStatus
 from pmp.modelling.models import Model, ModelVersion
-from pmp.modelling.service import ModelView, _set_status, get_model, get_model_by_id
+from pmp.modelling.service import (
+    ModelView,
+    _set_status,
+    asset_path,
+    get_model,
+    get_model_by_id,
+)
 from pmp.registry import get_asset_by_id
 
 
@@ -144,6 +150,7 @@ def change_status(
     """Apply a lifecycle action to a version (default: the latest version for deploy and
     reject, the version in service for pause, resume and retire)."""
     model = get_model(session, asset_code, name)
+    authorize(actor, Permission.MODELS, asset_path(session, asset_code), what=asset_code)
     row = _target_version(session, model, action, version)
     current = VersionStatus(row.status)
     target = next_status(current, action, row.version)
