@@ -7,8 +7,10 @@ import logging
 import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from fastapi import Request
+from fastapi import Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from pmp.api.problems import ProblemError
 from pmp.core import (
@@ -145,7 +147,22 @@ def _unauthorized(detail: str) -> ProblemError:
     )
 
 
-def signed_in(request: Request) -> SignedIn:
+_bearer_scheme = HTTPBearer(
+    auto_error=False,
+    description="A token from POST /api/v1/auth/token (browsers use the session cookie).",
+)
+
+
+def signed_in(
+    request: Request,
+    _credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
+) -> SignedIn:
+    """Dependency for endpoints that need a signed-in user (the Swagger "Authorize" button
+    sends the bearer token)."""
+    return resolve_user(request)
+
+
+def resolve_user(request: Request) -> SignedIn:
     """The user behind `Authorization: Bearer <token>` or the session cookie.
 
     Requests that change something with the cookie must echo the session's CSRF token in

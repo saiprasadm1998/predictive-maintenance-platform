@@ -19,7 +19,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from pydantic import BaseModel, Field
 
-from pmp.api.deps import authenticate_api_key, database_of, settings_of
+from pmp.api.deps import authenticate_api_key, database_of, resolve_user, settings_of
 from pmp.api.problems import ProblemError
 from pmp.core import ApiKeyScope, JobStatus, enqueue, get_job
 from pmp.ingestion import (
@@ -188,12 +188,17 @@ def load_history(request: Request, upload_id: str, body: LoadRequest) -> QueuedJ
     summary="Status, progress and result of a background job",
 )
 def job_status(request: Request, job_id: int) -> JobView:
-    key = authenticate_api_key(request, ApiKeyScope.INGEST)
+    """With an ingest key: only the history imports that key started (ARC §1.2). Signed-in
+    users see every job (training, imports)."""
+    by_key = request.headers.get("authorization", "").lower().startswith("apikey ")
+    key = authenticate_api_key(request, ApiKeyScope.INGEST) if by_key else None
+    if key is None:
+        resolve_user(request)
     with database_of(request).session() as session:
         job = get_job(session, job_id)
-    # an ingest key sees only the history imports it started (training results and other
-    # jobs stay private); user access to all jobs comes with 5.2
-    if job is None or job.type != BACKFILL_JOB or job.payload.get("key_id") != key.id:
+    if job is None or (
+        key is not None and (job.type != BACKFILL_JOB or job.payload.get("key_id") != key.id)
+    ):
         raise ProblemError(404, "not_found", "Job not found")
     return JobView(
         id=job.id,

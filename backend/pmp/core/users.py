@@ -351,7 +351,8 @@ def change_own_password(
     audit_change(session, actor, entity="user", entity_id=user.id, action="change_password")
 
 
-def list_users(session: Session) -> list[UserView]:
+def list_users(session: Session, actor: Actor) -> list[UserView]:
+    authorize(actor, Permission.ADMINISTRATION, what="users")
     users = session.scalars(select(AppUser).order_by(func.lower(AppUser.username))).all()
     return [_view(session, u) for u in users]
 
@@ -426,10 +427,11 @@ def resolve_session(
     now: datetime,
     *,
     policy: SignInPolicy = SignInPolicy(),  # noqa: B008
+    touch: bool = True,
 ) -> ActiveSession | None:
     """The session for a token, with the user's current roles, or None if it does not
     exist, has expired (idle or too old) or its user is inactive. Using a session keeps it
-    alive."""
+    alive, unless `touch` is False (an open live stream is not user activity)."""
     row = session.scalars(
         select(UserSession).where(UserSession.token_hash == _hash_token(token))
     ).one_or_none()
@@ -442,7 +444,7 @@ def resolve_session(
         if user is not None and expired:
             _log("session_expired", user.username, None)
         return None
-    if now - row.last_seen_at >= TOUCH_EVERY:
+    if touch and now - row.last_seen_at >= TOUCH_EVERY:
         row.last_seen_at = now
     principal = Principal(user.id, user.username, _assignments(session, user.id))
     return ActiveSession(principal, row.csrf_token, row.id)

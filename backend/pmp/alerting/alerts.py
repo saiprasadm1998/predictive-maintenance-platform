@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, func, literal, select, tuple_
 from sqlalchemy.orm import Session
 
 from pmp.alerting.domain import AlertRuleSpec, RuleKind
@@ -547,27 +547,102 @@ def set_priority(
 # ------------------------------------------------------------------ queries
 
 
+@dataclass(frozen=True)
+class AlertQuery:
+    """Filters for the alert list (FR-ALM-03, ARC §7.3). Empty tuples mean "any"."""
+
+    open_only: bool = True
+    model_ids: tuple[int, ...] | None = None  # None: all models (scope already applied)
+    states: tuple[AlertState, ...] = ()
+    priorities: tuple[str, ...] = ()
+    severities: tuple[Severity, ...] = ()
+    kind: RuleKind | None = None
+
+
+_UNACK = (AlertState.ACTIVE_UNACK.value, AlertState.RTN_UNACK.value)
+
+
+def _sort_columns() -> tuple[Any, ...]:
+    """PDS §4.2: unacknowledged first, then priority, then age; out of service last."""
+    out_of_service = case((Alert.state == AlertState.OUT_OF_SERVICE.value, 1), else_=0)
+    acknowledged = case((Alert.state.in_(_UNACK), 0), else_=1)
+    return (out_of_service, acknowledged, Alert.priority, Alert.raised_at, Alert.id)
+
+
+def search_alerts(
+    session: Session,
+    query: AlertQuery = AlertQuery(),  # noqa: B008  (frozen)
+    *,
+    after: Sequence[Any] | None = None,
+    limit: int = 100,
+) -> tuple[list[AlertView], list[Any] | None]:
+    """One page of alerts in list order, and the sort key to continue after (keyset
+    paging, done in the database: FR-ALM-03 asks for 1,000 alerts filtered in under 1 s)."""
+    columns = _sort_columns()
+    stmt = select(Alert, *columns[:2])
+    if query.open_only:
+        stmt = stmt.where(Alert.state.in_(_OPEN))
+    if query.model_ids is not None:
+        stmt = stmt.where(Alert.model_id.in_(query.model_ids))
+    if query.states:
+        stmt = stmt.where(Alert.state.in_([s.value for s in query.states]))
+    if query.priorities:
+        stmt = stmt.where(Alert.priority.in_(query.priorities))
+    if query.severities:
+        stmt = stmt.where(Alert.severity.in_([s.value for s in query.severities]))
+    if query.kind is not None:
+        stmt = stmt.where(Alert.kind == query.kind.value)
+    if after is not None:
+        oos, acked, priority, raised_at, alert_id = after
+        stmt = stmt.where(
+            tuple_(*columns)
+            > tuple_(
+                literal(int(oos)),
+                literal(int(acked)),
+                literal(str(priority)),
+                literal(datetime.fromisoformat(str(raised_at))),
+                literal(int(alert_id)),
+            )
+        )
+    rows = session.execute(stmt.order_by(*columns).limit(limit + 1)).all()
+    more = len(rows) > limit
+    rows = rows[:limit]
+    views = [_view(row[0]) for row in rows]
+    if not more or not rows:
+        return views, None
+    last, oos, acked = rows[-1]
+    return views, [oos, acked, last.priority, last.raised_at.isoformat(), last.id]
+
+
 def list_alerts(
     session: Session, *, open_only: bool = True, model_id: int | None = None
 ) -> list[AlertView]:
-    """Open alerts by default (not Normal): unacknowledged first, then priority, then age
-    (PDS §4.2); out-of-service alerts last (wireframe 02)."""
-    query = select(Alert)
-    if open_only:
-        query = query.where(Alert.state.in_(_OPEN))
-    if model_id is not None:
-        query = query.where(Alert.model_id == model_id)
-    views = [_view(r) for r in session.scalars(query).all()]
-    unacknowledged = {AlertState.ACTIVE_UNACK, AlertState.RTN_UNACK}
-    return sorted(
-        views,
-        key=lambda v: (
-            v.state is AlertState.OUT_OF_SERVICE,
-            v.state not in unacknowledged,
-            v.priority or "",
-            v.raised_at,
-        ),
+    """Every alert in list order (for the command line)."""
+    query = AlertQuery(open_only=open_only, model_ids=(model_id,) if model_id else None)
+    views, _ = search_alerts(session, query, limit=1_000_000)
+    return views
+
+
+def alert_counts(
+    session: Session, model_ids: Sequence[int] | None = None
+) -> dict[str, dict[str, int]]:
+    """Open alerts by priority, split into unacknowledged and all (fleet KPIs, SCR-01).
+    Out-of-service alerts are not counted: they have no priority."""
+    stmt = select(Alert.priority, func.count(), func.count().filter(Alert.state.in_(_UNACK))).where(
+        Alert.state.in_(_OPEN), Alert.state != AlertState.OUT_OF_SERVICE.value
     )
+    if model_ids is not None:
+        stmt = stmt.where(Alert.model_id.in_(model_ids))
+    rows = session.execute(stmt.group_by(Alert.priority)).all()
+    return {
+        "open": {p: int(n) for p, n, _ in rows},
+        "unacknowledged": {p: int(u) for p, _, u in rows if u},
+    }
+
+
+def get_alerts(session: Session, alert_ids: Iterable[int]) -> list[AlertView]:
+    """Alerts by ID, in ID order; AlertError names any that do not exist."""
+    return [_view(r) for r in _load(session, alert_ids)]
 
 
 def get_alert(session: Session, alert_id: int) -> AlertView:

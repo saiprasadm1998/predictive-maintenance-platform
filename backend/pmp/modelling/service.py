@@ -626,3 +626,11 @@ def model_assets(session: Session) -> dict[int, tuple[int, str]]:
     """Every model's asset ID and name, by model ID (one query; for the health roll-up)."""
     rows = session.execute(select(Model.id, Model.asset_id, Model.name)).all()
     return {model_id: (asset_id, name) for model_id, asset_id, name in rows}
+
+
+def model_of_version(session: Session, version_id: int) -> ModelView:
+    """The model a version belongs to (ModelError if there is no such version)."""
+    version = session.get(ModelVersion, version_id)
+    if version is None:
+        raise ModelError(f"Model version {version_id} does not exist")
+    return get_model_by_id(session, version.model_id)

@@ -1,5 +1,5 @@
 """Command line: `pmp web | worker | migrate | registry | ingest | dq | algorithms | model |
-score | alert | health | user | audit | demo | apikey`.
+score | alert | health | user | audit | retention | demo | apikey`.
 
 See ARC-001 §10.1 and §12.
 
@@ -27,12 +27,9 @@ import uvicorn
 from sqlalchemy.orm import Session
 
 from pmp.alerting import (
-    DEFAULT_SENSOR_ALERT,
-    DEFAULT_SENSOR_WARNING,
     AlertChanged,
     AlertError,
     AlertRuleError,
-    AlertRuleSpec,
     AlertState,
     AlertView,
     RuleKind,
@@ -45,6 +42,7 @@ from pmp.alerting import (
     list_alerts,
     require_di_rule,
     rule_states,
+    rules_from_dict,
     set_alert_rules,
     set_priority,
     shelve,
@@ -58,14 +56,17 @@ from pmp.core import (
     AuditFilter,
     Database,
     JobRegistry,
+    RetentionError,
     Role,
     RoleAssignment,
     Settings,
     UserError,
     Worker,
+    apply_retention,
     audit_csv,
     configure_logging,
     create_user,
+    get_retention,
     get_settings,
     get_user,
     issue_api_key,
@@ -77,6 +78,7 @@ from pmp.core import (
     rotate_api_key,
     run_migrations,
     set_active,
+    set_retention,
     set_roles,
 )
 from pmp.dataquality import (
@@ -410,6 +412,14 @@ def build_parser() -> argparse.ArgumentParser:
     audit.add_argument("--limit", type=int, default=50)
     audit.add_argument("--csv", type=Path, help="write a CSV file instead of printing")
 
+    retention = commands.add_parser("retention", help="how long data is kept (NFR-DATA-01)")
+    retention_commands = retention.add_subparsers(dest="retention_command", required=True)
+    retention_commands.add_parser("show", help="the policy and the last run")
+    retention_set = retention_commands.add_parser("set", help="change the policy")
+    retention_set.add_argument("--raw-months", type=int, required=True)
+    retention_set.add_argument("--aggregate-months", type=int, required=True)
+    retention_commands.add_parser("run", help="apply it now (the worker does this daily)")
+
     apikey = commands.add_parser("apikey", help="machine API keys for the gateway (FR-SEC-02)")
     apikey_commands = apikey.add_subparsers(dest="apikey_command", required=True)
     create = apikey_commands.add_parser("create", help="issue a key (shown once)")
@@ -449,7 +459,9 @@ def _run_worker(settings: Settings) -> None:
         on_failed=make_training_failure_handler(database),
     )
     stop = threading.Event()
-    scheduler = Scheduler(database, grace_s=settings.scoring_grace_s)
+    scheduler = Scheduler(
+        database, grace_s=settings.scoring_grace_s, retention_months=settings.retention_months
+    )
     scheduler_thread = threading.Thread(
         target=scheduler.run_forever, args=(stop,), name="scoring-scheduler", daemon=True
     )
@@ -538,7 +550,7 @@ def _run_user(settings: Settings, args: argparse.Namespace) -> int:
                 )
                 print(f"Created {view.username}: {_roles_text(session, view.assignments)}")
             elif command == "list":
-                for u in list_users(session):
+                for u in list_users(session, actor):
                     state = "active" if u.active else "deactivated"
                     if u.locked_until and u.locked_until > datetime.now(UTC):
                         state = f"locked until {u.locked_until:%H:%M} UTC"
@@ -581,6 +593,35 @@ def _run_audit(settings: Settings, args: argparse.Namespace) -> int:
             print(f"{r.ts:%Y-%m-%d %H:%M:%S}  {r.entity}:{r.entity_id:<10} {r.action:<16} by {who}")
         return 0
     except UserError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
+def _run_retention(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    default = settings.retention_months
+    try:
+        with database.session() as session:
+            if args.retention_command == "set":
+                set_retention(
+                    session,
+                    Actor.system(),
+                    raw_months=args.raw_months,
+                    aggregate_months=args.aggregate_months,
+                    default_raw_months=default,
+                )
+            elif args.retention_command == "run":
+                print(apply_retention(session, datetime.now(UTC), default))
+            policy = get_retention(session, default)
+        last = f"{policy.last_run_at:%Y-%m-%d %H:%M} UTC" if policy.last_run_at else "never"
+        print(
+            f"Raw data kept {policy.raw_months} months, hourly aggregates "
+            f"{policy.aggregate_months} months. Last run: {last}"
+        )
+        return 0
+    except RetentionError as error:
         print(f"Error: {error}", file=sys.stderr)
         return 1
     finally:
@@ -759,57 +800,6 @@ def _run_algorithms() -> int:
     return 0 if all(d.enabled for d in detectors) else 1
 
 
-def _rules_from_dict(raw: object, model: ModelView) -> list[AlertRuleSpec]:
-    """The alert_rules part of a model definition file."""
-    if raw is None:
-        return []
-    if not isinstance(raw, dict):
-        raise AlertRuleError("alert_rules must be an object")
-    sensor_ids = {s.source_name: s.tag_id for s in model.latest.sensors}
-    options = (
-        "persistence_n",
-        "persistence_m",
-        "on_delay_s",
-        "deadband",
-        "clear_cycles",
-        "enabled",
-    )
-
-    def extra(rule: dict[str, object]) -> dict[str, object]:
-        return {k: rule[k] for k in options if k in rule}
-
-    rules: list[AlertRuleSpec] = []
-    try:
-        if raw.get("di") is not None:
-            di = raw["di"]
-            rules.append(
-                AlertRuleSpec(
-                    RuleKind.DI,
-                    float(di["warning"]),
-                    float(di["alert"]),
-                    **extra(di),  # type: ignore[arg-type]
-                )
-            )
-        for rule in raw.get("sensors", []):
-            name = str(rule["tag"])
-            if name not in sensor_ids:
-                raise AlertRuleError(f"Sensor rule on {name}, which is not a model sensor")
-            rules.append(
-                AlertRuleSpec(
-                    RuleKind.SENSOR,
-                    float(rule.get("warning", DEFAULT_SENSOR_WARNING)),
-                    float(rule.get("alert", DEFAULT_SENSOR_ALERT)),
-                    tag_id=sensor_ids[name],
-                    **extra(rule),  # type: ignore[arg-type]
-                )
-            )
-    except (KeyError, TypeError, ValueError) as error:
-        if isinstance(error, AlertRuleError):
-            raise
-        raise AlertRuleError(f"alert_rules is malformed: {error}") from None
-    return rules
-
-
 def _print_model(session: Session, model: ModelView) -> None:
     latest = model.latest
     print(f"{model.asset_code} / {model.name}  (model {model.id})  {model.description}")
@@ -871,7 +861,13 @@ def _run_model(settings: Settings, args: argparse.Namespace) -> int:
                 definition = definition_from_dict(data, datetime.now(UTC))
                 model = save_draft(session, actor, definition)
                 set_alert_rules(
-                    session, actor, model.id, _rules_from_dict(data.get("alert_rules"), model)
+                    session,
+                    actor,
+                    model.id,
+                    rules_from_dict(
+                        data.get("alert_rules"),
+                        {x.source_name: x.tag_id for x in model.latest.sensors},
+                    ),
                 )
                 version = model.latest.version
                 print(f"Saved {model.asset_code} / {model.name} version {version} (Draft)")
@@ -1193,6 +1189,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_alert(settings, args))
     elif args.command == "demo":
         sys.exit(_run_demo(settings, args))
+    elif args.command == "retention":
+        sys.exit(_run_retention(settings, args))
     elif args.command == "audit":
         sys.exit(_run_audit(settings, args))
     elif args.command == "user":

@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from pmp.api.deps import SignedIn, database_of, signed_in
+from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.core import (
     ApiKeyError,
@@ -20,12 +20,18 @@ from pmp.core import (
     ApiKeyView,
     AuditFilter,
     AuditView,
+    Permission,
+    RetentionError,
+    RetentionPolicy,
     audit_csv,
+    authorize,
+    get_retention,
     issue_api_key,
     list_api_keys,
     query_audit,
     revoke_api_key,
     rotate_api_key,
+    set_retention,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["administration"])
@@ -186,3 +192,52 @@ def get_audit_csv(
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="audit.csv"'},
     )
+
+
+class RetentionOut(BaseModel):
+    raw_months: int = Field(description="samples, scores and sensor outputs (NFR-DATA-01)")
+    aggregate_months: int = Field(description="hourly aggregates (ARC §6.3)")
+    last_run_at: datetime | None
+    last_result: str | None
+
+
+class RetentionIn(BaseModel):
+    raw_months: int = Field(ge=1, le=600)
+    aggregate_months: int = Field(ge=1, le=1200)
+
+
+def _retention_out(policy: RetentionPolicy) -> RetentionOut:
+    return RetentionOut(
+        raw_months=policy.raw_months,
+        aggregate_months=policy.aggregate_months,
+        last_run_at=policy.last_run_at,
+        last_result=policy.last_result,
+    )
+
+
+@router.get("/retention", response_model=RetentionOut, summary="How long data is kept")
+def get_retention_policy(request: Request, user: User) -> RetentionOut:
+    authorize(user.actor, Permission.ADMINISTRATION, what="retention")
+    with database_of(request).session() as session:
+        return _retention_out(get_retention(session, settings_of(request).retention_months))
+
+
+@router.put(
+    "/retention",
+    response_model=RetentionOut,
+    summary="Change how long data is kept (applied by the worker's daily run)",
+)
+def put_retention_policy(request: Request, user: User, body: RetentionIn) -> RetentionOut:
+    try:
+        with database_of(request).session() as session:
+            return _retention_out(
+                set_retention(
+                    session,
+                    user.actor,
+                    raw_months=body.raw_months,
+                    aggregate_months=body.aggregate_months,
+                    default_raw_months=settings_of(request).retention_months,
+                )
+            )
+    except RetentionError as error:
+        raise ProblemError(400, "invalid_retention", "Retention refused", str(error)) from None

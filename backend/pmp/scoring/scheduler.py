@@ -18,7 +18,15 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 from pmp.alerting import expire_shelves, sync_out_of_service
-from pmp.core import Database, EventBus, LockKey, holds_advisory_lock, try_advisory_lock
+from pmp.core import (
+    Database,
+    EventBus,
+    LockKey,
+    apply_retention,
+    holds_advisory_lock,
+    retention_due,
+    try_advisory_lock,
+)
 from pmp.modelling import ActiveVersion, ModelCache, list_active_versions
 from pmp.scoring.runtime import CycleResult, last_cycles, mark_out_of_service, score_models
 
@@ -42,8 +50,12 @@ class Scheduler:
         bus: EventBus | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         poll_s: float = 1.0,
+        retention_months: int | None = None,
     ) -> None:
+        """`retention_months`: apply data retention once a day (the worker passes
+        PMP_RETENTION_MONTHS as the default); None leaves retention off."""
         self.database = database
+        self.retention_months = retention_months
         self.grace_s = grace_s
         self.bus = bus or EventBus()
         self.clock = clock
@@ -61,6 +73,7 @@ class Scheduler:
         last = self._last
         mark_out_of_service(self.database, (v.model_id for v in active))
         self._alert_housekeeping(now, active)
+        self._retention(now)
 
         due: dict[datetime, list[ActiveVersion]] = defaultdict(list)
         for version in active:
@@ -75,6 +88,17 @@ class Scheduler:
                 last[version.version_id] = cycle
             results += batch
         return results
+
+    def _retention(self, now: datetime) -> None:
+        """NFR-DATA-01: the daily retention run, by the leader only."""
+        if self.retention_months is None:
+            return
+        try:
+            with self.database.session() as session:
+                if retention_due(session, now):
+                    apply_retention(session, now, self.retention_months)
+        except Exception:
+            logger.exception("Retention run failed; trying again on a later tick")
 
     def _alert_housekeeping(self, now: datetime, active: list[ActiveVersion]) -> None:
         """Shelving that has run out ends, and alerts follow their model in and out of

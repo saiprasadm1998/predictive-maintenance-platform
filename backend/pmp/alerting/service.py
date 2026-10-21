@@ -7,14 +7,20 @@ changed or removed rule is audited.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from pmp.alerting.domain import AlertRuleError, AlertRuleSpec, RuleKind
+from pmp.alerting.domain import (
+    DEFAULT_SENSOR_ALERT,
+    DEFAULT_SENSOR_WARNING,
+    AlertRuleError,
+    AlertRuleSpec,
+    RuleKind,
+)
 from pmp.alerting.models import AlertRule
 from pmp.core import Actor, Permission, audit_change, authorize
 from pmp.modelling import ModelError, asset_path, get_model_by_id
@@ -137,3 +143,54 @@ def require_di_rule(session: Session, model_id: int) -> None:
         raise ModelError(
             "Set the DI alert rule first: the Health Score is measured against its alert limit"
         )
+
+
+def rules_from_dict(raw: object, sensor_ids: Mapping[str, int]) -> list[AlertRuleSpec]:
+    """The alert_rules part of a model definition (file or API): {"di": {...},
+    "sensors": [{"tag": source name, ...}]}. `sensor_ids` maps the model's sensors."""
+    if raw is None:
+        return []
+    if not isinstance(raw, dict):
+        raise AlertRuleError("alert_rules must be an object")
+    options = (
+        "persistence_n",
+        "persistence_m",
+        "on_delay_s",
+        "deadband",
+        "clear_cycles",
+        "enabled",
+    )
+
+    def extra(rule: dict[str, object]) -> dict[str, object]:
+        return {k: rule[k] for k in options if k in rule}
+
+    rules: list[AlertRuleSpec] = []
+    try:
+        if raw.get("di") is not None:
+            di = raw["di"]
+            rules.append(
+                AlertRuleSpec(
+                    RuleKind.DI,
+                    float(di["warning"]),
+                    float(di["alert"]),
+                    **extra(di),  # type: ignore[arg-type]
+                )
+            )
+        for rule in raw.get("sensors", []):
+            name = str(rule["tag"])
+            if name not in sensor_ids:
+                raise AlertRuleError(f"Sensor rule on {name}, which is not a model sensor")
+            rules.append(
+                AlertRuleSpec(
+                    RuleKind.SENSOR,
+                    float(rule.get("warning", DEFAULT_SENSOR_WARNING)),
+                    float(rule.get("alert", DEFAULT_SENSOR_ALERT)),
+                    tag_id=sensor_ids[name],
+                    **extra(rule),  # type: ignore[arg-type]
+                )
+            )
+    except (KeyError, TypeError, ValueError) as error:
+        if isinstance(error, AlertRuleError):
+            raise
+        raise AlertRuleError(f"alert_rules is malformed: {error}") from None
+    return rules

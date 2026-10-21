@@ -29,7 +29,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from sqlalchemy import text
 
-from pmp.core import Database, report_progress
+from pmp.core import Database, refresh_hourly, report_progress
 from pmp.ingestion.domain import FUTURE_TOLERANCE, map_quality
 from pmp.ingestion.service import merge_staged, server_now, stage_text
 from pmp.registry import resolve_tag_ids
@@ -358,6 +358,9 @@ def run_backfill(
         report_progress(percent, rows_read=report.rows_read, loaded=report.loaded)
         if on_progress is not None:
             on_progress(percent)
+    if not preview and report.loaded and report.first_ts and report.last_ts:
+        # history lands behind the hourly aggregate's refresh window (ARC §6.3)
+        refresh_hourly(database, "sample", report.first_ts, report.last_ts)
     return report
 
 

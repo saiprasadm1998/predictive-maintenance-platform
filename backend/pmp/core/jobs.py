@@ -37,6 +37,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from pmp.core.db import Base, Database
+from pmp.core.events import notify
 
 logger = logging.getLogger(__name__)
 
@@ -151,6 +152,21 @@ def complete(
     job.locked_by = None
     job.locked_at = None
     job.finished_at = func.now()
+    _announce(session, job, 100.0)
+
+
+def _announce(session: Session, job: Job, percent: float | None) -> None:
+    """job.progress for the live stream (ARC §7.4, plan 5.3)."""
+    notify(
+        session,
+        {
+            "type": "job.progress",
+            "job_id": job.id,
+            "job_type": job.type,
+            "status": str(job.status),
+            "percent": percent,
+        },
+    )
 
 
 def backoff(attempts: int) -> timedelta:
@@ -176,6 +192,7 @@ def fail(
     else:
         job.status = JobStatus.FAILED
         job.finished_at = func.now()
+    _announce(session, job, None)
     return JobStatus(job.status)
 
 
@@ -303,6 +320,7 @@ def report_progress(percent: float, **details: Any) -> None:
         if job is not None and job.status == JobStatus.RUNNING:
             job.result = {"percent": round(max(0.0, min(100.0, percent)), 1), **details}
             job.locked_at = func.now()  # progress is also a heartbeat
+            _announce(session, job, job.result["percent"])
 
 
 class JobRegistry:

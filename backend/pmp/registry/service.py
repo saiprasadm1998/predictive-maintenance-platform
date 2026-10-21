@@ -340,6 +340,11 @@ def get_asset_type(session: Session, code: str) -> AssetTypeView:
     )
 
 
+def list_asset_types(session: Session) -> list[AssetTypeView]:
+    types = session.scalars(select(AssetType).order_by(AssetType.code)).all()
+    return [get_asset_type(session, t.code) for t in types]
+
+
 # ------------------------------------------------------------------ assets
 
 
