@@ -300,7 +300,8 @@ zone; errors are RFC 9457 problem details with a stable `code`.
 worker scores.
 
 In `/api/v1/docs`, get a token from `POST /auth/token` and paste it into **Authorize**.
-`make perf-api` checks the NFR-PERF-03 budgets (30-day trend of 20 sensors, 1,000 alerts).
+`make perf-api` checks the NFR-PERF-03 budgets (30-day trend of 20 sensors, 1,000 alerts) and
+the fleet overview's reads for 500 assets (1 s, so the screen loads in under 2 s).
 
 ## Storage and retention
 
@@ -363,6 +364,8 @@ make fe-dev                                   # terminal 2: open http://localhos
 Sign in with a user from `pmp user create`. In development, http://localhost:5173/design
 shows every shared component with sample data. `make check` runs the front-end checks too
 (`make fe-check`: ESLint with accessibility rules, Prettier, Vitest, type check and build).
+Browser journeys run with `make fe-e2e` against the production build with the API mocked
+(once per machine first: `cd frontend && npx playwright install chromium`).
 The container image builds the app and the web role serves it on the same port as the API
 (`make up`, then http://127.0.0.1:8000).
 
