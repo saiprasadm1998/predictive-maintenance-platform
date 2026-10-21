@@ -321,8 +321,9 @@ uv run pmp retention run
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
 for every registered tag: sensors on one machine move together with its load, there are
 turndowns and monthly trips, and the wireframe fault story is built in (K-101 thrust-bearing
-degradation, flatlines, a stale tag, a lost gateway link, an out-of-range pressure, spikes,
-occasional Bad quality). The story is timed from an anchor day (default: today, UTC).
+degradation, K-201 rod-drop wear, P-104A and F-3 developing faults, a P-205 temperature
+excursion that came and went, flatlines, a stale tag, a lost gateway link, an out-of-range
+pressure, spikes, occasional Bad quality). The story is timed from an anchor day (default: today, UTC).
 Same seed, same data. **Synthetic: it proves the software, not detection on real equipment
 (that is AC-04, which needs the client's history).**
 
@@ -334,6 +335,36 @@ uv run pmp demo history                       # 180 days through the history imp
 uv run pmp apikey create --name "Demo gateway" --scope ingest
 uv run pmp demo replay --key <key> --from -2h # catch up 2 h quickly, then live every minute
 ```
+
+History alone shows no health: only live cycles are scored. To open the screens on a running
+plant, deploy the demo models and score the last 24 hours (about 4 minutes), then start the
+worker so scoring continues live:
+
+```
+uv run pmp demo models                        # create, train and deploy data/demo/models/*.json
+uv run pmp demo score                         # score the last 24 h of data, oldest cycle first
+uv run pmp health tree                        # K-101, K-201 Alert; P-104A, F-3 Watch; P-202 Unknown
+```
+
+Both are safe to run again: models in service are left alone and scored cycles are skipped.
+
+## Front end
+
+The screens are a React app in `frontend/` (Node 22 or later). It talks to the web role
+through `/api`, so run both. Add `PMP_SESSION_COOKIE_SECURE=false` to `backend/.env` for
+plain-HTTP development (see `backend/.env.example`), then:
+
+```
+make fe-install                               # once
+make web                                      # terminal 1
+make fe-dev                                   # terminal 2: open http://localhost:5173
+```
+
+Sign in with a user from `pmp user create`. In development, http://localhost:5173/design
+shows every shared component with sample data. `make check` runs the front-end checks too
+(`make fe-check`: ESLint with accessibility rules, Prettier, Vitest, type check and build).
+The container image builds the app and the web role serves it on the same port as the API
+(`make up`, then http://127.0.0.1:8000).
 
 ## Running the full stack in containers
 
