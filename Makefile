@@ -6,7 +6,7 @@ COMPOSE := docker compose -f deploy/compose.dev.yaml
 STACK := docker compose -f deploy/compose.yaml
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring
+        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring perf-api
 
 check: lint format-check types contracts test
 
@@ -81,3 +81,6 @@ perf-backfill:
 
 perf-scoring:
 	$(UV) python tools/perf_scoring.py
+
+perf-api:
+	$(UV) python tools/perf_api.py
