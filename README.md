@@ -265,6 +265,57 @@ search the audit trail at `/api/v1/audit` (CSV at `/api/v1/audit.csv`). Try them
 `http://127.0.0.1:8000/api/v1/docs`. For plain-HTTP local development set
 `PMP_SESSION_COOKIE_SECURE=false` so the browser keeps the cookie.
 
+## REST API
+
+Everything the screens show is read through `/api/v1` (OpenAPI document at
+`/api/v1/openapi.json`, interactive at `/api/v1/docs`). Sign in first (see above) and send the
+bearer token. Lists are paged with `cursor`/`next_cursor`; times are ISO 8601 with a time
+zone; errors are RFC 9457 problem details with a stable `code`.
+
+| Endpoint | What |
+| --- | --- |
+| `GET /assets?tree=true` | Hierarchy with band, Health, counts per band and the worst asset |
+| `GET /assets`, `/assets/{id}` | Flat list; one asset with its breadcrumb and health |
+| `GET /tags?asset=K-101`, `/asset-types` | Registry |
+| `GET /sensors/health?asset=K-101` | NE 107 status of each sensor |
+| `GET /models`, `/models/{id}` | Models, versions, runtime status, alert rules and their state |
+| `GET /models/{id}/scores?from&to&px` | DI and Health trend (min/max per pixel bucket) |
+| `GET /models/{id}/outputs?tags&from&to&px` | Actual, predicted, residual, q and z per sensor |
+| `GET /alerts?state&priority&severity&asset` | The alert list: unacknowledged first, then priority, then age |
+| `GET /alerts/{id}` | One alert with its trace and history |
+| `POST /alerts/ack`, `/shelve`, `/unshelve` | Act on one or many alerts (also `/alerts/{id}/ack` and so on) |
+| `GET`/`PUT /priority-matrix` | Criticality × severity → priority |
+| `GET /fleet/kpis` | Assets by band, open alerts by priority, sensors by status, stale models |
+| `GET /jobs/{id}` | Progress and result of a training or import job |
+| `POST`/`PATCH /assets`, `/tags`; `POST /asset-types`, `/asset-types/{id}/roles`, `/tags/import` | Registry changes (Model Engineer or Administrator) |
+| `GET /unmapped-tags`, `POST /unmapped-tags/promote` | Tags the gateway sent that aren't registered |
+| `POST /models`, `PUT /models/{id}/alert-rules`, `POST /models/{id}/versions` | Save a model, set its alert rules, train it |
+| `POST /versions/{id}/deploy` (`pause`, `resume`, `retire`, `reject`) | Model lifecycle |
+| `GET`/`PUT /dq/rules`, `POST /dq/rules/preview` | Data-quality rules (previewed before saving) |
+| `GET`/`POST /users`, `PATCH /users/{id}` | User administration |
+
+`GET /api/v1/events` is a live stream (server-sent events) of `score.updated`,
+`alert.changed` and `job.progress`, limited to what the user may see. Try it from a terminal:
+`curl -N http://127.0.0.1:8000/api/v1/events -H "Authorization: Bearer TOKEN"` while the
+worker scores.
+
+In `/api/v1/docs`, get a token from `POST /auth/token` and paste it into **Authorize**.
+`make perf-api` checks the NFR-PERF-03 budgets (30-day trend of 20 sensors, 1,000 alerts).
+
+## Storage and retention
+
+Samples, scores and sensor outputs are TimescaleDB hypertables, compressed after 7 days
+(PMP-ARC-001 §6.3). Hourly aggregates (`sample_1h`, `score_1h`, `sensor_output_1h`) serve
+trends longer than 30 days. Raw data is kept 24 months and aggregates 60 months by default;
+the worker applies the policy once a day.
+
+```
+cd backend
+uv run pmp retention show
+uv run pmp retention set --raw-months 24 --aggregate-months 60
+uv run pmp retention run
+```
+
 ## Demo plant data (synthetic)
 
 A deterministic simulator of the demo plant (`pmp.demo`) produces realistic 1-minute data
