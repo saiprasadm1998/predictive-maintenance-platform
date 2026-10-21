@@ -141,6 +141,26 @@
   gap: 6px;
 }
 
+.crumbs ol {
+  align-items: baseline;
+  min-width: 0;
+}
+
+.crumb {
+  display: flex;
+  gap: 6px;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+
+.crumb a {
+  text-decoration: none;
+}
+
+.crumb a:hover {
+  text-decoration: underline;
+}
+
 .page-title {
   font-size: var(--size-title);
   font-weight: 700;

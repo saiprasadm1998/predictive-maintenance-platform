@@ -34,7 +34,7 @@ from pmp.modelling.service import (
     get_model,
     get_model_by_id,
 )
-from pmp.registry import get_asset_by_id
+from pmp.registry import asset_codes
 
 
 class Action(StrEnum):
@@ -240,10 +240,11 @@ def list_active_versions(session: Session) -> list[ActiveVersion]:
         .where(ModelVersion.status.in_(ACTIVE))
         .order_by(Model.id)
     ).all()
+    codes = asset_codes(session, {model.asset_id for _, model in rows})
     return [
         ActiveVersion(
             model_id=model.id,
-            asset_code=get_asset_by_id(session, model.asset_id).code,
+            asset_code=codes[model.asset_id],
             name=model.name,
             version_id=version.id,
             version=version.version,

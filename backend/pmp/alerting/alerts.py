@@ -640,6 +640,16 @@ def alert_counts(
     }
 
 
+def open_alerts_by_model(session: Session) -> dict[int, int]:
+    """Open alerts per model, out of service left out (active-alert counts, SCR-01)."""
+    rows = session.execute(
+        select(Alert.model_id, func.count())
+        .where(Alert.state.in_(_OPEN), Alert.state != AlertState.OUT_OF_SERVICE.value)
+        .group_by(Alert.model_id)
+    ).all()
+    return {int(m): int(n) for m, n in rows}
+
+
 def get_alerts(session: Session, alert_ids: Iterable[int]) -> list[AlertView]:
     """Alerts by ID, in ID order; AlertError names any that do not exist."""
     return [_view(r) for r in _load(session, alert_ids)]

@@ -1,0 +1,306 @@
+/* Screens (PDS §4). */
+
+/* ---- shared ---- */
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.filter-note {
+  font-size: 12px;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.banner-watch {
+  border-left: 4px solid var(--watch-text);
+}
+
+.empty-state {
+  max-width: 640px;
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton {
+  display: grid;
+  gap: 8px;
+}
+
+.skeleton-row {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--line-soft), var(--band), var(--line-soft));
+  background-size: 200% 100%;
+  animation: skeleton 1.4s infinite linear;
+}
+
+@keyframes skeleton {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row,
+  .trend-progress::after,
+  .row-flash {
+    animation: none !important;
+  }
+}
+
+/* ---- SCR-01 fleet overview ---- */
+
+.fleet {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.kpis {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: var(--gutter);
+}
+
+.kpi-inner {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  height: 100%;
+  text-align: left;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  color: inherit;
+  text-decoration: none;
+  font: inherit;
+}
+
+a.kpi-inner:hover,
+button.kpi-inner:hover {
+  border-color: var(--chrome-active);
+  cursor: pointer;
+}
+
+button.kpi-inner[aria-pressed="true"] {
+  border-color: var(--chrome);
+  box-shadow: inset 0 0 0 1px var(--chrome);
+  background: var(--band);
+}
+
+.kpi-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.kpi-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.kpi-note {
+  font-size: 11px;
+}
+
+.fleet-body {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 3fr);
+  gap: var(--gutter);
+  align-items: start;
+}
+
+.fleet-side {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.tree-table,
+.side-list {
+  width: 100%;
+}
+
+.tree-table {
+  border-collapse: collapse;
+}
+
+.tree-table th {
+  text-align: left;
+  font-size: var(--size-th);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--line);
+  padding: 5px 6px;
+  white-space: nowrap;
+}
+
+.tree-table td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 6px;
+  white-space: nowrap;
+}
+
+.cell-clip {
+  display: inline-block;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
+
+.tree-table .num {
+  text-align: right;
+}
+
+.tree-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tree-name a {
+  text-decoration: none;
+}
+
+.tree-name a:hover {
+  text-decoration: underline;
+}
+
+.tree-toggle {
+  border: 0;
+  background: none;
+  width: 18px;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+
+.tree-toggle-space {
+  display: inline-block;
+  width: 18px;
+}
+
+.row-flash td {
+  animation: row-flash 2.5s ease-out;
+}
+
+@keyframes row-flash {
+  from {
+    background: var(--band);
+  }
+  to {
+    background: transparent;
+  }
+}
+
+.side-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.side-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.side-list a {
+  text-decoration: none;
+}
+
+.side-list a:hover {
+  text-decoration: underline;
+}
+
+.recent-priority {
+  min-width: 42px;
+}
+
+.recent-text {
+  flex: 1;
+}
+
+/* ---- SCR-08 area / unit view ---- */
+
+.unit {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.unit-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.unit-title {
+  font-size: var(--size-title);
+  font-weight: 700;
+}
+
+.unit-figures {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: var(--gutter);
+}
+
+.card {
+  display: grid;
+  gap: 8px;
+}
+
+.card-title {
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.card-title:hover {
+  text-decoration: underline;
+}
+
+.card-row,
+.card-spark {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}

@@ -321,3 +321,16 @@ textarea.control {
 .live-on .live-dot {
   background: var(--text-muted);
 }
+
+/* ---- Sparkline ---- */
+
+.sparkline {
+  display: block;
+}
+
+.sparkline-empty {
+  display: inline-block;
+  font-size: 12px;
+  height: 32px;
+  line-height: 32px;
+}

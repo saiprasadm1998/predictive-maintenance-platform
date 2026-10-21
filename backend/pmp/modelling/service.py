@@ -47,7 +47,7 @@ from pmp.modelling.definitions import (
 from pmp.modelling.expressions import ExpressionError, parse_expression
 from pmp.modelling.models import ModeFilter, Model, ModelSensor, ModelVersion, TrainingPeriod
 from pmp.modelling.training import Assembled, SensorInfo, TrainingError, assemble, train
-from pmp.registry import TagView, find_asset, get_asset_by_id, get_tags, list_tags
+from pmp.registry import TagView, asset_codes, find_asset, get_asset_by_id, get_tags, list_tags
 
 logger = logging.getLogger(__name__)
 
@@ -179,64 +179,107 @@ def _write_definition(
     session.flush()
 
 
-def _version_view(session: Session, version: ModelVersion) -> VersionView:
+def _version_views(session: Session, versions: Sequence[ModelVersion]) -> list[VersionView]:
+    """Views of several versions in a fixed number of queries (lists of models)."""
+    ids = [v.id for v in versions]
+    if not ids:
+        return []
     sensor_rows = session.scalars(
         select(ModelSensor)
-        .where(ModelSensor.version_id == version.id)
-        .order_by(ModelSensor.position)
+        .where(ModelSensor.version_id.in_(ids))
+        .order_by(ModelSensor.version_id, ModelSensor.position)
     ).all()
-    tags = {t.id: t for t in get_tags(session, [r.tag_id for r in sensor_rows])}
+    tags = {t.id: t for t in get_tags(session, {r.tag_id for r in sensor_rows})}
     periods = session.scalars(
         select(TrainingPeriod)
-        .where(TrainingPeriod.version_id == version.id)
-        .order_by(TrainingPeriod.starts_at)
+        .where(TrainingPeriod.version_id.in_(ids))
+        .order_by(TrainingPeriod.version_id, TrainingPeriod.starts_at)
     ).all()
-    filters = session.scalars(
-        select(ModeFilter.expression)
-        .where(ModeFilter.version_id == version.id)
-        .order_by(ModeFilter.position)
+    filters = session.execute(
+        select(ModeFilter.version_id, ModeFilter.expression)
+        .where(ModeFilter.version_id.in_(ids))
+        .order_by(ModeFilter.version_id, ModeFilter.position)
     ).all()
-    validation = [Period(p.starts_at, p.ends_at) for p in periods if p.kind == VALIDATION]
-    return VersionView(
-        id=version.id,
-        version=version.version,
-        status=VersionStatus(version.status),
-        algorithm=version.algorithm,
-        params=dict(version.params or {}),
-        sensors=tuple(
-            ModelSensorView(
-                r.tag_id,
-                tags[r.tag_id].source,
-                tags[r.tag_id].source_name,
-                tags[r.tag_id].description,
-                r.required,
+    sensors_of: dict[int, list[ModelSensor]] = {}
+    for row in sensor_rows:
+        sensors_of.setdefault(row.version_id, []).append(row)
+    periods_of: dict[int, list[TrainingPeriod]] = {}
+    for period in periods:
+        periods_of.setdefault(period.version_id, []).append(period)
+    filters_of: dict[int, list[str]] = {}
+    for version_id, expression in filters:
+        filters_of.setdefault(version_id, []).append(expression)
+
+    views = []
+    for version in versions:
+        own_periods = periods_of.get(version.id, [])
+        validation = [Period(p.starts_at, p.ends_at) for p in own_periods if p.kind == VALIDATION]
+        views.append(
+            VersionView(
+                id=version.id,
+                version=version.version,
+                status=VersionStatus(version.status),
+                algorithm=version.algorithm,
+                params=dict(version.params or {}),
+                sensors=tuple(
+                    ModelSensorView(
+                        r.tag_id,
+                        tags[r.tag_id].source,
+                        tags[r.tag_id].source_name,
+                        tags[r.tag_id].description,
+                        r.required,
+                    )
+                    for r in sensors_of.get(version.id, [])
+                ),
+                training_periods=tuple(
+                    Period(p.starts_at, p.ends_at) for p in own_periods if p.kind == TRAINING
+                ),
+                validation_period=validation[0] if validation else None,
+                mode_filters=tuple(filters_of.get(version.id, [])),
+                created_at=version.created_at,
+                error=version.error,
+                artefact_path=version.artefact_path,
+                artefact_sha256=version.artefact_sha256,
+                metrics=dict(version.metrics) if version.metrics else None,
             )
-            for r in sensor_rows
-        ),
-        training_periods=tuple(
-            Period(p.starts_at, p.ends_at) for p in periods if p.kind == TRAINING
-        ),
-        validation_period=validation[0] if validation else None,
-        mode_filters=tuple(filters),
-        created_at=version.created_at,
-        error=version.error,
-        artefact_path=version.artefact_path,
-        artefact_sha256=version.artefact_sha256,
-        metrics=dict(version.metrics) if version.metrics else None,
-    )
+        )
+    return views
+
+
+def _version_view(session: Session, version: ModelVersion) -> VersionView:
+    (view,) = _version_views(session, [version])
+    return view
+
+
+def _model_views(
+    session: Session, models: Sequence[Model], asset_codes_by_id: dict[int, str]
+) -> list[ModelView]:
+    """Views of several models, with all their versions, in a fixed number of queries."""
+    if not models:
+        return []
+    versions = session.scalars(
+        select(ModelVersion)
+        .where(ModelVersion.model_id.in_([m.id for m in models]))
+        .order_by(ModelVersion.model_id, ModelVersion.version)
+    ).all()
+    views_of: dict[int, list[VersionView]] = {}
+    for version, view in zip(versions, _version_views(session, versions), strict=True):
+        views_of.setdefault(version.model_id, []).append(view)
+    return [
+        ModelView(
+            id=model.id,
+            asset_code=asset_codes_by_id[model.asset_id],
+            name=model.name,
+            description=model.description,
+            versions=tuple(views_of.get(model.id, [])),
+        )
+        for model in models
+    ]
 
 
 def _model_view(session: Session, model: Model, asset_code: str) -> ModelView:
-    versions = session.scalars(
-        select(ModelVersion).where(ModelVersion.model_id == model.id).order_by(ModelVersion.version)
-    ).all()
-    return ModelView(
-        id=model.id,
-        asset_code=asset_code,
-        name=model.name,
-        description=model.description,
-        versions=tuple(_version_view(session, v) for v in versions),
-    )
+    (view,) = _model_views(session, [model], {model.asset_id: asset_code})
+    return view
 
 
 # ------------------------------------------------------------------ services
@@ -374,7 +417,7 @@ def list_models(session: Session, asset_code: str | None = None) -> list[ModelVi
             raise ModelError(f"Asset {asset_code!r} does not exist")
         query = query.where(Model.asset_id == asset.id)
     models = session.scalars(query).all()
-    return [_model_view(session, m, get_asset_by_id(session, m.asset_id).code) for m in models]
+    return _model_views(session, models, asset_codes(session, {m.asset_id for m in models}))
 
 
 # ------------------------------------------------------------------ training (3.2)

@@ -89,6 +89,33 @@ def test_the_tree_carries_the_health_roll_up(api: dict[str, Any]) -> None:
     assert next(r for r in roots if r["code"] == "SITE-B")["band"] is None  # no model
 
 
+def test_the_tree_counts_open_alerts_up_the_hierarchy(api: dict[str, Any]) -> None:
+    def site_a() -> dict[str, Any]:
+        roots = get(api, "/api/v1/assets", tree="true").json()
+        found: dict[str, Any] = next(r for r in roots if r["code"] == "SITE-A")
+        return found
+
+    before = site_a()["open_alerts"]
+    with api["db"].session() as s:
+        model_id, version_id = s.execute(
+            text("SELECT model_id, id FROM model_version WHERE status = 'Deployed'")
+        ).one()
+        for state in ("Active-Unacknowledged", "RTN-Unacknowledged", "Out of service", "Normal"):
+            s.execute(
+                text(
+                    "INSERT INTO alert (model_id, kind, state, severity, priority, "
+                    "condition_active, raised_at, version_id, trace) VALUES (:m, 'di', :st, "
+                    "'Warning', 'P3', true, now(), :v, '{}')"
+                ),
+                {"m": model_id, "v": version_id, "st": state},
+            )
+    after = site_a()
+    assert after["open_alerts"] == before + 2  # out of service and closed are not counted
+    assert after["children"][0]["open_alerts"] == after["open_alerts"]  # all on EQ-1
+    detail = get(api, f"/api/v1/assets/{after['id']}").json()
+    assert detail["health"]["open_alerts"] == after["open_alerts"]
+
+
 def test_flat_assets_are_paged_with_a_cursor(api: dict[str, Any]) -> None:
     first = get(api, "/api/v1/assets", limit=2).json()
     assert len(first["items"]) == 2

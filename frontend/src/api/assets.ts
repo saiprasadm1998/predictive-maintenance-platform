@@ -1,4 +1,5 @@
 import { api } from "./client";
+import type { AssetDetail, AssetNode } from "./types";
 
 export interface Asset {
   id: number;
@@ -29,4 +30,14 @@ export async function fetchAllAssets(signal?: AbortSignal): Promise<Asset[]> {
     cursor = page.next_cursor;
   } while (cursor);
   return assets;
+}
+
+/** The hierarchy with the health roll-up and open-alert counts (SCR-01). */
+export function fetchAssetTree(signal?: AbortSignal): Promise<AssetNode[]> {
+  return api<AssetNode[]>("/assets", { query: { tree: true }, signal });
+}
+
+/** One asset with its breadcrumb and its subtree's health. */
+export function fetchAsset(id: number, signal?: AbortSignal): Promise<AssetDetail> {
+  return api<AssetDetail>(`/assets/${id}`, { signal });
 }

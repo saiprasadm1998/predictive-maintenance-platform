@@ -94,6 +94,11 @@ jobs:
       - name: Type check and production build
         run: make fe-build
 
+      - name: Browser journeys (Playwright)
+        run: |
+          cd frontend && npx playwright install --with-deps chromium && cd ..
+          make fe-e2e
+
       - name: Dependency audit
         run: make fe-audit
 

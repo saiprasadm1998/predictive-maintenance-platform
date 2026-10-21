@@ -530,10 +530,16 @@ class RuntimeStatusView:
 def get_runtime_statuses(session: Session) -> list[RuntimeStatusView]:
     """Each model's current runtime status with its latest score (FR-RUN-04)."""
     views = []
-    for row in session.scalars(select(RuntimeStatusRow).order_by(RuntimeStatusRow.model_id)):
-        score = None
-        if row.version_id is not None and row.last_cycle is not None:
-            score = session.get(ScoreRow, (row.version_id, row.last_cycle))
+    rows = session.execute(
+        select(RuntimeStatusRow, ScoreRow)
+        .outerjoin(
+            ScoreRow,
+            (ScoreRow.version_id == RuntimeStatusRow.version_id)
+            & (ScoreRow.ts == RuntimeStatusRow.last_cycle),
+        )
+        .order_by(RuntimeStatusRow.model_id)
+    ).all()
+    for row, score in rows:
         views.append(
             RuntimeStatusView(
                 model_id=row.model_id,

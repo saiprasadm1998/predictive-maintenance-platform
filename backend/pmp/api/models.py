@@ -36,6 +36,7 @@ from pmp.modelling import (
     save_draft,
     start_training,
 )
+from pmp.registry import list_subtree
 from pmp.scoring import (
     MAX_PX,
     RuntimeStatusView,
@@ -186,7 +187,7 @@ def get_models(
         except ModelError:
             raise not_found("Asset") from None
         runtimes = {r.model_id: r for r in get_runtime_statuses(session)}
-        paths = {m.asset_code: asset_path(session, m.asset_code) for m in models}
+        paths = {a.code: a.path for a in list_subtree(session)}
     return [_model_out(m, runtimes.get(m.id)) for m in models if can_see(user, paths[m.asset_code])]
 
 

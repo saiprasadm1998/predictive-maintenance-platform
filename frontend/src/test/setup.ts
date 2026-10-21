@@ -12,6 +12,10 @@ class NoResizeObserver {
   disconnect(): void {}
 }
 
+// jsdom has no canvas; tools that probe for one (axe-core) get "none" instead of a warning.
+HTMLCanvasElement.prototype.getContext = (() =>
+  null) as typeof HTMLCanvasElement.prototype.getContext;
+
 beforeEach(() => {
   FakeEventSource.instances = [];
   vi.stubGlobal("EventSource", FakeEventSource);

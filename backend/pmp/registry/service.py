@@ -481,6 +481,15 @@ def get_asset_by_id(session: Session, asset_id: int) -> AssetView:
     return _asset_view(session, asset)
 
 
+def asset_codes(session: Session, asset_ids: Iterable[int]) -> dict[int, str]:
+    """Asset codes by ID, in one query (for lists of models and versions)."""
+    ids = set(asset_ids)
+    if not ids:
+        return {}
+    rows = session.execute(select(Asset.id, Asset.code).where(Asset.id.in_(ids))).all()
+    return {row.id: row.code for row in rows}
+
+
 def find_asset(session: Session, code: str) -> AssetView | None:
     asset = _find_asset(session, code)
     return _asset_view(session, asset) if asset else None

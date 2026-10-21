@@ -3,15 +3,19 @@ UC-08, FR-HLT-01, FR-REG-01, FR-DQ-02)."""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
+from pmp.alerting import open_alerts_by_model
 from pmp.api.common import MAX_LIMIT, Page, can_see, not_found, page
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.dataquality import get_sensor_statuses
+from pmp.modelling import model_assets
 from pmp.registry import (
     AssetView,
     RegistryError,
@@ -45,6 +49,11 @@ class AssetNodeOut(BaseModel):
     name: str
     level: str
     criticality: str | None
+    asset_type: str | None = Field(default=None, description="asset type code")
+    asset_type_name: str | None = None
+    open_alerts: int = Field(
+        default=0, description="open alerts at or beneath this asset (out of service left out)"
+    )
     band: str | None
     health: float | None
     counts: dict[str, int]
@@ -87,19 +96,47 @@ def _model_out(m: ModelHealth) -> ModelHealthOut:
     )
 
 
-def _node_out(n: NodeHealth) -> AssetNodeOut:
+@dataclass(frozen=True)
+class _Extras:
+    """Per-asset facts the roll-up does not carry: type and open alerts."""
+
+    types: dict[int, tuple[str, str]]  # asset ID: (type code, type name)
+    alerts: dict[int, int]  # asset ID: open alerts on its own models
+
+
+def _extras(session: Session, assets: list[AssetView]) -> _Extras:
+    names = {t.code: t.name for t in list_asset_types(session)}
+    types = {
+        a.id: (a.asset_type_code, names.get(a.asset_type_code, a.asset_type_code))
+        for a in assets
+        if a.asset_type_code
+    }
+    per_model = open_alerts_by_model(session)
+    alerts: dict[int, int] = {}
+    for model_id, (asset_id, _name) in model_assets(session).items():
+        alerts[asset_id] = alerts.get(asset_id, 0) + per_model.get(model_id, 0)
+    return _Extras(types, alerts)
+
+
+def _node_out(n: NodeHealth, extras: _Extras | None = None) -> AssetNodeOut:
+    children = [_node_out(c, extras) for c in n.children]
+    own = extras.alerts.get(n.asset_id, 0) if extras else 0
+    kind = extras.types.get(n.asset_id) if extras else None
     return AssetNodeOut(
         id=n.asset_id,
         code=n.code,
         name=n.name,
         level=n.level.label,
         criticality=n.criticality.value if n.criticality else None,
+        asset_type=kind[0] if kind else None,
+        asset_type_name=kind[1] if kind else None,
+        open_alerts=own + sum(c.open_alerts for c in children),
         band=n.band.value if n.band else None,
         health=n.health,
         counts={b.value: c for b, c in n.counts.items()},
         worst=n.worst,
         models=[_model_out(m) for m in n.models],
-        children=[_node_out(c) for c in n.children],
+        children=children,
     )
 
 
@@ -146,7 +183,8 @@ def get_assets(
             items, next_cursor = page(visible, lambda a: a.path, cursor, limit)
             return Page[AssetOut](items=[asset_out(a) for a in items], next_cursor=next_cursor)
         roots = _visible_roots(user, assets)
-        return [_node_out(node) for r in roots for node in health_tree(session, r.code)]
+        extras = _extras(session, assets)
+        return [_node_out(node, extras) for r in roots for node in health_tree(session, r.code)]
 
 
 @router.get("/assets/{asset_id}", response_model=AssetDetailOut, summary="One asset with health")
@@ -164,8 +202,9 @@ def get_asset(request: Request, user: User, asset_id: int) -> AssetDetailOut:
             if can_see(user, a.path)
         ]
         (node,) = health_tree(session, asset.code)
+        extras = _extras(session, list_subtree(session, asset.code))
     return AssetDetailOut(
-        **asset_out(asset).model_dump(), ancestors=ancestors, health=_node_out(node)
+        **asset_out(asset).model_dump(), ancestors=ancestors, health=_node_out(node, extras)
     )
 
 
