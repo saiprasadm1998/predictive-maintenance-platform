@@ -640,6 +640,26 @@ def alert_counts(
     }
 
 
+def persistence(session: Session, alert_ids: Iterable[int]) -> dict[int, tuple[int, int]]:
+    """For each alert, how many of its rule's last m cycles met its severity, and m
+    ("5 of 5", SCR-02). Alerts whose rule is gone or has no memory yet are left out."""
+    ids = sorted(set(alert_ids))
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(Alert.id, Alert.severity, AlertRule.persistence_m, AlertRuleState.levels)
+        .join(AlertRule, AlertRule.id == Alert.rule_id)
+        .join(AlertRuleState, AlertRuleState.rule_id == Alert.rule_id)
+        .where(Alert.id.in_(ids))
+    ).all()
+    out = {}
+    for alert_id, severity, m, levels in rows:
+        at_least = 2 if severity == Severity.ALERT.value else 1
+        recent = list(levels or [])[-m:]
+        out[int(alert_id)] = (sum(1 for x in recent if x >= at_least), int(m))
+    return out
+
+
 def cleared_times(session: Session, alert_ids: Iterable[int]) -> dict[int, datetime]:
     """When each alert's condition last returned to normal (the end of its bar on a trend,
     SCR-03). Only meaningful while the condition is inactive."""

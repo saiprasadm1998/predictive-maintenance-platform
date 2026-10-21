@@ -60,6 +60,12 @@ function alert(extra: Partial<Alert>): Alert {
     shelve_reason: null,
     closed_at: null,
     cleared_at: null,
+    asset_path: "Site A / Ammonia unit / K-101",
+    version: 1,
+    di: 36.2,
+    health: 28,
+    persistence_n: 5,
+    persistence_m: 5,
     ...extra,
   };
 }

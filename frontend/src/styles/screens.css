@@ -438,3 +438,127 @@ button.kpi-inner[aria-pressed="true"] {
 .sensor-table td {
   white-space: nowrap;
 }
+
+/* ---- SCR-02 alert list ---- */
+
+.alerts {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.alerts-with-panel {
+  grid-template-columns: minmax(0, 1fr) 380px;
+  align-items: start;
+}
+
+.alerts-main {
+  display: grid;
+  gap: var(--gutter);
+  min-width: 0;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-spacer {
+  flex: 1;
+}
+
+.filter-trigger {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.filter-menu {
+  width: 240px;
+}
+
+.filter-set {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.alerts-table-panel,
+.filter-bar {
+  min-width: 0;
+}
+
+.alerts-scroll {
+  max-height: calc(100vh - 290px);
+  min-height: 240px;
+  overflow: auto;
+}
+
+.alerts-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  z-index: 1;
+}
+
+.alerts-table .check {
+  width: 28px;
+}
+
+.row-unack td {
+  font-weight: 600;
+}
+
+.row-unack td .chip-regular,
+.row-unack td.muted {
+  font-weight: 400;
+}
+
+.alerts-table tr[aria-selected="true"] td,
+.row-open td {
+  background: var(--band);
+}
+
+.new-items {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.matrix summary {
+  cursor: pointer;
+  margin: 0;
+}
+
+.matrix-table {
+  max-width: 420px;
+  margin-top: 8px;
+}
+
+.alert-panel {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  min-width: 0;
+  max-height: calc(100vh - 90px);
+  overflow: auto;
+}
+
+.alert-panel-body {
+  display: grid;
+  gap: 10px;
+}
+
+.history {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}

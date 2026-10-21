@@ -18,7 +18,12 @@ const AssetPage = lazy(() =>
   import("../pages/asset/AssetPage").then((m) => ({ default: m.AssetPage })),
 );
 
+const AlertsPage = lazy(() =>
+  import("../pages/alerts/AlertsPage").then((m) => ({ default: m.AlertsPage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
+  "SCR-02": <AlertsPage />,
   "SCR-01": <FleetPage />,
   "SCR-08": <UnitPage />,
   "SCR-03": <AssetPage />,

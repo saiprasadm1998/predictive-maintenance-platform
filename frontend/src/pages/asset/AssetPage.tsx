@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useParams, useSearchParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { acknowledgeAlerts, fetchAlerts } from "../../api/alerts";
 import { fetchAsset } from "../../api/assets";
@@ -15,7 +15,7 @@ import type { ModelDetail, SensorNow } from "../../api/types";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { formatDateTime, formatDi, formatHealth, formatIso, formatZ } from "../../app/format";
 import { useAnnounce } from "../../app/liveContext";
-import { timeRangeParams, useTimeRange } from "../../app/timeRange";
+import { useTimeRange } from "../../app/timeRange";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { StatusChip } from "../../components/StatusChip";
 import { StatusShape } from "../../components/StatusShape";
@@ -49,8 +49,6 @@ const MAX_CHARTS = 6;
 export function AssetPage() {
   const id = Number(useParams().assetId);
   const [params, setParams] = useSearchParams();
-  const location = useLocation();
-  const carried = timeRangeParams(new URLSearchParams(location.search)).toString();
   const { range, setCustom } = useTimeRange();
   const client = useQueryClient();
   const announce = useAnnounce();
@@ -350,8 +348,8 @@ export function AssetPage() {
         }}
       />
       <p className="muted small">
-        <Link to={`/alerts?model=${modelId}${carried ? `&${carried}` : ""}`}>
-          All alerts of this model
+        <Link to={`/alerts?scope=${encodeURIComponent(asset.code)}&closed=true`}>
+          All alerts of this asset
         </Link>
       </p>
     </div>

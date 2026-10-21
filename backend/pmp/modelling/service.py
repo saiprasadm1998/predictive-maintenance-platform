@@ -11,7 +11,7 @@ import hashlib
 import json
 import logging
 import platform
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError
@@ -669,6 +669,17 @@ def model_assets(session: Session) -> dict[int, tuple[int, str]]:
     """Every model's asset ID and name, by model ID (one query; for the health roll-up)."""
     rows = session.execute(select(Model.id, Model.asset_id, Model.name)).all()
     return {model_id: (asset_id, name) for model_id, asset_id, name in rows}
+
+
+def version_numbers(session: Session, version_ids: Iterable[int]) -> dict[int, int]:
+    """Version numbers by version ID, in one query (for lists of alerts)."""
+    ids = set(version_ids)
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(ModelVersion.id, ModelVersion.version).where(ModelVersion.id.in_(ids))
+    ).all()
+    return {row.id: row.version for row in rows}
 
 
 def model_of_version(session: Session, version_id: int) -> ModelView:

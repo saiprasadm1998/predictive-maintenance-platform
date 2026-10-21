@@ -96,6 +96,35 @@ export interface Alert {
   shelve_reason: string | null;
   closed_at: string | null;
   cleared_at: string | null; // when the condition returned to normal
+  asset_path: string; // "Site A / Ammonia unit / K-101"
+  version: number | null;
+  di: number | null; // the model's latest
+  health: number | null;
+  persistence_n: number | null; // of the rule's last m cycles, how many met the severity
+  persistence_m: number | null;
+}
+
+export interface AlertEvent {
+  ts: string;
+  action: string;
+  from_state: string | null;
+  to_state: string;
+  severity: string;
+  priority: string;
+  user_id: number | null;
+  user: string | null;
+  comment: string | null;
+}
+
+export interface AlertDetail extends Alert {
+  trace: Record<string, unknown>;
+  history: AlertEvent[];
+}
+
+export interface PriorityCell {
+  criticality: string;
+  severity: string;
+  priority: string;
 }
 
 export interface Trend {

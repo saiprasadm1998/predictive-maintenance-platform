@@ -150,10 +150,16 @@ export async function mockApi(
       raised_at: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(),
       condition_active: true,
       ack_at: null,
-      shelved_until: null,
-      shelve_reason: null,
-      closed_at: null,
-      cleared_at: null,
+      closed_at: null as string | null,
+      cleared_at: null as string | null,
+      shelved_until: null as string | null,
+      shelve_reason: null as string | null,
+      asset_path: `Site 0 / Unit / ${l.code}`,
+      version: 1,
+      di: l.health === null ? null : 100 - l.health,
+      health: l.health,
+      persistence_n: 5,
+      persistence_m: 5,
     }));
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
@@ -180,7 +186,48 @@ export async function mockApi(
       });
     }
     if (path === "/models") return json(route, models);
+    const method = route.request().method();
     if (path === "/alerts") return json(route, { items: alerts, next_cursor: null });
+    if (path === "/priority-matrix") {
+      return json(route, [
+        { criticality: "A", severity: "Alert", priority: "P1" },
+        { criticality: "A", severity: "Warning", priority: "P2" },
+      ]);
+    }
+    if (method === "POST" && (path === "/alerts/ack" || path === "/alerts/shelve")) {
+      const body = route.request().postDataJSON() as {
+        ids: number[];
+        reason?: string;
+        minutes?: number;
+      };
+      const changed = alerts.filter((a) => body.ids.includes(a.id));
+      for (const a of changed) {
+        if (path === "/alerts/ack") a.state = "Active-Acknowledged";
+        else {
+          a.state = "Shelved";
+          a.shelve_reason = body.reason ?? null;
+          a.shelved_until = new Date(Date.now() + (body.minutes ?? 60) * 60_000).toISOString();
+        }
+      }
+      return json(route, changed);
+    }
+    const alertMatch = /^\/alerts\/(\d+)$/.exec(path);
+    if (alertMatch) {
+      const a = alerts.find((x) => x.id === Number(alertMatch[1]));
+      if (!a) return json(route, { title: "Not found", status: 404 }, 404);
+      return json(route, {
+        ...a,
+        trace: {
+          cycle: a.raised_at,
+          value: 30,
+          di: 30,
+          health: 40,
+          rule: { kind: "di", warning: 15, alert: 25 },
+          inputs: {},
+        },
+        history: [],
+      });
+    }
     const assetMatch = /^\/assets\/(\d+)$/.exec(path);
     if (assetMatch) {
       const leaf = leaves.find((l) => l.id === Number(assetMatch[1]));

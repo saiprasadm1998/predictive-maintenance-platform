@@ -22,7 +22,7 @@ import hmac
 import logging
 import re
 import secrets
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -474,3 +474,13 @@ def _log(event: str, username: str, ip: str | None, detail: str = "") -> None:
         f" ({detail})" if detail else "",
         extra={"event": event, "username": username, "ip": ip},
     )
+
+
+def user_names(session: Session, user_ids: Iterable[int]) -> dict[int, str]:
+    """Usernames by ID, to say who did what in a history (no permission needed: a name
+    is shown wherever the action it took is)."""
+    ids = sorted(set(user_ids))
+    if not ids:
+        return {}
+    rows = session.execute(select(AppUser.id, AppUser.username).where(AppUser.id.in_(ids))).all()
+    return {row.id: row.username for row in rows}

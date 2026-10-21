@@ -99,6 +99,7 @@ from pmp.core.users import (
     set_roles,
     sign_in,
     sign_out,
+    user_names,
 )
 
 __all__ = [
@@ -188,5 +189,6 @@ __all__ = [
     "sign_out",
     "try_advisory_lock",
     "user_id_var",
+    "user_names",
     "verify_api_key",
 ]

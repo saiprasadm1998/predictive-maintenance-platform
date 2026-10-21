@@ -77,6 +77,11 @@ def test_the_alert_list_with_filters_and_scope(api: dict[str, Any]) -> None:
         "EQ-1",
     )
     assert alert["kind"] == "di"
+    # what the list shows beside the alert (wireframe 02)
+    assert alert["asset_path"].endswith("EQ-1")
+    assert alert["version"] == 1
+    assert alert["di"] is not None
+    assert (alert["persistence_n"], alert["persistence_m"]) == (1, 1)  # the test rule: 1 of 1
     assert (
         call(api, "GET", "/api/v1/alerts", "vera", params={"priority": "P1"}).json()["items"] == []
     )
@@ -146,6 +151,12 @@ def test_acting_on_alerts_follows_the_matrix(api: dict[str, Any]) -> None:
     back = call(api, "POST", f"/api/v1/alerts/{alert_id}/unshelve", "ann")
     assert back.json()[0]["state"] == "Active-Unacknowledged"
     assert call(api, "POST", "/api/v1/alerts/ack", "ann", json={"ids": [999]}).status_code == 404
+    history = call(api, "GET", f"/api/v1/alerts/{alert_id}", "vera").json()["history"]
+    assert [(h["action"], h["user"]) for h in history[:2]] == [
+        ("raise", None),
+        ("acknowledge", "ann"),
+    ]
+    assert history[1]["comment"] == "on it"
 
 
 def test_the_priority_matrix(api: dict[str, Any]) -> None:

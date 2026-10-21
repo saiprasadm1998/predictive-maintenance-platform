@@ -63,6 +63,7 @@ from pmp.modelling.service import (
     run_training,
     save_draft,
     start_training,
+    version_numbers,
 )
 
 __all__ = [
@@ -119,4 +120,5 @@ __all__ = [
     "save_draft",
     "scale_with_floors",
     "start_training",
+    "version_numbers",
 ]

@@ -31,6 +31,7 @@ from pmp.alerting import (
     get_alert,
     get_alerts,
     get_priority_matrix,
+    persistence,
     search_alerts,
     set_priority,
     shelve,
@@ -39,9 +40,10 @@ from pmp.alerting import (
 from pmp.api.common import MAX_LIMIT, Page, can_see, decode_cursor, encode_cursor, not_found
 from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
+from pmp.core import user_names
 from pmp.dataquality import get_sensor_statuses
-from pmp.modelling import list_active_versions, model_assets
-from pmp.registry import find_asset, get_tags, list_subtree, list_tags
+from pmp.modelling import list_active_versions, model_assets, version_numbers
+from pmp.registry import AssetView, find_asset, get_tags, list_subtree, list_tags
 from pmp.scoring import get_runtime_statuses, health_tree
 
 router = APIRouter(prefix="/api/v1", tags=["alerts"])
@@ -49,18 +51,27 @@ User = Annotated[SignedIn, Depends(signed_in)]
 
 
 class _Model:
-    def __init__(self, name: str, asset_id: int, asset_code: str) -> None:
+    def __init__(self, name: str, asset_id: int, asset_code: str, asset_path: str) -> None:
         self.name, self.asset_id, self.asset_code = name, asset_id, asset_code
+        self.asset_path = asset_path
+
+
+def _path_label(asset: AssetView, assets: dict[int, AssetView]) -> str:
+    """ "Site A / Ammonia unit / K-101": the names above the asset, below the top of the
+    hierarchy, then its code (wireframe 02)."""
+    ids = [int(x) for x in asset.path.split(".")]
+    above = [assets[i].name for i in ids[1:-1] if i in assets]
+    return " / ".join([*above, asset.code])
 
 
 def visible_models(session: Session, user: SignedIn) -> dict[int, _Model]:
-    """Models whose asset the user may see, with their asset's ID and code."""
+    """Models whose asset the user may see, with their asset's ID, code and path."""
     assets = {a.id: a for a in list_subtree(session)}
     out = {}
     for model_id, (asset_id, name) in model_assets(session).items():
         asset = assets.get(asset_id)
         if asset is not None and can_see(user, asset.path):
-            out[model_id] = _Model(name, asset_id, asset.code)
+            out[model_id] = _Model(name, asset_id, asset.code, _path_label(asset, assets))
     return out
 
 
@@ -85,6 +96,14 @@ class AlertOut(BaseModel):
     cleared_at: datetime | None = Field(
         default=None, description="when the condition returned to normal (null while active)"
     )
+    asset_path: str = Field(default="", description="e.g. Site A / Ammonia unit / K-101")
+    version: int | None = Field(default=None, description="model version that raised it")
+    di: float | None = Field(default=None, description="the model's latest DI")
+    health: float | None = Field(default=None, description="the model's latest Health")
+    persistence_n: int | None = Field(
+        default=None, description="of the rule's last m cycles, how many met the severity"
+    )
+    persistence_m: int | None = None
 
 
 class HistoryOut(BaseModel):
@@ -95,6 +114,7 @@ class HistoryOut(BaseModel):
     severity: str
     priority: str
     user_id: int | None
+    user: str | None = Field(default=None, description="username; null for the system")
     comment: str | None
 
 
@@ -106,6 +126,9 @@ class AlertDetailOut(AlertOut):
 def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -> list[AlertOut]:
     tags = {t.id: t.source_name for t in get_tags(session, {v.tag_id for v in views if v.tag_id})}
     cleared = cleared_times(session, [v.id for v in views if not v.condition_active])
+    numbers = version_numbers(session, {v.version_id for v in views})
+    runtimes = {r.model_id: r for r in get_runtime_statuses(session)} if views else {}
+    persisted = persistence(session, [v.id for v in views])
     return [
         AlertOut(
             id=v.id,
@@ -126,6 +149,12 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
             shelve_reason=v.shelve_reason,
             closed_at=v.closed_at,
             cleared_at=cleared.get(v.id) if not v.condition_active else None,
+            asset_path=models[v.model_id].asset_path,
+            version=numbers.get(v.version_id),
+            di=runtimes[v.model_id].di if v.model_id in runtimes else None,
+            health=runtimes[v.model_id].health if v.model_id in runtimes else None,
+            persistence_n=persisted[v.id][0] if v.id in persisted else None,
+            persistence_m=persisted[v.id][1] if v.id in persisted else None,
         )
         for v in views
     ]
@@ -185,6 +214,8 @@ def get_one_alert(request: Request, user: User, alert_id: int) -> AlertDetailOut
     with database_of(request).session() as session:
         view = _visible_alert(session, user, alert_id)
         (base,) = _outs(session, [view], visible_models(session, user))
+        events = alert_history(session, alert_id)
+        names = user_names(session, {e.user_id for e in events if e.user_id is not None})
         history = [
             HistoryOut(
                 ts=e.ts,
@@ -194,9 +225,10 @@ def get_one_alert(request: Request, user: User, alert_id: int) -> AlertDetailOut
                 severity=e.severity,
                 priority=e.priority,
                 user_id=e.user_id,
+                user=names.get(e.user_id) if e.user_id is not None else None,
                 comment=e.comment,
             )
-            for e in alert_history(session, alert_id)
+            for e in events
         ]
     return AlertDetailOut(**base.model_dump(), trace=dict(view.trace), history=history)
 
