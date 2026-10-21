@@ -9,7 +9,7 @@ role, then the tag's own overrides (implementation plan, decision for 2.1).
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from pmp.core import Actor, EventBus, Permission, audit_change, authorize
 from pmp.dataquality.domain import (
     PREVIEW_WARN_SHARE,
+    QUALITY_BAD,
     RULE_ORDER,
     DataQualityError,
     Effect,
@@ -557,9 +558,12 @@ def preview_rules(
     for tag in tags:
         params = _params_for(tag, rows)
         samples = _samples_for(session, tag.id, start, end, params)
+        config = _config(tag, refs.get(tag.id))
+        if tag.id not in refs:
+            config = replace(config, training_std=_period_std(samples))
         codes = evaluate_rules(
             samples,
-            _config(tag, refs.get(tag.id)),
+            config,
             params,
             cycle_ns,
             _excluded_mask(cycle_ns, excl.get(tag.id, [])),
@@ -592,6 +596,15 @@ class SeriesAssessment:
     rules: npt.NDArray[np.int8]  # index into the rule order, for reports
 
 
+def _period_std(samples: Samples) -> float | None:
+    """Standard deviation of the period's good samples. Training has no training statistics
+    yet, so the flatline guard (UCS §6.1: not applied to a sensor whose training standard
+    deviation is under 1 % of its range) uses the period being assessed (decision 6.0).
+    Without it every steady signal, like a rod-drop probe, would count as flatlined."""
+    good = samples.value[samples.quality != QUALITY_BAD]
+    return float(np.std(good)) if len(good) > 1 else None
+
+
 def assess_series(
     session: Session,
     tag_ids: Iterable[int],
@@ -615,9 +628,12 @@ def assess_series(
     for tag in tags:
         params = _params_for(tag, rows)
         samples = _samples_for(session, tag.id, start, end, params)
+        config = _config(tag, refs.get(tag.id))
+        if tag.id not in refs:
+            config = replace(config, training_std=_period_std(samples))
         codes = evaluate_rules(
             samples,
-            _config(tag, refs.get(tag.id)),
+            config,
             params,
             cycle_ns,
             _excluded_mask(cycle_ns, excl.get(tag.id, [])),

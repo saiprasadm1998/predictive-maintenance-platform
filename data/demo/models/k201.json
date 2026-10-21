@@ -1,0 +1,61 @@
+{
+  "asset": "K-201",
+  "name": "main",
+  "description": "CO₂ compressor K-201: whole machine",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "K201.II2001.PV",
+      "required": true
+    },
+    {
+      "tag": "K201.PI2001.PV"
+    },
+    {
+      "tag": "K201.PI2002.PV"
+    },
+    {
+      "tag": "K201.FI2203.PV"
+    },
+    {
+      "tag": "K201.TI2041.PV"
+    },
+    {
+      "tag": "K201.VI2010.PV"
+    },
+    {
+      "tag": "K201.ZI2011.PV",
+      "required": true
+    },
+    {
+      "tag": "K201.TI2012.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "K201.II2001.PV > 180"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 15,
+      "alert": 25
+    },
+    "sensors": [
+      {
+        "tag": "K201.ZI2011.PV"
+      }
+    ]
+  }
+}

@@ -30,6 +30,7 @@ from pmp.api import (
     users,
 )
 from pmp.api.deps import database_of
+from pmp.api.frontend import mount_frontend
 from pmp.api.problems import ProblemError, problem_response
 from pmp.api.ratelimit import RateLimiter
 from pmp.core import AccessDeniedError, Database, Settings, log_context
@@ -194,4 +195,10 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     app.include_router(events.router)
     app.include_router(ingest.router)
     app.include_router(backfill.router)
+    # Last, so the API and operations endpoints always win over the app's catch-all route.
+    if settings is not None and settings.frontend_dir is not None:
+        if mount_frontend(app, settings.frontend_dir):
+            logger.info("Serving the front end from %s", settings.frontend_dir)
+        else:
+            logger.warning("No front-end build in %s; serving the API only", settings.frontend_dir)
     return app

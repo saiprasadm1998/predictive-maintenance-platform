@@ -1,0 +1,48 @@
+{
+  "asset": "P-205",
+  "name": "main",
+  "description": "Condensate pump P-205: whole pump",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "P205.II2053.PV",
+      "required": true
+    },
+    {
+      "tag": "P205.PI2051.PV"
+    },
+    {
+      "tag": "P205.FI2052.PV"
+    },
+    {
+      "tag": "P205.TI2054.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "P205.II2053.PV > 90"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 20,
+      "alert": 35
+    },
+    "sensors": [
+      {
+        "tag": "P205.TI2054.PV"
+      }
+    ]
+  }
+}

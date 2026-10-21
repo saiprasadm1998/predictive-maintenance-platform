@@ -1,4 +1,5 @@
-# Only backend/pmp, backend/migrations and the lock files go into the image.
+# Only backend/pmp, backend/migrations, the lock files and the front-end sources go into the
+# image (the front end is built inside it).
 **/.venv
 **/__pycache__
 **/*.py[cod]
@@ -16,6 +17,6 @@
 .idea
 .vscode
 docs
-frontend
+frontend/dist
 backend/tests
 backend/.artefacts

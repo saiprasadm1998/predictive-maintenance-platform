@@ -1,5 +1,5 @@
 # Continuous integration (ARC-001 §12.2). Runs on every push and pull request.
-# Front-end build and npm audit join in sub-phase 6.1; image scan and SBOM in 9.1.
+# Front end (lint, format, tests, build, npm audit) since 6.1; image scan and SBOM in 9.1.
 name: CI
 
 on:
@@ -68,6 +68,35 @@ jobs:
       - name: Dependency audit
         run: make audit
 
+  frontend:
+    name: Front-end checks, tests and build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: make fe-install
+
+      - name: Lint and format check
+        run: make fe-lint
+
+      - name: Unit and component tests
+        run: make fe-test
+
+      - name: Type check and production build
+        run: make fe-build
+
+      - name: Dependency audit
+        run: make fe-audit
+
   image:
     name: Container image and smoke test
     runs-on: ubuntu-24.04
@@ -87,6 +116,9 @@ jobs:
         run: |
           curl --fail --silent --show-error --retry 10 --retry-delay 2 --retry-all-errors \
             http://127.0.0.1:8000/healthz
+
+      - name: Smoke test the front end (a deep link returns the app)
+        run: curl --fail --silent --show-error http://127.0.0.1:8000/fleet | grep -q '<div id="root">'
 
       - name: Show logs on failure
         if: failure()

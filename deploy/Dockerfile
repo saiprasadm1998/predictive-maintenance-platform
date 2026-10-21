@@ -1,6 +1,15 @@
 # One image, two roles: `pmp web` and `pmp worker` (ARC-001 §2.2, ADR-01, NFR-PORT-01).
 # Build from the repository root:  docker build -f deploy/Dockerfile -t pmp .
 
+# ---------------------------------------------------------------- front-end build stage
+FROM node:22-bookworm-slim AS frontend
+
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY frontend/ ./
+RUN npm run build
+
 # ---------------------------------------------------------------- build stage
 FROM python:3.12-slim-bookworm AS build
 
@@ -33,11 +42,13 @@ RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin pmp \
 
 COPY --from=build /opt/venv /opt/venv
 COPY --from=build /app /app
+COPY --from=frontend /frontend/dist /app/frontend
 
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PMP_WEB_HOST=0.0.0.0 \
-    PMP_ARTEFACT_DIR=/data/artefacts
+    PMP_ARTEFACT_DIR=/data/artefacts \
+    PMP_FRONTEND_DIR=/app/frontend
 
 USER pmp
 WORKDIR /app

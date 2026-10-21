@@ -1,0 +1,50 @@
+{
+  "asset": "P-202",
+  "name": "main",
+  "description": "Carbamate pump P-202: whole pump",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "P202.II2023.PV",
+      "required": true
+    },
+    {
+      "tag": "P202.PI2026.PV"
+    },
+    {
+      "tag": "P202.PI2021.PV"
+    },
+    {
+      "tag": "P202.FI2022.PV"
+    },
+    {
+      "tag": "P202.TI2024.PV"
+    },
+    {
+      "tag": "P202.VI2025.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "P202.II2023.PV > 90"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 15,
+      "alert": 25
+    },
+    "sensors": []
+  }
+}

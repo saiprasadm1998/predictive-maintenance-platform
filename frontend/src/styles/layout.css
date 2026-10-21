@@ -1,0 +1,333 @@
+/* App shell (PDS §2.2, wireframe chrome): navigation rail, top bar, content area. */
+
+.shell {
+  display: flex;
+  height: 100%;
+}
+
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -40px;
+  z-index: 10;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: 6px 10px;
+  border-radius: 4px;
+}
+
+.skip-link:focus {
+  top: 8px;
+}
+
+/* ---- navigation rail ---- */
+
+.rail {
+  width: var(--rail-width);
+  flex: none;
+  background: var(--chrome);
+  color: var(--chrome-text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 12px;
+  gap: 14px;
+}
+
+.rail :focus-visible {
+  outline-color: var(--chrome-text);
+}
+
+.rail-brand {
+  display: flex;
+  color: var(--chrome-text);
+  padding: 4px;
+}
+
+.rail-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius);
+  border: 2px solid transparent;
+  color: var(--chrome-text);
+}
+
+.rail-item:hover {
+  border-color: var(--chrome-active);
+}
+
+/* Active: a filled tile and a bar at the left edge, so it reads without colour too. */
+.rail-item-active {
+  background: var(--chrome-active);
+  color: #fff;
+}
+
+.rail-item-active::before {
+  content: "";
+  position: absolute;
+  left: -12px;
+  top: 8px;
+  bottom: 8px;
+  width: 4px;
+  border-radius: 2px;
+  background: var(--chrome-text);
+}
+
+.rail-label {
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  background: var(--chrome);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.1s;
+  z-index: 20;
+}
+
+.rail-item:hover .rail-label,
+.rail-item:focus-visible .rail-label {
+  opacity: 1;
+}
+
+/* ---- top bar ---- */
+
+.shell-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.topbar {
+  height: var(--topbar-height);
+  flex: none;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 18px;
+}
+
+.crumbs {
+  flex: 1;
+  min-width: 0;
+}
+
+.crumbs ol {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.page-title {
+  font-size: var(--size-title);
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.topbar-tools {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.time-range {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-zone {
+  font-size: 12px;
+}
+
+.user-trigger {
+  cursor: pointer;
+}
+
+/* ---- asset search ---- */
+
+.search {
+  position: relative;
+}
+
+.search-input {
+  width: 220px;
+}
+
+.search-results {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  width: 320px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.15);
+  z-index: 30;
+}
+
+.search-option,
+.search-note {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+}
+
+.search-option {
+  cursor: pointer;
+}
+
+.search-option-active {
+  background: var(--band);
+}
+
+.search-code {
+  font-weight: 600;
+  min-width: 72px;
+}
+
+.search-note {
+  color: var(--text-muted);
+}
+
+/* ---- menus (Radix primitives) ---- */
+
+.menu {
+  min-width: 240px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.15);
+  padding: 4px 0;
+  z-index: 40;
+  color: var(--text);
+  font: var(--size-body) / 1.35 var(--font);
+}
+
+.menu-label {
+  padding: 6px 12px;
+}
+
+.menu-separator {
+  height: 1px;
+  background: var(--line-soft);
+  margin: 4px 0;
+}
+
+.menu-item {
+  position: relative;
+  padding: 6px 12px 6px 28px;
+  cursor: pointer;
+  outline: none;
+}
+
+.menu-item[data-highlighted] {
+  background: var(--band);
+}
+
+.menu-check {
+  position: absolute;
+  left: 10px;
+}
+
+/* ---- content ---- */
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px;
+}
+
+.content:focus {
+  outline: none;
+}
+
+.placeholder {
+  max-width: 760px;
+  display: grid;
+  gap: 10px;
+}
+
+.placeholder-state {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.placeholder-state div {
+  display: flex;
+  gap: 12px;
+}
+
+.placeholder-state dt {
+  min-width: 90px;
+  color: var(--text-muted);
+}
+
+.placeholder-state dd {
+  margin: 0;
+}
+
+/* ---- sign-in ---- */
+
+.signin {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.signin-form {
+  width: 340px;
+  display: grid;
+  gap: 12px;
+  padding: 24px;
+}
+
+.signin-title {
+  font-size: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 4px;
+}
+
+.field span {
+  font-weight: 600;
+}
+
+.form-error {
+  color: var(--alert);
+  min-height: 1.35em;
+}

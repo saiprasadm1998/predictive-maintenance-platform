@@ -36,7 +36,8 @@ from pmp.core import Event
 
 # Quality codes as stored in sample.quality (0 Good, 1 Uncertain, 2 Bad).
 _UNCERTAIN = 1
-_BAD = 2
+QUALITY_BAD = 2
+_BAD = QUALITY_BAD
 
 MIN_COVERAGE = 0.70  # UCS §6.1 model coverage rule
 PREVIEW_WARN_SHARE = 0.20  # UC-04 3a

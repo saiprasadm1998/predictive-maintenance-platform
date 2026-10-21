@@ -117,7 +117,7 @@ ASSETS = [
         "Boiler feed water",
     ),
     ("SA-UREA", "Urea unit", "unit", "SITE-A", "", "", ""),
-    ("K-201", "CO₂ compressor K-201", "equipment", "SA-UREA", "A", "reciprocating_compressor", ""),
+    ("K-201", "CO₂ compressor K-201", "equipment", "SA-UREA", "B", "reciprocating_compressor", ""),
     ("P-202", "Carbamate pump P-202", "equipment", "SA-UREA", "B", "plunger_pump", ""),
     ("P-205", "Condensate pump P-205", "equipment", "SA-UREA", "C", "centrifugal_pump", ""),
     ("SA-UTIL", "Utilities", "unit", "SITE-A", "", "", ""),
@@ -125,7 +125,7 @@ ASSETS = [
     ("SITE-B", "Site B", "site", "DEMO", "", "", ""),
     ("SB-NORTH", "North area", "area", "SITE-B", "", "", ""),
     ("SB-UTIL", "Utilities", "unit", "SB-NORTH", "", "", ""),
-    ("F-3", "Cooling-tower fan F-3", "equipment", "SB-UTIL", "C", "fan", ""),
+    ("F-3", "Cooling-tower fan F-3", "equipment", "SB-UTIL", "B", "fan", ""),
 ]
 
 # asset, gateway source, [(instrument tag, role)]

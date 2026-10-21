@@ -358,6 +358,9 @@ class FleetKpis(BaseModel):
     stale_models: list[int] = Field(
         description="deployed models with no cycle for 3 cycles (stale-data banner, SCR-01)"
     )
+    last_cycle: datetime | None = Field(
+        default=None, description="the newest scoring cycle of a visible model (live indicator)"
+    )
 
 
 @router.get("/fleet/kpis", response_model=FleetKpis, summary="Fleet overview figures (SCR-01)")
@@ -393,7 +396,9 @@ def get_kpis(request: Request, user: User) -> FleetKpis:
         or r.last_cycle is None
         or now - r.last_cycle > timedelta(seconds=3 * v.cycle_s + 60)
     ]
+    cycles = [r.last_cycle for m, r in runtimes.items() if m in models and r.last_cycle]
     return FleetKpis(
+        last_cycle=max(cycles, default=None),
         assets_by_band=dict(bands),
         open_alerts=counts["open"],
         unacknowledged_alerts=counts["unacknowledged"],

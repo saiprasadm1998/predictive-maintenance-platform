@@ -1,0 +1,45 @@
+{
+  "asset": "F-3",
+  "name": "main",
+  "description": "Cooling-tower fan F-3",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "F3.II4001.PV",
+      "required": true
+    },
+    {
+      "tag": "F3.VI4002.PV"
+    },
+    {
+      "tag": "F3.SI4003.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "F3.II4001.PV > 60"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 20,
+      "alert": 40
+    },
+    "sensors": [
+      {
+        "tag": "F3.VI4002.PV"
+      }
+    ]
+  }
+}

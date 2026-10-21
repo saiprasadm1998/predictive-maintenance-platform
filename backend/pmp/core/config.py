@@ -50,10 +50,14 @@ class Settings(BaseSettings):
     log_format: LogFormat = LogFormat.JSON
     web_host: str = "127.0.0.1"
     web_port: int = Field(default=8000, ge=1, le=65535)
+    # The built front end (frontend/dist); the web role serves it when the folder exists.
+    frontend_dir: Path | None = None
 
-    @field_validator("artefact_dir")
+    @field_validator("artefact_dir", "frontend_dir")
     @classmethod
-    def _anchor_relative_dir(cls, value: Path) -> Path:
+    def _anchor_relative_dir(cls, value: Path | None) -> Path | None:
+        if value is None:
+            return None
         return value if value.is_absolute() else BACKEND_DIR / value
 
 

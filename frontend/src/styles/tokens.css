@@ -1,0 +1,71 @@
+/* Design tokens (PMP-PDS-001 §3.1). Components use these variables only, never raw colours,
+   so the dark control-room theme is just a second set of values. */
+:root {
+  --bg: #e9ebee;
+  --panel: #ffffff;
+  --panel-subtle: #f6f7f8;
+  --line: #c8cdd3;
+  --line-soft: #e3e6e9;
+  --text: #1e2329;
+  --text-muted: #5b6470;
+  --chrome: #2f3b4c;
+  --chrome-text: #dce3ec;
+  --chrome-active: #8d99aa;
+  --band: #dce3ec;
+  --alert: #c62828;
+  --watch: #d99a00;
+  --watch-text: #9a6c00;
+  --fault: #a3007d;
+  --unknown: #7a7f87;
+  --unknown-text: #5f646b;
+  --focus: #2f3b4c;
+
+  --font: "Inter", "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --size-body: 13px;
+  --size-th: 11px;
+  --size-title: 15px;
+  --size-headline: 40px;
+  --gutter: 12px;
+  --radius: 6px;
+  --rail-width: 64px;
+  --topbar-height: 52px;
+  color-scheme: light;
+}
+
+/* Status colours by tone (PDS §3.2): shapes use --status-*, labels the readable --tone-*. */
+:root,
+:root[data-theme="dark"] {
+  --status-alert: var(--alert);
+  --status-watch: var(--watch);
+  --status-healthy: var(--text-muted);
+  --status-unknown: var(--unknown);
+  --status-fault: var(--fault);
+  --tone-alert: var(--alert);
+  --tone-watch: var(--watch-text);
+  --tone-healthy: var(--text);
+  --tone-unknown: var(--unknown-text);
+  --tone-fault: var(--fault);
+}
+
+/* Control-room theme (PDS §3.1): same tokens, darker values; contrast checked against --panel. */
+:root[data-theme="dark"] {
+  --bg: #12161b;
+  --panel: #1c2229;
+  --panel-subtle: #232a32;
+  --line: #3a434e;
+  --line-soft: #2c343d;
+  --text: #e6e9ed;
+  --text-muted: #a3acb7;
+  --chrome: #0b0f13;
+  --chrome-text: #c9d2dd;
+  --chrome-active: #5d6b7d;
+  --band: #2c3846;
+  --alert: #ff6b66;
+  --watch: #e8b100;
+  --watch-text: #f0c24a;
+  --fault: #ea6fd0;
+  --unknown: #9aa1aa;
+  --unknown-text: #a7aeb6;
+  --focus: #9fb4cc;
+  color-scheme: dark;
+}

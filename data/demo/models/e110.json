@@ -1,0 +1,47 @@
+{
+  "asset": "E-110",
+  "name": "main",
+  "description": "Waste-heat boiler E-110",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "E110.TI3004.PV"
+    },
+    {
+      "tag": "E110.TI3005.PV"
+    },
+    {
+      "tag": "E110.PI3006.PV"
+    },
+    {
+      "tag": "E110.FI3007.PV",
+      "required": true
+    },
+    {
+      "tag": "E110.LI3008.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "E110.FI3007.PV > 60"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 30,
+      "alert": 45
+    },
+    "sensors": []
+  }
+}

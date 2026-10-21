@@ -45,7 +45,7 @@ def test_the_k101_model_is_defined_from_its_file(
     assert run("create", str(K101)) == 0
     out = capsys.readouterr().out
     assert "Saved K-101 / main version 1 (Draft)" in out
-    assert "sensors (18, 4 required)" in out
+    assert "sensors (18, 3 required)" in out
     assert "operating mode:     K101.II1001.PV > 120" in out
 
     with demo_registry.session() as s:

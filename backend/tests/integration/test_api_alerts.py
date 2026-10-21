@@ -146,9 +146,11 @@ def test_fleet_kpis(api: dict[str, Any]) -> None:
     assert sum(kpis["sensors_by_status"].values()) == 4
     assert kpis["models_by_status"] == {"Running": 1}
     assert len(kpis["stale_models"]) == 1  # the test's cycle is months before now
+    assert kpis["last_cycle"] is not None  # the live indicator's "scored HH:MM"
     scoped = call(api, "GET", "/api/v1/fleet/kpis", "zed").json()
     assert scoped["open_alerts"] == {}
     assert scoped["stale_models"] == []
+    assert scoped["last_cycle"] is None
 
 
 def test_jobs_are_readable_by_users(api: dict[str, Any]) -> None:

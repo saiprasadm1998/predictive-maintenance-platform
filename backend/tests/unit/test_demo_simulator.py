@@ -98,6 +98,29 @@ def test_thrust_bearing_degradation_builds_up() -> None:
     assert rise > 3  # visible in the raw signal despite seasonal cooling
 
 
+def test_p205_excursion_comes_and_goes_and_f3_vibration_rises() -> None:
+    from pmp.demo.scenarios import F3_RISE, P205_EXCURSION
+
+    sim = PlantSimulator(tags("P205.TI2054.PV", "F3.VI4002.PV"), anchor=ANCHOR)
+    frame = between(sim, 1.5)
+    for name, start_h, end_h, peak in (
+        ("P205.TI2054.PV", 10, 7, P205_EXCURSION),
+        ("F3.VI4002.PV", 20, 0, F3_RISE),
+    ):
+        observed = series(frame, name)
+        t = np.array([ts.timestamp() for ts in observed.index])
+        injected = observed.to_numpy() - sim._healthy(tags(name)[0], t)
+        start = (ANCHOR - timedelta(hours=start_h)).timestamp()
+        end = (ANCHOR - timedelta(hours=end_h)).timestamp()
+        assert abs(injected[t < start]).max() < 1e-3
+        assert injected[(t >= start) & (t <= end)].max() == pytest.approx(peak, rel=0.01)
+    temperature = series(frame, "P205.TI2054.PV")
+    t = np.array([ts.timestamp() for ts in temperature.index])
+    after = t > (ANCHOR - timedelta(hours=7)).timestamp()
+    healthy = sim._healthy(tags("P205.TI2054.PV")[0], t[after])
+    assert abs(temperature.to_numpy()[after] - healthy).max() < 1e-3  # back to normal
+
+
 def test_flatlines() -> None:
     sim = PlantSimulator(tags("K101.TI1018.PV", "K201.TI2041.PV"), anchor=ANCHOR)
     frame = between(sim, 1, 0.25)

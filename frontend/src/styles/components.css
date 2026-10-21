@@ -1,0 +1,323 @@
+/* Shared PMP components (PDS §5). Colours come from tokens only. */
+
+/* ---- StatusChip, AlertStateChip ---- */
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 700;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.chip-m {
+  font-size: 12px;
+}
+
+.chip-s {
+  font-size: 11px;
+  gap: 4px;
+}
+
+.chip-regular {
+  font-weight: 400;
+}
+
+.chip-detail {
+  font-weight: 400;
+}
+
+.tone-alert {
+  color: var(--tone-alert);
+}
+
+.tone-watch {
+  color: var(--tone-watch);
+}
+
+.tone-healthy {
+  color: var(--tone-healthy);
+}
+
+.tone-unknown {
+  color: var(--tone-unknown);
+}
+
+.tone-fault {
+  color: var(--tone-fault);
+}
+
+.status-shape {
+  flex: none;
+}
+
+.chip-shape-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.chip-shape-wrap:has(.chip-badge) {
+  margin-right: 4px;
+}
+
+.chip-badge {
+  position: absolute;
+  right: -4px;
+  bottom: -3px;
+}
+
+/* ---- HealthBar ---- */
+
+.health-bar-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.health-bar {
+  position: relative;
+  display: inline-block;
+  width: 120px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-soft);
+}
+
+.health-bar-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--chrome-active);
+}
+
+.health-bar-tick {
+  position: absolute;
+  top: -3px;
+  bottom: -3px;
+  width: 0;
+  border-left: 2px solid;
+}
+
+.tick-warning {
+  border-color: var(--watch-text);
+}
+
+.tick-alert {
+  border-color: var(--alert);
+}
+
+.health-bar-value {
+  min-width: 2.5ch;
+  text-align: right;
+}
+
+/* ---- HealthScore ---- */
+
+.health-score-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.health-score-label {
+  color: var(--text-muted);
+}
+
+.health-score-value {
+  font-size: var(--size-headline);
+  font-weight: 700;
+  line-height: 1;
+}
+
+/* ---- TrendChart ---- */
+
+.trend {
+  display: grid;
+  gap: 6px;
+}
+
+.trend-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.trend-title {
+  font-weight: 600;
+}
+
+.trend-canvas {
+  width: 100%;
+  border-radius: 4px;
+}
+
+.trend-progress {
+  height: 3px;
+  background: var(--band);
+  overflow: hidden;
+}
+
+.trend-progress::after {
+  content: "";
+  display: block;
+  height: 100%;
+  width: 30%;
+  background: var(--chrome-active);
+  animation: trend-progress 1.2s infinite ease-in-out;
+}
+
+@keyframes trend-progress {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+
+.link-button {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--text-muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.data-table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--panel);
+  text-align: left;
+  font-size: var(--size-th);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--line);
+  padding: 5px 6px;
+}
+
+.data-table td {
+  border-bottom: 1px solid var(--line-soft);
+  padding: 4px 6px;
+}
+
+.data-table td.num,
+.data-table th.num {
+  text-align: right;
+}
+
+/* ---- TimeRangePicker ---- */
+
+.picker {
+  width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.15);
+  padding: 12px;
+  display: grid;
+  gap: 10px;
+  z-index: 40;
+  color: var(--text);
+  font: var(--size-body) / 1.35 var(--font);
+}
+
+.picker-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.picker-preset[aria-pressed="true"] {
+  background: var(--band);
+  border-color: var(--chrome);
+  font-weight: 700;
+}
+
+.picker-custom {
+  display: grid;
+  gap: 6px;
+}
+
+/* ---- ConfirmDialog ---- */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgb(0 0 0 / 0.35);
+  z-index: 50;
+}
+
+.dialog {
+  position: fixed;
+  left: 50%;
+  top: 30%;
+  transform: translateX(-50%);
+  width: 440px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px rgb(0 0 0 / 0.25);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+  z-index: 51;
+  font: var(--size-body) / 1.35 var(--font);
+}
+
+.dialog-title {
+  font-size: var(--size-title);
+  font-weight: 700;
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.button-danger {
+  background: var(--alert);
+  border-color: var(--alert);
+  color: #fff;
+}
+
+textarea.control {
+  resize: vertical;
+  min-height: 64px;
+}
+
+/* ---- live indicator ---- */
+
+.live {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 2px solid var(--text-muted);
+}
+
+.live-on .live-dot {
+  background: var(--text-muted);
+}

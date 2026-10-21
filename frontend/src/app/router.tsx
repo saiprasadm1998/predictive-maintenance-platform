@@ -1,0 +1,45 @@
+import { Suspense, lazy } from "react";
+import { Navigate, type RouteObject } from "react-router-dom";
+
+import { AppShell } from "../layout/AppShell";
+import { NotFoundPage } from "../pages/NotFoundPage";
+import { ScreenPlaceholder } from "../pages/ScreenPlaceholder";
+import { SignInPage } from "../pages/SignInPage";
+import { RequireAuth } from "./auth";
+import { SCREENS } from "./screens";
+
+// Development only, and loaded on demand so its charts never reach the main bundle.
+const DesignPage = import.meta.env.DEV
+  ? lazy(() => import("../pages/DesignPage").then((m) => ({ default: m.DesignPage })))
+  : null;
+
+export const routes: RouteObject[] = [
+  { path: "/sign-in", element: <SignInPage /> },
+  {
+    element: (
+      <RequireAuth>
+        <AppShell />
+      </RequireAuth>
+    ),
+    children: [
+      { index: true, element: <Navigate to="/fleet" replace /> },
+      ...SCREENS.filter((screen) => screen.id !== "DEV").map((screen) => ({
+        path: screen.path,
+        element: <ScreenPlaceholder key={screen.id} screen={screen} />,
+      })),
+      ...(DesignPage
+        ? [
+            {
+              path: "/design",
+              element: (
+                <Suspense fallback={<p className="muted">Loading…</p>}>
+                  <DesignPage />
+                </Suspense>
+              ),
+            },
+          ]
+        : []),
+      { path: "*", element: <NotFoundPage /> },
+    ],
+  },
+];

@@ -1,0 +1,56 @@
+{
+  "asset": "P-104B",
+  "name": "main",
+  "description": "BFW pump P-104B: whole pump",
+  "algorithm": "median",
+  "params": {
+    "seed": 42
+  },
+  "sensors": [
+    {
+      "tag": "P104B.II1053.PV",
+      "required": true
+    },
+    {
+      "tag": "P104B.PI1051.PV"
+    },
+    {
+      "tag": "P104B.PI1050.PV"
+    },
+    {
+      "tag": "P104B.FI1052.PV"
+    },
+    {
+      "tag": "P104B.TI1054.PV"
+    },
+    {
+      "tag": "P104B.TI1055.PV"
+    },
+    {
+      "tag": "P104B.VI1056.PV"
+    },
+    {
+      "tag": "P104B.VI1057.PV"
+    }
+  ],
+  "training_periods": [
+    {
+      "start": "-170d",
+      "end": "-60d"
+    }
+  ],
+  "validation_period": {
+    "start": "-60d",
+    "end": "-30d"
+  },
+  "mode_filters": [
+    "P104B.II1053.PV > 90"
+  ],
+  "alert_rules": {
+    "di": {
+      "warning": 25,
+      "alert": 40
+    },
+    "sensors": []
+  }
+}

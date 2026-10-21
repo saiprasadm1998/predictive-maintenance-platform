@@ -151,6 +151,23 @@ def test_flatline_guard_uses_training_standard_deviation() -> None:
     assert at_last(flat, config=lively_in_training).rule is Rule.FLATLINE
 
 
+def test_training_guard_uses_the_period_spread() -> None:
+    """Before a model exists, the guard uses the assessed period's own spread (6.0): a
+    steady signal (rod drop: 0.4 µm noise on a 1,000 µm range) is not a flatline, but a
+    signal that varies over the period and then freezes still is."""
+    from pmp.dataquality.service import _period_std
+
+    rng = np.random.default_rng(1)
+    wide = SensorConfig(0.0, 1000.0, 60)
+    steady = samples(list(300 + rng.normal(0, 0.4, 600)))
+    assert at_last(list(steady.value), config=wide).rule is Rule.FLATLINE  # no guard
+    guarded = SensorConfig(0.0, 1000.0, 60, training_std=_period_std(steady))
+    assert at_last(list(steady.value), config=guarded).rule is Rule.NONE
+    frozen = samples([*list(300 + 40 * np.sin(np.arange(600) / 50)), *[300.0] * 30])
+    guarded = SensorConfig(0.0, 1000.0, 60, training_std=_period_std(frozen))
+    assert at_last(list(frozen.value), config=guarded).rule is Rule.FLATLINE
+
+
 def test_spike_excludes_the_sample_for_that_cycle() -> None:
     values = [*healthy(39), 50.0 + 26.0]  # jump > 25 % of range
     values[-2] = 50.0

@@ -95,6 +95,7 @@ from pmp.dataquality import (
     save_rule_set,
 )
 from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, replay
+from pmp.demo_story import back_score, setup_models
 from pmp.ingestion import (
     BACKFILL_JOB,
     BackfillError,
@@ -378,6 +379,21 @@ def build_parser() -> argparse.ArgumentParser:
         "--speed", type=float, default=60.0, help="catch-up speed: minutes per second (60)"
     )
     demo_replay.add_argument("--minutes", type=int, help="stop after this many minutes")
+    demo_models = demo_commands.add_parser(
+        "models", help="create, train and deploy the demo models (skips models in service)"
+    )
+    demo_models.add_argument(
+        "folder",
+        nargs="?",
+        type=Path,
+        default=Path("../data/demo/models"),
+        help="folder of model definition files (../data/demo/models)",
+    )
+    demo_score = demo_commands.add_parser(
+        "score",
+        help="score the last hours of data, oldest first, as the worker would have live",
+    )
+    demo_score.add_argument("--hours", type=float, default=24.0, help="how far back (24)")
 
     user = commands.add_parser("user", help="user accounts and roles (UC-17)")
     user_commands = user.add_subparsers(dest="user_command", required=True)
@@ -1097,7 +1113,38 @@ def _run_score(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_demo_story(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        if args.demo_command == "models":
+            files = sorted(args.folder.glob("*.json"))
+            if not files:
+                print(f"Error: no .json model definitions in {args.folder}", file=sys.stderr)
+                return 1
+            print(f"Demo models from {args.folder} ({len(files)} definitions):")
+            results = setup_models(database, files, Path(settings.artefact_dir))
+            return 0 if all(r.ok for r in results) else 1
+        if args.hours <= 0:
+            print("Error: --hours must be more than 0", file=sys.stderr)
+            return 1
+        print(f"Scoring the last {args.hours:g} h of data, oldest cycle first:")
+        result = back_score(database, args.hours)
+        if result.start is None:
+            print("Nothing to score: no model in service or no data (run `pmp demo models`).")
+            return 1
+        print(
+            f"Done: {result.cycles} cycles ({result.start:%Y-%m-%d %H:%M} to "
+            f"{result.end:%H:%M} UTC), {result.scored} model cycles written, "
+            f"{result.alert_changes} alert changes."
+        )
+        return 0
+    finally:
+        database.dispose()
+
+
 def _run_demo(settings: Settings, args: argparse.Namespace) -> int:
+    if args.demo_command in {"models", "score"}:
+        return _run_demo_story(settings, args)
     database = Database(settings.database_url.get_secret_value())
     try:
         with database.session() as session:
