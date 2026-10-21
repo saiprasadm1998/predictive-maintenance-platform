@@ -65,6 +65,7 @@ export interface VersionSummary {
   status: string;
   algorithm: string;
   created_at: string;
+  status_changed_at: string | null;
 }
 
 export interface ModelSummary {
@@ -75,6 +76,7 @@ export interface ModelSummary {
   latest: VersionSummary;
   in_service: VersionSummary | null;
   runtime: Runtime | null;
+  alerts_30d: number;
 }
 
 export interface Alert {
@@ -138,10 +140,33 @@ export interface Trend {
   max: Record<string, (number | null)[]>;
 }
 
+export interface Period {
+  start: string;
+  end: string;
+}
+
 export interface VersionDetail extends VersionSummary {
   sensors: { tag_id: number; source_name: string; description: string; required: boolean }[];
   params: Record<string, unknown>;
   error: string | null;
+  training_periods?: Period[];
+  validation_period?: Period | null;
+  mode_filters?: string[];
+  metrics?: Record<string, unknown> | null;
+  artefact_sha256?: string | null;
+}
+
+export interface AuditEntry {
+  id: number;
+  ts: string;
+  user_id: number | null;
+  actor_type: string;
+  entity: string;
+  entity_id: string;
+  action: string;
+  before: Record<string, unknown> | null;
+  after: Record<string, unknown> | null;
+  ip: string | null;
 }
 
 export interface AlertRule {
@@ -151,6 +176,12 @@ export interface AlertRule {
   warning: number;
   alert: number;
   state: string;
+  persistence_n?: number;
+  persistence_m?: number;
+  on_delay_s?: number;
+  deadband?: number;
+  clear_cycles?: number;
+  enabled?: boolean;
 }
 
 export interface ModelDetail extends ModelSummary {

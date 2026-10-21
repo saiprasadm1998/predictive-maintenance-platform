@@ -160,6 +160,8 @@ def test_models_with_runtime_and_rules(api: dict[str, Any]) -> None:
     (model,) = get(api, "/api/v1/models").json()
     assert model["runtime"]["status"] == "Insufficient data"
     assert model["in_service"]["status"] == "Deployed"
+    assert model["in_service"]["status_changed_at"] is not None  # when it was deployed
+    assert model["alerts_30d"] == 0  # the test's cycles are months ago
     detail = get(api, f"/api/v1/models/{model['id']}").json()
     assert len(detail["versions"][0]["sensors"]) == 4
     assert {r["kind"] for r in detail["alert_rules"]} == {"di", "sensor"}

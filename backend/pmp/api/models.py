@@ -17,6 +17,7 @@ from pmp.alerting import (
     AlertRuleError,
     AlertState,
     RuleKind,
+    alerts_raised_since,
     list_alert_rules,
     require_di_rule,
     rule_states,
@@ -77,6 +78,9 @@ class VersionSummary(BaseModel):
     status: str
     algorithm: str
     created_at: datetime
+    status_changed_at: datetime | None = Field(
+        default=None, description="when it reached its status (trained, deployed ...)"
+    )
 
 
 class ModelOut(BaseModel):
@@ -87,6 +91,7 @@ class ModelOut(BaseModel):
     latest: VersionSummary
     in_service: VersionSummary | None
     runtime: RuntimeOut | None
+    alerts_30d: int = Field(default=0, description="alerts raised in the last 30 days")
 
 
 class SensorOut(BaseModel):
@@ -139,6 +144,7 @@ def _summary(v: VersionView) -> VersionSummary:
         status=v.status.value,
         algorithm=v.algorithm,
         created_at=v.created_at,
+        status_changed_at=v.status_changed_at,
     )
 
 
@@ -161,9 +167,10 @@ def _in_service(m: ModelView) -> VersionView | None:
     return next((v for v in m.versions if v.status.value in ("Deployed", "Paused")), None)
 
 
-def _model_out(m: ModelView, runtime: RuntimeStatusView | None) -> ModelOut:
+def _model_out(m: ModelView, runtime: RuntimeStatusView | None, alerts: int = 0) -> ModelOut:
     current = _in_service(m)
     return ModelOut(
+        alerts_30d=alerts,
         id=m.id,
         asset_code=m.asset_code,
         name=m.name,
@@ -197,7 +204,12 @@ def get_models(
             raise not_found("Asset") from None
         runtimes = {r.model_id: r for r in get_runtime_statuses(session)}
         paths = {a.code: a.path for a in list_subtree(session)}
-    return [_model_out(m, runtimes.get(m.id)) for m in models if can_see(user, paths[m.asset_code])]
+        rates = alerts_raised_since(session, datetime.now(UTC) - timedelta(days=30))
+    return [
+        _model_out(m, runtimes.get(m.id), rates.get(m.id, 0))
+        for m in models
+        if can_see(user, paths[m.asset_code])
+    ]
 
 
 @router.get("/{model_id}", response_model=ModelDetailOut, summary="A model in full")

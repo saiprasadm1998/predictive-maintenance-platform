@@ -674,6 +674,16 @@ def cleared_times(session: Session, alert_ids: Iterable[int]) -> dict[int, datet
     return {int(a): t for a, t in rows}
 
 
+def alerts_raised_since(session: Session, since: datetime) -> dict[int, int]:
+    """Alerts raised per model since a time (the alert rate on the model list, SCR-10)."""
+    rows = session.execute(
+        select(Alert.model_id, func.count())
+        .where(Alert.raised_at >= since)
+        .group_by(Alert.model_id)
+    ).all()
+    return {int(m): int(n) for m, n in rows}
+
+
 def open_alerts_by_model(session: Session) -> dict[int, int]:
     """Open alerts per model, out of service left out (active-alert counts, SCR-01)."""
     rows = session.execute(

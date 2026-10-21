@@ -82,6 +82,7 @@ class VersionView:
     artefact_path: str | None = None
     artefact_sha256: str | None = None
     metrics: dict[str, Any] | None = None
+    status_changed_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -241,6 +242,7 @@ def _version_views(session: Session, versions: Sequence[ModelVersion]) -> list[V
                 artefact_path=version.artefact_path,
                 artefact_sha256=version.artefact_sha256,
                 metrics=dict(version.metrics) if version.metrics else None,
+                status_changed_at=version.status_changed_at,
             )
         )
     return views

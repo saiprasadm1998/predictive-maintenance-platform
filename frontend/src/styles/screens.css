@@ -562,3 +562,51 @@ button.kpi-inner[aria-pressed="true"] {
   display: grid;
   gap: 6px;
 }
+
+/* ---- SCR-10 models, SCR-11 version detail ---- */
+
+.lifecycle {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.button-small {
+  padding: 3px 8px;
+  font-size: 12px;
+}
+
+.button-danger-outline {
+  border-color: var(--alert);
+  color: var(--alert);
+}
+
+.version {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.version-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.version-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gutter);
+  align-items: start;
+}
+
+.plain-list {
+  margin: 0;
+  padding-left: 18px;
+  columns: 2;
+}
+
+.mono {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 12px;
+}

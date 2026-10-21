@@ -22,7 +22,16 @@ const AlertsPage = lazy(() =>
   import("../pages/alerts/AlertsPage").then((m) => ({ default: m.AlertsPage })),
 );
 
+const ModelsPage = lazy(() =>
+  import("../pages/models/ModelsPage").then((m) => ({ default: m.ModelsPage })),
+);
+const VersionPage = lazy(() =>
+  import("../pages/models/VersionPage").then((m) => ({ default: m.VersionPage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
+  "SCR-10": <ModelsPage />,
+  "SCR-11": <VersionPage />,
   "SCR-02": <AlertsPage />,
   "SCR-01": <FleetPage />,
   "SCR-08": <UnitPage />,

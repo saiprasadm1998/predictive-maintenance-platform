@@ -1,5 +1,6 @@
 import { api } from "./client";
 import type {
+  AuditEntry,
   LatestCycle,
   ModelDetail,
   ModelSummary,
@@ -65,6 +66,25 @@ export function fetchOutputs(
 ): Promise<SensorTrend[]> {
   return api<SensorTrend[]>(`/models/${id}/outputs`, {
     query: { tags: tags.join(","), from: from.toISOString(), to: to.toISOString(), px, version },
+    signal,
+  });
+}
+
+export type LifecycleAction = "deploy" | "pause" | "resume" | "retire" | "reject";
+
+/** Change a version's status (ARC Figure 7); the server checks what is allowed. */
+export function changeVersion(versionId: number, action: LifecycleAction): Promise<ModelDetail> {
+  return api<ModelDetail>(`/versions/${versionId}/${action}`, { method: "POST" });
+}
+
+/** The audit trail of one entity (administrators only: others get 403). */
+export function fetchAudit(
+  entity: string,
+  entityId: string | number,
+  signal?: AbortSignal,
+): Promise<{ items: AuditEntry[] }> {
+  return api<{ items: AuditEntry[] }>("/audit", {
+    query: { entity, entity_id: String(entityId), limit: 100 },
     signal,
   });
 }
