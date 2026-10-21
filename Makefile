@@ -1,16 +1,19 @@
 # One command for every check: `make check` (needs the dev database: `make db-up`).
-# Backend commands run inside backend/ through uv (Python 3.12).
+# Backend commands run inside backend/ through uv (Python 3.12); front-end commands inside
+# frontend/ through npm (Node 22 or later).
 
 UV := cd backend && uv run
+NPM := cd frontend && npm
 COMPOSE := docker compose -f deploy/compose.dev.yaml
 STACK := docker compose -f deploy/compose.yaml
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring perf-api
+        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring perf-api \
+        fe-install fe-dev fe-check fe-lint fe-format fe-test fe-build fe-audit
 
-check: lint format-check types contracts test
+check: lint format-check types contracts test fe-check
 
-check-unit: lint format-check types contracts test-unit
+check-unit: lint format-check types contracts test-unit fe-check
 
 sync:
 	cd backend && uv sync
@@ -40,6 +43,33 @@ test-unit:
 
 audit:
 	$(UV) pip-audit --skip-editable
+
+# ---- front end (frontend/) ----
+
+fe-install:
+	$(NPM) ci
+
+# Development server on http://localhost:5173; /api goes to the web role (`make web`).
+fe-dev:
+	$(NPM) run dev
+
+fe-check: fe-lint fe-test fe-build
+
+fe-lint:
+	$(NPM) run lint
+	$(NPM) run format:check
+
+fe-format:
+	$(NPM) run format
+
+fe-test:
+	$(NPM) test
+
+fe-build:
+	$(NPM) run build
+
+fe-audit:
+	$(NPM) audit --audit-level=moderate
 
 db-up:
 	$(COMPOSE) up -d --wait
