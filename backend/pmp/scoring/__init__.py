@@ -44,7 +44,18 @@ from pmp.scoring.runtime import (
     score_models,
 )
 from pmp.scoring.scheduler import Scheduler, latest_due_cycle
-from pmp.scoring.trends import MAX_PX, Trend, TrendError, output_trends, score_trend
+from pmp.scoring.trends import (
+    MAX_PX,
+    SensorReadingOut,
+    StatusPeriod,
+    Trend,
+    TrendError,
+    cycle_outputs,
+    latest_cycle,
+    output_trends,
+    score_trend,
+    status_periods,
+)
 
 __all__ = [
     "EVENT_CHANNEL",
@@ -66,18 +77,22 @@ __all__ = [
     "SensorInput",
     "SensorLimits",
     "SensorOutput",
+    "SensorReadingOut",
     "SensorScale",
     "Severity",
+    "StatusPeriod",
     "Trend",
     "TrendError",
     "band_for",
     "compute_outputs",
+    "cycle_outputs",
     "deployed_references",
     "evaluate",
     "get_runtime_statuses",
     "health_score",
     "health_tree",
     "last_cycles",
+    "latest_cycle",
     "latest_due_cycle",
     "limits_for",
     "model_healths",
@@ -87,5 +102,6 @@ __all__ = [
     "scale_with_floors",
     "score_models",
     "score_trend",
+    "status_periods",
     "worst_band",
 ]

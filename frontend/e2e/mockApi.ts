@@ -132,6 +132,29 @@ export async function mockApi(
       health: l.health,
     },
   }));
+  const alerts = leaves
+    .filter((l) => l.band === "Alert")
+    .slice(0, 20)
+    .map((l, i) => ({
+      id: i + 1,
+      model_id: leaves.indexOf(l) + 1,
+      model: "main",
+      asset_id: l.id,
+      asset_code: l.code,
+      kind: "di",
+      tag_id: null,
+      tag: null,
+      state: "Active-Unacknowledged",
+      severity: "Alert",
+      priority: "P1",
+      raised_at: new Date(Date.now() - (i + 1) * 3_600_000).toISOString(),
+      condition_active: true,
+      ack_at: null,
+      shelved_until: null,
+      shelve_reason: null,
+      closed_at: null,
+      cleared_at: null,
+    }));
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname.replace("/api/v1", "");
@@ -157,8 +180,114 @@ export async function mockApi(
       });
     }
     if (path === "/models") return json(route, models);
-    if (path === "/alerts") return json(route, { items: [], next_cursor: null });
+    if (path === "/alerts") return json(route, { items: alerts, next_cursor: null });
+    const assetMatch = /^\/assets\/(\d+)$/.exec(path);
+    if (assetMatch) {
+      const leaf = leaves.find((l) => l.id === Number(assetMatch[1]));
+      const node = findNode(roots, Number(assetMatch[1]));
+      if (!leaf && !node) return json(route, { title: "Not found", status: 404 }, 404);
+      return json(route, {
+        id: node!.id,
+        code: node!.code,
+        name: node!.name,
+        level: node!.level,
+        parent_id: null,
+        criticality: null,
+        asset_type: null,
+        description: "",
+        ancestors: [],
+        health: node,
+      });
+    }
+    const modelMatch = /^\/models\/(\d+)(\/[a-z-]+)?$/.exec(path);
+    if (modelMatch) {
+      const model = models[Number(modelMatch[1]) - 1];
+      if (!model) return json(route, { title: "Not found", status: 404 }, 404);
+      const now = Date.now();
+      const trend = (series: string[]) => ({
+        start: new Date(now - 86_400_000).toISOString(),
+        end: new Date(now).toISOString(),
+        raw: false,
+        bucket_s: 3600,
+        source: "raw",
+        ts: Array.from({ length: 24 }, (_, i) =>
+          new Date(now - (24 - i) * 3_600_000).toISOString(),
+        ),
+        min: Object.fromEntries(
+          series.map((n) => [n, Array.from({ length: 24 }, (_, i) => 20 + i)]),
+        ),
+        max: Object.fromEntries(
+          series.map((n) => [n, Array.from({ length: 24 }, (_, i) => 22 + i)]),
+        ),
+      });
+      switch (modelMatch[2]) {
+        case undefined:
+          return json(route, {
+            ...model,
+            versions: [{ ...model.latest, sensors: [], params: { cycle_s: 60 }, error: null }],
+            alert_rules: [
+              { id: 1, kind: "di", tag_id: null, warning: 15, alert: 25, state: "Normal" },
+            ],
+          });
+        case "/latest":
+          return json(route, {
+            version_id: model.id,
+            version: 1,
+            ts: new Date(now).toISOString(),
+            sensors: ["TI1", "PI2", "FI3"].map((t, i) => ({
+              tag_id: i + 1,
+              source_name: `${model.asset_code}.${t}.PV`,
+              description: `${t} sensor ${i + 1}`,
+              unit: "°C",
+              required: i === 0,
+              actual: 70 + i,
+              predicted: 68,
+              residual: 2 + i,
+              z: 1 + i,
+              contribution: [0.5, 0.3, 0.2][i],
+              dq_status: "Good",
+              dq_rule: "none",
+              used: true,
+              sigma: 2,
+              warning: 3,
+              alert: 5,
+            })),
+          });
+        case "/scores":
+          return json(route, trend(["di", "health"]));
+        case "/status-periods":
+          return json(route, []);
+        case "/outputs": {
+          const tags = (url.searchParams.get("tags") ?? "").split(",").filter(Boolean);
+          return json(
+            route,
+            tags.map((t, i) => ({
+              ...trend(["actual", "predicted", "residual", "q", "z"]),
+              tag_id: i + 1,
+              source_name: t,
+            })),
+          );
+        }
+      }
+    }
     return json(route, { title: "Not found", status: 404 }, 404);
   });
-  return { roots, leaves };
+  return { roots, leaves, alerts };
+}
+
+interface TreeNode {
+  id: number;
+  code: string;
+  name: string;
+  level: string;
+  children: TreeNode[];
+}
+
+function findNode(nodes: readonly object[], id: number): TreeNode | null {
+  for (const n of nodes as TreeNode[]) {
+    if (n.id === id) return n;
+    const found = findNode(n.children, id);
+    if (found) return found;
+  }
+  return null;
 }

@@ -89,6 +89,29 @@ def test_the_alert_list_with_filters_and_scope(api: dict[str, Any]) -> None:
     assert call(api, "GET", "/api/v1/alerts", "vera", params={"asset": "NOPE"}).status_code == 404
 
 
+def test_cleared_at_is_when_the_condition_returned_to_normal(api: dict[str, Any]) -> None:
+    (active,) = call(api, "GET", "/api/v1/alerts", "vera").json()["items"]
+    assert active["cleared_at"] is None  # still active
+    with api["db"].session() as s:
+        s.execute(
+            text(
+                "INSERT INTO alert_event (alert_id, ts, action, from_state, to_state, severity, "
+                "priority) VALUES (:a, '2026-10-20T03:00:00Z', 'clear', 'Active-Unacknowledged', "
+                "'RTN-Unacknowledged', 'Warning', 'P2')"
+            ),
+            {"a": active["id"]},
+        )
+        s.execute(
+            text(
+                "UPDATE alert SET state = 'RTN-Unacknowledged', condition_active = false "
+                "WHERE id = :a"
+            ),
+            {"a": active["id"]},
+        )
+    (cleared,) = call(api, "GET", "/api/v1/alerts", "vera").json()["items"]
+    assert cleared["cleared_at"].startswith("2026-10-20T03:00:00")
+
+
 def test_one_alert_with_trace_and_history(api: dict[str, Any]) -> None:
     body = call(api, "GET", f"/api/v1/alerts/{api['alert_id']}", "vera").json()
     assert body["trace"]["rule"]["kind"] == "di"

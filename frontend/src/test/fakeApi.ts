@@ -218,6 +218,7 @@ function alert(
     shelved_until: null,
     shelve_reason: null,
     closed_at: null,
+    cleared_at: null,
   };
 }
 

@@ -85,22 +85,35 @@ def _aggregates(series: Iterable[str], hourly: bool = False) -> str:
 
 
 def score_trend(
-    session: Session, model_id: int, start: datetime, end: datetime, px: int = 1000
+    session: Session,
+    model_id: int,
+    start: datetime,
+    end: datetime,
+    px: int = 1000,
+    *,
+    version_id: int | None = None,
 ) -> Trend:
-    """DI and Health of a model over [start, end), across all its versions."""
+    """DI and Health of a model over [start, end), across all its versions or one of them
+    (historical comparison, SCR-03). The hourly aggregates are per model, so one version's
+    long trend is computed from the raw scores."""
     _check(start, end, px)
-    params = {"model_id": model_id, "start": start, "end": end}
+    params: dict[str, object] = {"model_id": model_id, "start": start, "end": end}
+    version_filter = ""
+    if version_id is not None:
+        params["version_id"] = version_id
+        version_filter = " AND version_id = :version_id"
     if end - start < RAW_BELOW:
         rows = session.execute(
             text(
                 "SELECT ts, di, health FROM score "
-                "WHERE model_id = :model_id AND ts >= :start AND ts < :end ORDER BY ts"
+                f"WHERE model_id = :model_id{version_filter} AND ts >= :start AND ts < :end "
+                "ORDER BY ts"
             ),
             params,
         ).mappings()
         return _build(start, end, True, None, SCORE_SERIES, [dict(r) for r in rows])
     bucket = _bucket_s(start, end, px)
-    hourly = end - start > HOURLY_ABOVE
+    hourly = end - start > HOURLY_ABOVE and version_id is None
     table, ts, columns = (
         ("score_1h", "bucket", "di_min, di_max, health_min, health_max")
         if hourly
@@ -111,7 +124,8 @@ def score_trend(
             "SELECT :start + make_interval(secs => b * :bucket) AS ts, "
             f"{_aggregates(SCORE_SERIES, hourly)} "
             f"FROM (SELECT floor(extract(epoch FROM {ts} - :start) / :bucket) AS b, {columns} "
-            f"      FROM {table} WHERE model_id = :model_id AND {ts} >= :start AND {ts} < :end) s "
+            f"      FROM {table} WHERE model_id = :model_id{version_filter} "
+            f"      AND {ts} >= :start AND {ts} < :end) s "
             "GROUP BY b ORDER BY b"
         ),
         {**params, "bucket": bucket},
@@ -164,3 +178,88 @@ def output_trends(
     for row in session.execute(text(query), params).mappings():
         grouped[int(row["tag_id"])].append(dict(row))
     return {t: _build(start, end, bucket is None, bucket, OUTPUT_SERIES, grouped[t]) for t in tags}
+
+
+# ------------------------------------------------------------------ asset analysis (SCR-03)
+
+
+@dataclass(frozen=True)
+class StatusPeriod:
+    """A stretch of cycles that were not scored normally (shaded on the DI trend)."""
+
+    start: datetime
+    end: datetime
+    status: str
+    reason: str | None
+
+
+def status_periods(
+    session: Session,
+    model_id: int,
+    start: datetime,
+    end: datetime,
+    *,
+    version_id: int | None = None,
+    max_periods: int = 500,
+) -> list[StatusPeriod]:
+    """Runs of consecutive cycles with the same non-Running status (outside the operating
+    mode, insufficient data, error ...) over [start, end), oldest first. Each run ends at
+    the next cycle's time, so it covers the gap until scoring resumed."""
+    _check(start, end, 1)
+    version_filter = " AND version_id = :version_id" if version_id is not None else ""
+    rows = session.execute(
+        text(
+            "WITH s AS ("
+            "  SELECT ts, status, reason, lead(ts) OVER (ORDER BY ts) AS next_ts,"
+            "  row_number() OVER (ORDER BY ts)"
+            "  - row_number() OVER (PARTITION BY status, coalesce(reason, '') ORDER BY ts) AS grp"
+            f" FROM score WHERE model_id = :model_id{version_filter}"
+            "  AND ts >= :start AND ts < :end)"
+            " SELECT min(ts) AS start, max(coalesce(next_ts, ts)) AS end, status, reason "
+            " FROM s WHERE status <> 'Running' GROUP BY grp, status, reason "
+            " ORDER BY min(ts) LIMIT :limit"
+        ),
+        {
+            "model_id": model_id,
+            "version_id": version_id,
+            "start": start,
+            "end": end,
+            "limit": max_periods,
+        },
+    ).mappings()
+    return [StatusPeriod(r["start"], r["end"], r["status"], r["reason"]) for r in rows]
+
+
+@dataclass(frozen=True)
+class SensorReadingOut:
+    """One sensor's outputs at one cycle (the sensor table and contributors, SCR-03)."""
+
+    tag_id: int
+    actual: float | None
+    predicted: float | None
+    residual: float | None
+    z: float | None
+    contribution: float | None
+    dq_status: str
+    dq_rule: str | None
+    used: bool | None
+
+
+def cycle_outputs(session: Session, version_id: int, ts: datetime) -> list[SensorReadingOut]:
+    """Every sensor's outputs of one version at one cycle."""
+    rows = session.execute(
+        text(
+            "SELECT tag_id, actual, predicted, residual, z, contribution, dq_status, dq_rule, "
+            "used FROM sensor_output WHERE version_id = :v AND ts = :ts ORDER BY tag_id"
+        ),
+        {"v": version_id, "ts": ts},
+    ).mappings()
+    return [SensorReadingOut(**dict(r)) for r in rows]
+
+
+def latest_cycle(session: Session, version_id: int) -> datetime | None:
+    """The newest cycle a version was scored at."""
+    found: datetime | None = session.execute(
+        text("SELECT max(ts) FROM score WHERE version_id = :v"), {"v": version_id}
+    ).scalar()
+    return found

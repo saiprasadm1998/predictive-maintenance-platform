@@ -14,6 +14,7 @@ export function ConfirmDialog({
   confirmLabel,
   danger = false,
   reasonLabel,
+  reasonOptional = false,
   children,
   onConfirm,
 }: {
@@ -23,8 +24,9 @@ export function ConfirmDialog({
   consequence: ReactNode;
   confirmLabel: string;
   danger?: boolean;
-  /** When set, a reason is required and passed to onConfirm. */
+  /** When set, a reason field is shown and passed to onConfirm (required unless optional). */
   reasonLabel?: string;
+  reasonOptional?: boolean;
   /** Extra fields (an expiry, for example). */
   children?: ReactNode;
   onConfirm: (reason: string) => Promise<void> | void;
@@ -33,7 +35,8 @@ export function ConfirmDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const reasonId = useId();
-  const needsReason = reasonLabel !== undefined;
+  const hasReason = reasonLabel !== undefined;
+  const needsReason = hasReason && !reasonOptional;
   const ready = !needsReason || reason.trim().length > 0;
 
   function change(next: boolean) {
@@ -71,14 +74,16 @@ export function ConfirmDialog({
             <Dialog.Description asChild>
               <div>{consequence}</div>
             </Dialog.Description>
-            {needsReason && (
+            {hasReason && (
               <label className="field" htmlFor={reasonId}>
-                <span>{reasonLabel} (required)</span>
+                <span>
+                  {reasonLabel} ({needsReason ? "required" : "optional"})
+                </span>
                 <textarea
                   id={reasonId}
                   className="control"
                   value={reason}
-                  required
+                  required={needsReason}
                   onChange={(event) => setReason(event.target.value)}
                 />
               </label>

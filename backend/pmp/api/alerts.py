@@ -27,6 +27,7 @@ from pmp.alerting import (
     acknowledge,
     alert_counts,
     alert_history,
+    cleared_times,
     get_alert,
     get_alerts,
     get_priority_matrix,
@@ -81,6 +82,9 @@ class AlertOut(BaseModel):
     shelved_until: datetime | None
     shelve_reason: str | None
     closed_at: datetime | None
+    cleared_at: datetime | None = Field(
+        default=None, description="when the condition returned to normal (null while active)"
+    )
 
 
 class HistoryOut(BaseModel):
@@ -101,6 +105,7 @@ class AlertDetailOut(AlertOut):
 
 def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -> list[AlertOut]:
     tags = {t.id: t.source_name for t in get_tags(session, {v.tag_id for v in views if v.tag_id})}
+    cleared = cleared_times(session, [v.id for v in views if not v.condition_active])
     return [
         AlertOut(
             id=v.id,
@@ -120,6 +125,7 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
             shelved_until=v.shelved_until,
             shelve_reason=v.shelve_reason,
             closed_at=v.closed_at,
+            cleared_at=cleared.get(v.id) if not v.condition_active else None,
         )
         for v in views
     ]

@@ -95,6 +95,7 @@ export interface Alert {
   shelved_until: string | null;
   shelve_reason: string | null;
   closed_at: string | null;
+  cleared_at: string | null; // when the condition returned to normal
 }
 
 export interface Trend {
@@ -106,4 +107,62 @@ export interface Trend {
   ts: string[];
   min: Record<string, (number | null)[]>;
   max: Record<string, (number | null)[]>;
+}
+
+export interface VersionDetail extends VersionSummary {
+  sensors: { tag_id: number; source_name: string; description: string; required: boolean }[];
+  params: Record<string, unknown>;
+  error: string | null;
+}
+
+export interface AlertRule {
+  id: number;
+  kind: "di" | "sensor";
+  tag_id: number | null;
+  warning: number;
+  alert: number;
+  state: string;
+}
+
+export interface ModelDetail extends ModelSummary {
+  versions: VersionDetail[];
+  alert_rules: AlertRule[];
+}
+
+export interface SensorNow {
+  tag_id: number;
+  source_name: string;
+  description: string;
+  unit: string;
+  required: boolean;
+  actual: number | null;
+  predicted: number | null;
+  residual: number | null;
+  z: number | null;
+  contribution: number | null;
+  dq_status: string;
+  dq_rule: string | null;
+  used: boolean | null;
+  sigma: number | null;
+  warning: number;
+  alert: number;
+}
+
+export interface LatestCycle {
+  version_id: number;
+  version: number;
+  ts: string | null;
+  sensors: SensorNow[];
+}
+
+export interface StatusPeriod {
+  start: string;
+  end: string;
+  status: string;
+  reason: string | null;
+}
+
+export interface SensorTrend extends Trend {
+  tag_id: number;
+  source_name: string;
 }

@@ -187,6 +187,40 @@ def test_score_trends_raw_and_downsampled(api: dict[str, Any]) -> None:
     assert get(api, path, px=0).status_code == 400
 
 
+def test_one_version_and_status_periods(api: dict[str, Any]) -> None:
+    (model,) = get(api, "/api/v1/models").json()
+    base = f"/api/v1/models/{model['id']}"
+    period = {"from": LIVE.isoformat(), "to": (LIVE + timedelta(days=3)).isoformat()}
+    one = get(api, f"{base}/scores", version=1, px=10, **period).json()
+    assert one["max"]["di"][0] is not None  # version 1 scored these cycles
+    assert get(api, f"{base}/scores", version=99, **period).status_code == 404
+    (stopped,) = get(api, f"{base}/status-periods", **period).json()
+    assert stopped["status"] == "Insufficient data"  # the cycle two days later
+    assert stopped["start"] == stopped["end"]  # nothing scored after it
+    assert get(api, f"{base}/status-periods", version=1, **period).json() == [stopped]
+
+
+def test_latest_cycle_per_sensor(api: dict[str, Any]) -> None:
+    (model,) = get(api, "/api/v1/models").json()
+    latest = get(api, f"/api/v1/models/{model['id']}/latest").json()
+    assert latest["version"] == 1
+    assert latest["ts"] is not None
+    sensors = latest["sensors"]
+    assert {s["dq_status"] for s in sensors} <= {
+        "Good",
+        "Failure",
+        "Out of specification",
+        "Maintenance required",
+        "Function check",
+    }
+    first = sensors[0]
+    assert first["unit"]
+    assert first["sigma"] is not None  # from the trained artefact
+    assert first["sigma"] > 0
+    assert (first["warning"], first["alert"]) == (3.0, 5.0)  # no sensor rule: the defaults
+    assert get(api, f"/api/v1/models/{model['id']}/latest", version=7).status_code == 404
+
+
 def test_sensor_output_trends(api: dict[str, Any]) -> None:
     (model,) = get(api, "/api/v1/models").json()
     path = f"/api/v1/models/{model['id']}/outputs"

@@ -640,6 +640,20 @@ def alert_counts(
     }
 
 
+def cleared_times(session: Session, alert_ids: Iterable[int]) -> dict[int, datetime]:
+    """When each alert's condition last returned to normal (the end of its bar on a trend,
+    SCR-03). Only meaningful while the condition is inactive."""
+    ids = sorted(set(alert_ids))
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(AlertEvent.alert_id, func.max(AlertEvent.ts))
+        .where(AlertEvent.alert_id.in_(ids), AlertEvent.action == Trigger.CLEAR.value)
+        .group_by(AlertEvent.alert_id)
+    ).all()
+    return {int(a): t for a, t in rows}
+
+
 def open_alerts_by_model(session: Session) -> dict[int, int]:
     """Open alerts per model, out of service left out (active-alert counts, SCR-01)."""
     rows = session.execute(

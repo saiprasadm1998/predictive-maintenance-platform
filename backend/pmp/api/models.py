@@ -3,6 +3,7 @@ trends (ARC §7.3; FR-MOD-06, -07, FR-RUN-04, FR-VIS-02, NFR-PERF-03)."""
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
 
@@ -11,8 +12,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pmp.alerting import (
+    DEFAULT_SENSOR_ALERT,
+    DEFAULT_SENSOR_WARNING,
     AlertRuleError,
     AlertState,
+    RuleKind,
     list_alert_rules,
     require_di_rule,
     rule_states,
@@ -24,6 +28,7 @@ from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.modelling import (
     Action,
+    ModelCache,
     ModelError,
     ModelView,
     VersionView,
@@ -36,17 +41,21 @@ from pmp.modelling import (
     save_draft,
     start_training,
 )
-from pmp.registry import list_subtree
+from pmp.registry import get_tags, list_subtree
 from pmp.scoring import (
     MAX_PX,
     RuntimeStatusView,
     Trend,
     TrendError,
+    cycle_outputs,
     get_runtime_statuses,
+    latest_cycle,
     output_trends,
     score_trend,
+    status_periods,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/models", tags=["models"])
 User = Annotated[SignedIn, Depends(signed_in)]
 
@@ -283,6 +292,20 @@ def _trend_out(trend: Trend) -> dict[str, Any]:
 
 
 Px = Annotated[int, Query(ge=1, le=MAX_PX, description="chart width: at most this many points")]
+VersionNo = Annotated[
+    int | None, Query(ge=1, description="only this version (number); default: every version")
+]
+
+
+def _version_id(model: ModelView, number: int | None) -> int | None:
+    if number is None:
+        return None
+    found = next((v.id for v in model.versions if v.version == number), None)
+    if found is None:
+        raise not_found("Model version")
+    return found
+
+
 From = Annotated[datetime | None, Query(alias="from", description="default: 1 day before `to`")]
 To = Annotated[datetime | None, Query(alias="to", description="default: now")]
 
@@ -295,12 +318,14 @@ def get_scores(
     start: From = None,
     end: To = None,
     px: Px = 1000,
+    version: VersionNo = None,
 ) -> TrendOut:
     begin, finish = _period(start, end)
     with database_of(request).session() as session:
-        _visible_model(session, user, model_id)
+        model = _visible_model(session, user, model_id)
+        version_id = _version_id(model, version)
         try:
-            trend = score_trend(session, model_id, begin, finish, px)
+            trend = score_trend(session, model_id, begin, finish, px, version_id=version_id)
         except TrendError as error:
             raise ProblemError(400, "invalid_period", "Invalid trend request", str(error)) from None
     return TrendOut(**_trend_out(trend))
@@ -321,10 +346,12 @@ def get_outputs(
     start: From = None,
     end: To = None,
     px: Px = 1000,
+    version: VersionNo = None,
 ) -> list[SensorTrendOut]:
     begin, finish = _period(start, end)
     with database_of(request).session() as session:
         model = _visible_model(session, user, model_id)
+        only = _version_id(model, version)
         sensors = {s.source_name: s.tag_id for v in model.versions for s in v.sensors}
         wanted = [t.strip() for t in tags.split(",") if t.strip()] if tags else list(sensors)
         unknown = [t for t in wanted if t not in sensors]
@@ -333,7 +360,7 @@ def get_outputs(
         try:
             trends = output_trends(
                 session,
-                [v.id for v in model.versions],
+                [v.id for v in model.versions if only is None or v.id == only],
                 [sensors[t] for t in wanted],
                 begin,
                 finish,
@@ -345,6 +372,128 @@ def get_outputs(
         SensorTrendOut(tag_id=sensors[t], source_name=t, **_trend_out(trends[sensors[t]]))
         for t in wanted
     ]
+
+
+class StatusPeriodOut(BaseModel):
+    start: datetime
+    end: datetime
+    status: str
+    reason: str | None
+
+
+@router.get(
+    "/{model_id}/status-periods",
+    response_model=list[StatusPeriodOut],
+    summary="When the model was not scoring normally (shaded on the DI trend)",
+)
+def get_status_periods(
+    request: Request,
+    user: User,
+    model_id: int,
+    start: From = None,
+    end: To = None,
+    version: VersionNo = None,
+) -> list[StatusPeriodOut]:
+    begin, finish = _period(start, end)
+    with database_of(request).session() as session:
+        model = _visible_model(session, user, model_id)
+        try:
+            periods = status_periods(
+                session, model_id, begin, finish, version_id=_version_id(model, version)
+            )
+        except TrendError as error:
+            raise ProblemError(400, "invalid_period", "Invalid period", str(error)) from None
+    return [StatusPeriodOut(**vars(p)) for p in periods]
+
+
+class SensorNowOut(BaseModel):
+    tag_id: int
+    source_name: str
+    description: str
+    unit: str
+    required: bool
+    actual: float | None
+    predicted: float | None
+    residual: float | None
+    z: float | None
+    contribution: float | None = Field(description="share of the DI, 0 to 1")
+    dq_status: str = Field(description="NE 107 status at this cycle")
+    dq_rule: str | None
+    used: bool | None = Field(description="whether the value was used in this cycle")
+    sigma: float | None = Field(description="residual sigma: z = residual / sigma")
+    warning: float = Field(description="|z| warning limit (the sensor rule's, or the default)")
+    alert: float
+
+
+class LatestOut(BaseModel):
+    version_id: int
+    version: int
+    ts: datetime | None = Field(description="the cycle; null if the version was never scored")
+    sensors: list[SensorNowOut]
+
+
+def _model_cache(request: Request) -> ModelCache:
+    cache: ModelCache | None = getattr(request.app.state, "model_cache", None)
+    if cache is None:
+        cache = ModelCache()  # versions never change once trained, so nothing goes stale
+        request.app.state.model_cache = cache
+    return cache
+
+
+@router.get(
+    "/{model_id}/latest",
+    response_model=LatestOut,
+    summary="Every sensor's outputs at the latest cycle (sensor table, contributors)",
+)
+def get_latest(request: Request, user: User, model_id: int, version: VersionNo = None) -> LatestOut:
+    with database_of(request).session() as session:
+        model = _visible_model(session, user, model_id)
+        chosen = _version_id(model, version)
+        if chosen is None:
+            current = _in_service(model) or model.latest
+            chosen = current.id
+        view = next(v for v in model.versions if v.id == chosen)
+        ts = latest_cycle(session, chosen)
+        rows = {r.tag_id: r for r in (cycle_outputs(session, chosen, ts) if ts else [])}
+        tags = {t.id: t for t in get_tags(session, [s.tag_id for s in view.sensors])}
+        limits = {
+            r.spec.tag_id: (r.spec.warning, r.spec.alert)
+            for r in list_alert_rules(session, model_id)
+            if r.spec.kind is RuleKind.SENSOR
+        }
+        sigmas: dict[str, float] = {}
+        if view.artefact_sha256:
+            try:
+                loaded = _model_cache(request).get(session, chosen)
+                sigmas = {name: scale.sigma for name, scale in loaded.scales.items()}
+            except ModelError:
+                logger.warning("Cannot load version %s for its scales", chosen)
+    out = []
+    for sensor in view.sensors:
+        row = rows.get(sensor.tag_id)
+        tag = tags.get(sensor.tag_id)
+        warning, alert = limits.get(sensor.tag_id, (DEFAULT_SENSOR_WARNING, DEFAULT_SENSOR_ALERT))
+        out.append(
+            SensorNowOut(
+                tag_id=sensor.tag_id,
+                source_name=sensor.source_name,
+                description=sensor.description,
+                unit=tag.unit if tag else "",
+                required=sensor.required,
+                actual=row.actual if row else None,
+                predicted=row.predicted if row else None,
+                residual=row.residual if row else None,
+                z=row.z if row else None,
+                contribution=row.contribution if row else None,
+                dq_status=row.dq_status if row else "Failure",
+                dq_rule=row.dq_rule if row else "stale",
+                used=row.used if row else None,
+                sigma=sigmas.get(sensor.source_name),
+                warning=warning,
+                alert=alert,
+            )
+        )
+    return LatestOut(version_id=chosen, version=view.version, ts=ts, sensors=out)
 
 
 # ------------------------------------------------------------------ changes (UC-05, UC-06)

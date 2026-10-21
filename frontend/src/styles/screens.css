@@ -304,3 +304,137 @@ button.kpi-inner[aria-pressed="true"] {
   justify-content: space-between;
   gap: 8px;
 }
+
+/* ---- SCR-03 asset analysis ---- */
+
+.asset {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.asset-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.later-note,
+.small {
+  font-size: 12px;
+}
+
+.field-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.asset-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1fr) minmax(0, 2.2fr);
+  gap: var(--gutter);
+  align-items: start;
+}
+
+.summary-body {
+  display: grid;
+  gap: 10px;
+}
+
+.summary-score {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.summary-health {
+  font-size: var(--size-headline);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.summary-state {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.summary-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.summary-table th,
+.summary-table td {
+  text-align: left;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--line-soft);
+  font-weight: 400;
+}
+
+.summary-table th {
+  color: var(--text-muted);
+  width: 40%;
+}
+
+.contributors {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.contributor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px 44px 64px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.contributor[aria-pressed="true"] {
+  background: var(--band);
+  font-weight: 600;
+}
+
+.contributor-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.contributor-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--line-soft);
+  overflow: hidden;
+}
+
+.contributor-bar span {
+  display: block;
+  height: 100%;
+  background: var(--chrome-active);
+}
+
+.contributor .num {
+  text-align: right;
+}
+
+.multiples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--gutter);
+  margin-bottom: var(--gutter);
+}
+
+.sensor-table td {
+  white-space: nowrap;
+}

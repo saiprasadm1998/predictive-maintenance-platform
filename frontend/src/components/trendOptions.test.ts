@@ -128,3 +128,24 @@ describe("tooltip", () => {
     expect(escapeHtml(`"'&`)).toBe("&#34;&#39;&#38;");
   });
 });
+
+describe("y axis", () => {
+  it("keeps the limits in view even when the data is far from them", () => {
+    const option = trendOptions(
+      {
+        actual: [
+          [T0, 40],
+          [T0 + MIN, 60],
+        ],
+        limits: { warning: [15], alert: [25] },
+      },
+      { unit: "%", from: T0, to: T0 + 2 * MIN },
+      COLORS,
+    ) as {
+      yAxis: { min?: (v: { min: number }) => number; max?: (v: { max: number }) => number }[];
+    };
+    const axis = option.yAxis[0]!;
+    expect(axis.min!({ min: 40 })).toBeLessThanOrEqual(15);
+    expect(axis.max!({ max: 60 })).toBeGreaterThanOrEqual(60);
+  });
+});

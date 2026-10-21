@@ -235,6 +235,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     period = {"from": LIVE.isoformat(), "to": (LIVE + timedelta(hours=1)).isoformat()}
     call("GET", f"{v1}/models/{model['id']}/scores", 200, params=period)
     call("GET", f"{v1}/models/{model['id']}/outputs", 200, params=period)
+    call("GET", f"{v1}/models/{model['id']}/status-periods", 200, params=period)
+    call("GET", f"{v1}/models/{model['id']}/latest", 200)
     rules = {"di": {"warning": 15, "alert": 25}, "sensors": [{"tag": "EQ1.T1"}]}
     call("PUT", f"{v1}/models/{model['id']}/alert-rules", 200, json=rules)
     deployed_version = detail["in_service"]["id"]

@@ -14,9 +14,14 @@ const UnitPage = lazy(() =>
   import("../pages/fleet/UnitPage").then((m) => ({ default: m.UnitPage })),
 );
 
+const AssetPage = lazy(() =>
+  import("../pages/asset/AssetPage").then((m) => ({ default: m.AssetPage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
   "SCR-01": <FleetPage />,
   "SCR-08": <UnitPage />,
+  "SCR-03": <AssetPage />,
 };
 
 // Development only, and loaded on demand so its charts never reach the main bundle.

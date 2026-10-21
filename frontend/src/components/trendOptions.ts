@@ -41,6 +41,17 @@ export interface TrendSettings {
 
 const ALERT_BAR_HEIGHT = 10;
 
+/** Axis ends with a little room around the data and limits. */
+function niceFloor(value: number): number {
+  const step = 10 ** Math.floor(Math.log10(Math.abs(value) || 1));
+  return Math.floor(value / step - 0.5) * step;
+}
+
+function niceCeil(value: number): number {
+  const step = 10 ** Math.floor(Math.log10(Math.abs(value) || 1));
+  return Math.ceil(value / step + 0.5) * step;
+}
+
 /** ECharts tooltips are HTML; names and units come from the registry, so escape them. */
 export function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
@@ -73,6 +84,7 @@ export function trendOptions(
     })),
   ];
 
+  const limitValues = limitLines.map((l) => l.yAxis);
   const series: Record<string, unknown>[] = [];
   if (data.band?.length) {
     // A stacked pair: the invisible lower edge, then the width filled with --band.
@@ -240,6 +252,16 @@ export function trendOptions(
       {
         type: "value",
         scale: true,
+        // Limits always in view, so a value's distance to them can be read.
+        ...(limitValues.length
+          ? {
+              min: (v: { min: number }) => {
+                const low = Math.min(v.min, ...limitValues);
+                return low >= 0 ? 0 : niceFloor(low); // a positive measure starts at zero
+              },
+              max: (v: { max: number }) => niceCeil(Math.max(v.max, ...limitValues)),
+            }
+          : {}),
         name: settings.unit,
         nameTextStyle: { color: colors.textMuted, align: "right" },
         axisLabel: { color: colors.textMuted },
