@@ -9,7 +9,7 @@ STACK := docker compose -f deploy/compose.yaml
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
         sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring perf-api \
-        fe-install fe-dev fe-check fe-lint fe-format fe-test fe-build fe-audit
+        fe-install fe-dev fe-check fe-lint fe-format fe-test fe-build fe-audit fe-e2e
 
 check: lint format-check types contracts test fe-check
 
@@ -70,6 +70,11 @@ fe-build:
 
 fe-audit:
 	$(NPM) audit --audit-level=moderate
+
+# Browser journeys against the production build, with the API mocked (no database needed).
+# Once per machine first: cd frontend && npx playwright install chromium
+fe-e2e:
+	$(NPM) run e2e
 
 db-up:
 	$(COMPOSE) up -d --wait
