@@ -39,6 +39,9 @@ export function ModelsPage() {
         <h2 id="models-title" className="panel-title">
           Models ({rows.length})
         </h2>
+        <Link className="button button-primary" to="/models/new/build/1">
+          New model
+        </Link>
         <label className="field-inline">
           <span>Runtime status</span>
           <select

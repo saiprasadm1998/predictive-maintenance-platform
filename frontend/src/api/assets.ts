@@ -1,5 +1,5 @@
 import { api } from "./client";
-import type { AssetDetail, AssetNode } from "./types";
+import type { AssetDetail, AssetNode, Tag } from "./types";
 
 export interface Asset {
   id: number;
@@ -40,4 +40,10 @@ export function fetchAssetTree(signal?: AbortSignal): Promise<AssetNode[]> {
 /** One asset with its breadcrumb and its subtree's health. */
 export function fetchAsset(id: number, signal?: AbortSignal): Promise<AssetDetail> {
   return api<AssetDetail>(`/assets/${id}`, { signal });
+}
+
+/** The asset's registered tags (one page of up to 500 is plenty for one asset). */
+export async function fetchAssetTags(asset: string, signal?: AbortSignal): Promise<Tag[]> {
+  const page = await api<Page<Tag>>("/tags", { query: { asset, limit: 500 }, signal });
+  return page.items;
 }

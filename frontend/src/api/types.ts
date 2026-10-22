@@ -226,3 +226,68 @@ export interface SensorTrend extends Trend {
   tag_id: number;
   source_name: string;
 }
+
+/** A model definition as saved (POST /models) or previewed; times are ISO 8601. */
+export interface ModelDefinitionIn {
+  asset: string;
+  name: string;
+  description?: string;
+  sensors: { tag: string; required: boolean }[];
+  training_periods: Period[];
+  validation_period: Period;
+  mode_filters: string[];
+  params?: Record<string, unknown>;
+  alert_rules?: AlertRulesIn;
+}
+
+export interface AlertRulesIn {
+  di: { warning: number; alert: number; persistence_n?: number; persistence_m?: number };
+  sensors: { tag: string; warning: number; alert: number }[];
+}
+
+/** What the cleansing rules leave of the training periods (SCR-06 step 3). */
+export interface TrainingData {
+  cycle_s: number;
+  cycles: number;
+  retained: number;
+  mode_removed: number;
+  quality_removed: number;
+  blocked: string | null;
+  sensors: {
+    source_name: string;
+    description: string;
+    required: boolean;
+    usable_share: number;
+    flagged: boolean;
+  }[];
+  bucket_s: number;
+  buckets: string[];
+  excluded: number[];
+  values: Record<string, (number | null)[]>;
+}
+
+export interface Job {
+  id: number;
+  type: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  progress: number | null;
+  attempts: number;
+  result: Record<string, unknown> | null;
+  error: string | null;
+  created_at: string;
+  finished_at: string | null;
+}
+
+export interface Tag {
+  id: number;
+  source: string;
+  source_name: string;
+  asset_id: number;
+  asset_code: string;
+  description: string;
+  unit: string;
+  range_lo: number;
+  range_hi: number;
+  interval_s: number;
+  role: string | null;
+}

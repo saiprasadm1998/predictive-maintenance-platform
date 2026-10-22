@@ -14,6 +14,8 @@ from pmp.api import create_app
 from pmp.core import Database, Role, RoleAssignment, Settings, create_user
 from tests.integration.test_scoring_cycle import (  # noqa: F401  (deployed is a fixture)
     ACTOR,
+    LIVE,
+    T0,
     deployed,
 )
 
@@ -115,3 +117,62 @@ def test_administrators_manage_users_over_the_api(api: Any) -> None:
         headers=h["root"],
     )
     assert (weak.status_code, weak.json()["code"]) == (400, "user_refused")
+
+
+def _eq1(**changes: Any) -> dict[str, Any]:
+    definition: dict[str, Any] = {
+        "asset": "EQ-1",
+        "name": "main",
+        "sensors": [{"tag": "EQ1.T1", "required": True}, "EQ1.T2", "EQ1.T3"],
+        "training_periods": [
+            {"start": T0.isoformat(), "end": (LIVE - (LIVE - T0) / 4).isoformat()}
+        ],
+        "validation_period": {
+            "start": (LIVE - (LIVE - T0) / 4).isoformat(),
+            "end": LIVE.isoformat(),
+        },
+        "mode_filters": ["EQ1.MOTOR > 120"],
+    }
+    return {**definition, **changes}
+
+
+def test_the_training_data_preview_shows_what_each_rule_removes(api: Any) -> None:
+    client, h = api
+    url = "/api/v1/models/training-data"
+    found = client.post(url, json=_eq1(), params={"px": 50}, headers=h["eng"]).json()
+    assert found["cycles"] == 3 * 1440
+    assert found["mode_removed"] == 0  # the motor runs throughout
+    assert found["retained"] == found["cycles"] - found["quality_removed"]
+    assert found["blocked"] is None
+    assert [s["source_name"] for s in found["sensors"]] == ["EQ1.T1", "EQ1.T2", "EQ1.T3"]
+    assert 40 <= len(found["buckets"]) <= 50
+    assert found["bucket_s"] % 60 == 0
+    assert len(found["excluded"]) == len(found["buckets"])
+    assert all(0 <= x <= 1 for x in found["excluded"])
+    assert set(found["values"]) == {"EQ1.T1", "EQ1.T2", "EQ1.T3"}
+    assert all(len(v) == len(found["buckets"]) for v in found["values"].values())
+
+    stopped = client.post(
+        url,
+        json=_eq1(mode_filters=["EQ1.MOTOR > 500"]),
+        headers=h["eng"],
+    ).json()
+    assert (stopped["retained"], stopped["mode_removed"]) == (0, 3 * 1440)
+    assert stopped["blocked"].startswith("Training blocked: only 0 clean samples")
+    assert all(x == 1 for x in stopped["excluded"])
+
+    refused = client.post(url, json=_eq1(sensors=["EQ1.NOPE"]), headers=h["eng"])
+    assert (refused.status_code, refused.json()["code"]) == (400, "model_refused")
+    assert client.post(url, json=_eq1(), headers=h["vera"]).status_code == 403
+
+
+def test_a_new_draft_without_alert_rules_keeps_the_models_rules(api: Any) -> None:
+    client, h = api
+    model = next(m for m in client.get("/api/v1/models", headers=h["eng"]).json())
+    before = client.get(f"/api/v1/models/{model['id']}", headers=h["eng"]).json()["alert_rules"]
+    assert len(before) == 2
+    saved = client.post("/api/v1/models", json=_eq1(), headers=h["eng"])
+    assert saved.status_code == 201
+    body = saved.json()
+    assert (body["latest"]["status"], body["latest"]["version"]) == ("Draft", 2)
+    assert [r["id"] for r in body["alert_rules"]] == [r["id"] for r in before]

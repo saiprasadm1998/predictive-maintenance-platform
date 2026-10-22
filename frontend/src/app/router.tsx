@@ -29,7 +29,12 @@ const VersionPage = lazy(() =>
   import("../pages/models/VersionPage").then((m) => ({ default: m.VersionPage })),
 );
 
+const BuilderPage = lazy(() =>
+  import("../pages/models/BuilderPage").then((m) => ({ default: m.BuilderPage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
+  "SCR-06": <BuilderPage />,
   "SCR-10": <ModelsPage />,
   "SCR-11": <VersionPage />,
   "SCR-02": <AlertsPage />,

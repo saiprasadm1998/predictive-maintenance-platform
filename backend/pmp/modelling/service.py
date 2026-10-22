@@ -46,8 +46,23 @@ from pmp.modelling.definitions import (
 )
 from pmp.modelling.expressions import ExpressionError, parse_expression
 from pmp.modelling.models import ModeFilter, Model, ModelSensor, ModelVersion, TrainingPeriod
-from pmp.modelling.training import Assembled, SensorInfo, TrainingError, assemble, train
-from pmp.registry import TagView, asset_codes, find_asset, get_asset_by_id, get_tags, list_tags
+from pmp.modelling.training import (
+    Assembled,
+    SensorInfo,
+    TrainingError,
+    assemble,
+    check_minimum_data,
+    train,
+)
+from pmp.registry import (
+    AssetView,
+    TagView,
+    asset_codes,
+    find_asset,
+    get_asset_by_id,
+    get_tags,
+    list_tags,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -287,8 +302,10 @@ def _model_view(session: Session, model: Model, asset_code: str) -> ModelView:
 # ------------------------------------------------------------------ services
 
 
-def save_draft(session: Session, actor: Actor, definition: ModelDefinition) -> ModelView:
-    """Create the model, or update its Draft, or start a new Draft version."""
+def _checked(
+    session: Session, actor: Actor, definition: ModelDefinition
+) -> tuple[AssetView, dict[str, TagView]]:
+    """The asset and its tags by source name, once the definition passes every check."""
     asset = find_asset(session, definition.asset_code)
     if asset is None:
         raise ModelError(f"Asset {definition.asset_code!r} does not exist")
@@ -302,6 +319,12 @@ def save_draft(session: Session, actor: Actor, definition: ModelDefinition) -> M
         problems = error.problems + problems
     if problems:
         raise ModelError(problems)
+    return asset, resolved
+
+
+def save_draft(session: Session, actor: Actor, definition: ModelDefinition) -> ModelView:
+    """Create the model, or update its Draft, or start a new Draft version."""
+    asset, resolved = _checked(session, actor, definition)
 
     name = definition.name.strip()
     model = session.scalars(
@@ -524,6 +547,124 @@ def _gather(
     values = {name: assessed[tag_id].values for name, tag_id in tag_ids.items()}
     usable = {name: assessed[tag_id].usable for name, tag_id in tag_ids.items()}
     return assemble(cycle_ns, sensors, values, usable, filters)
+
+
+FLAGGED_BELOW = 0.9  # a sensor usable in less than 90 % of in-mode cycles is flagged
+
+
+@dataclass(frozen=True)
+class SensorUse:
+    source_name: str
+    description: str
+    required: bool
+    usable_share: float  # of the in-mode training cycles
+    flagged: bool
+
+
+@dataclass(frozen=True)
+class TrainingDataPreview:
+    """What the cleansing rules leave of the training periods (SCR-06 step 3, UC-05 3-6).
+
+    Each rule counts only the cycles it removes after the rules before it (operating mode
+    first, then data quality and coverage). The trend has about `points` time buckets:
+    the share of cycles excluded in each, and each sensor's mean usable value."""
+
+    cycle_s: int
+    cycles: int
+    retained: int
+    mode_removed: int
+    quality_removed: int
+    blocked: str | None  # the minimum-data rule's reason, if training would be blocked
+    sensors: tuple[SensorUse, ...]
+    bucket_s: int
+    buckets: tuple[datetime, ...]
+    excluded: tuple[float, ...]
+    values: dict[str, tuple[float | None, ...]]
+
+
+def preview_training_data(
+    session: Session,
+    actor: Actor,
+    definition: ModelDefinition,
+    *,
+    points: int = 600,
+) -> TrainingDataPreview:
+    """Apply the data-quality rules, operating-mode filters and coverage rule to the
+    training periods exactly as training will, without saving anything."""
+    _, resolved = _checked(session, actor, definition)
+    filters = [parse_expression(f) for f in definition.mode_filters]
+    sensors = [
+        SensorInfo(c.tag, c.required, resolved[c.tag].range_hi - resolved[c.tag].range_lo)
+        for c in definition.sensors
+    ]
+    names = {s.name for s in sensors}.union(*(f.names for f in filters))
+    tag_ids = {n: resolved[n].id for n in sorted(names)}
+    cycle_s = int(definition.params.get("cycle_s", DEFAULT_CYCLE_S))
+    data = _gather(session, definition.training_periods, cycle_s, sensors, tag_ids, filters)
+
+    blocked = None
+    if data.cycles == 0:
+        blocked = "Training blocked: the training periods hold no scoring cycles."
+    else:
+        try:
+            check_minimum_data(data)
+        except TrainingError as error:
+            blocked = str(error)
+    in_mode = data.in_mode
+    present = data.frame.notna().to_numpy()
+    modal = max(int(in_mode.sum()), 1)
+    uses = []
+    for i, choice in enumerate(definition.sensors):
+        usable = float(present[in_mode, i].sum()) / modal if in_mode.any() else 0.0
+        uses.append(
+            SensorUse(
+                choice.tag,
+                resolved[choice.tag].description,
+                choice.required,
+                usable,
+                usable < FLAGGED_BELOW,
+            )
+        )
+
+    width_s = cycle_s
+    buckets: tuple[datetime, ...] = ()
+    excluded: tuple[float, ...] = ()
+    values: dict[str, tuple[float | None, ...]] = {s.name: () for s in sensors}
+    if data.cycles:
+        ns = data.frame.index.to_numpy(dtype="datetime64[ns]").astype(np.int64)
+        start_ns, end_ns = int(ns[0]), int(ns[-1]) + cycle_s * 10**9
+        span_s = (end_ns - start_ns) // 10**9
+        per_point = -(-span_s // max(points, 1))  # rounded up, then to whole cycles
+        width_s = max(cycle_s, -(-per_point // cycle_s) * cycle_s)
+        frame = data.frame.copy()
+        frame["_excluded"] = ~data.retained
+        grouped = frame.groupby((ns - start_ns) // (width_s * 10**9)).mean()
+        buckets = tuple(
+            datetime.fromtimestamp(start_ns / 1e9 + int(b) * width_s, UTC)
+            for b in grouped.index.to_numpy(dtype=np.int64)
+        )
+        excluded = tuple(float(x) for x in grouped["_excluded"].to_numpy(dtype=np.float64))
+        values = {
+            s.name: tuple(
+                None if np.isnan(v) else round(float(v), 6)
+                for v in grouped[s.name].to_numpy(dtype=np.float64)
+            )
+            for s in sensors
+        }
+
+    return TrainingDataPreview(
+        cycle_s=cycle_s,
+        cycles=data.cycles,
+        retained=int(data.retained.sum()),
+        mode_removed=int((~in_mode).sum()),
+        quality_removed=int((in_mode & ~data.covered).sum()),
+        blocked=blocked,
+        sensors=tuple(uses),
+        bucket_s=width_s,
+        buckets=buckets,
+        excluded=excluded,
+        values=values,
+    )
 
 
 def run_training(database: Database, version_id: int, artefact_base: Path) -> dict[str, Any]:

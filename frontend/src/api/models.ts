@@ -1,12 +1,17 @@
 import { api } from "./client";
 import type {
+  AlertRulesIn,
   AuditEntry,
+  Job,
   LatestCycle,
+  ModelDefinitionIn,
   ModelDetail,
   ModelSummary,
   SensorTrend,
   StatusPeriod,
+  TrainingData,
   Trend,
+  VersionSummary,
 } from "./types";
 
 export function fetchModels(signal?: AbortSignal): Promise<ModelSummary[]> {
@@ -87,4 +92,38 @@ export function fetchAudit(
     query: { entity, entity_id: String(entityId), limit: 100 },
     signal,
   });
+}
+
+/** Save the definition: creates the model, updates its Draft or starts a new Draft version. */
+export function saveModel(definition: ModelDefinitionIn): Promise<ModelDetail> {
+  return api<ModelDetail>("/models", { method: "POST", body: definition });
+}
+
+export function saveAlertRules(modelId: number, rules: AlertRulesIn): Promise<ModelDetail> {
+  return api<ModelDetail>(`/models/${modelId}/alert-rules`, { method: "PUT", body: rules });
+}
+
+/** Train the model's Draft version; the worker runs the job. */
+export function startTraining(
+  modelId: number,
+): Promise<{ version: VersionSummary; job_id: number | null }> {
+  return api(`/models/${modelId}/versions`, { method: "POST" });
+}
+
+/** The cleansing rules applied to the training periods, without saving anything. */
+export function previewTrainingData(
+  definition: ModelDefinitionIn,
+  px: number,
+  signal?: AbortSignal,
+): Promise<TrainingData> {
+  return api<TrainingData>("/models/training-data", {
+    method: "POST",
+    body: definition,
+    query: { px },
+    signal,
+  });
+}
+
+export function fetchJob(id: number, signal?: AbortSignal): Promise<Job> {
+  return api<Job>(`/jobs/${id}`, { signal });
 }

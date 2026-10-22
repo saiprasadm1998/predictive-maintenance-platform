@@ -20,9 +20,13 @@ export function TopBar({ crumbs }: { crumbs: BreadcrumbItem[] | null }) {
       <nav aria-label="Breadcrumb" className="crumbs">
         <ol>
           {items.map((item, i) =>
-            item.to ? (
+            i < items.length - 1 ? (
               <li key={i} className="crumb">
-                <Link to={`${item.to}${carried ? `?${carried}` : ""}`}>{item.label}</Link>
+                {item.to ? (
+                  <Link to={`${item.to}${carried ? `?${carried}` : ""}`}>{item.label}</Link>
+                ) : (
+                  item.label
+                )}
                 <span aria-hidden="true" className="crumb-sep">
                   ›
                 </span>

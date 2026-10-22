@@ -39,6 +39,7 @@ from pmp.modelling import (
     get_model_by_id,
     list_models,
     model_of_version,
+    preview_training_data,
     save_draft,
     start_training,
 )
@@ -552,14 +553,84 @@ def post_model(request: Request, user: User, body: ModelIn) -> ModelDetailOut:
         with database_of(request).session() as session:
             definition = definition_from_dict(data, datetime.now(UTC))
             model = save_draft(session, user.actor, definition)
-            sensors = {s.source_name: s.tag_id for s in model.latest.sensors}
-            set_alert_rules(
-                session, user.actor, model.id, rules_from_dict(data.get("alert_rules"), sensors)
-            )
+            # Rules are the model's, so the version in service uses them too: a definition
+            # without alert_rules (a new version's draft) leaves them as they are.
+            if data.get("alert_rules") is not None:
+                sensors = {s.source_name: s.tag_id for s in model.latest.sensors}
+                set_alert_rules(
+                    session, user.actor, model.id, rules_from_dict(data["alert_rules"], sensors)
+                )
             model_id = model.id
     except (ModelError, AlertRuleError) as error:
         raise _model_problem(error) from None
     return _detail(request, user, model_id)
+
+
+class SensorUseOut(BaseModel):
+    source_name: str
+    description: str
+    required: bool
+    usable_share: float = Field(description="share of the in-mode training cycles")
+    flagged: bool = Field(description="usable in less than 90 % of the in-mode cycles")
+
+
+class TrainingDataOut(BaseModel):
+    cycle_s: int
+    cycles: int
+    retained: int
+    mode_removed: int = Field(description="cycles outside the operating mode")
+    quality_removed: int = Field(
+        description="in-mode cycles failing data quality or the coverage rule"
+    )
+    blocked: str | None = Field(description="why training would be blocked (UC-05 6a)")
+    sensors: list[SensorUseOut]
+    bucket_s: int = Field(description="width of the trend's time buckets")
+    buckets: list[datetime] = Field(description="start of each bucket that holds cycles")
+    excluded: list[float] = Field(description="per bucket: share of cycles not retained")
+    values: dict[str, list[float | None]] = Field(
+        description="per sensor (source name), per bucket: mean usable value"
+    )
+
+
+@router.post(
+    "/training-data",
+    response_model=TrainingDataOut,
+    summary="What the cleansing rules leave of the training periods (nothing is saved)",
+)
+def post_training_data(
+    request: Request,
+    user: User,
+    body: ModelIn,
+    px: Annotated[int, Query(ge=10, le=MAX_PX)] = 600,
+) -> TrainingDataOut:
+    try:
+        with database_of(request).session() as session:
+            definition = definition_from_dict(body.model_dump(), datetime.now(UTC))
+            preview = preview_training_data(session, user.actor, definition, points=px)
+    except ModelError as error:
+        raise _model_problem(error) from None
+    return TrainingDataOut(
+        cycle_s=preview.cycle_s,
+        cycles=preview.cycles,
+        retained=preview.retained,
+        mode_removed=preview.mode_removed,
+        quality_removed=preview.quality_removed,
+        blocked=preview.blocked,
+        sensors=[
+            SensorUseOut(
+                source_name=u.source_name,
+                description=u.description,
+                required=u.required,
+                usable_share=u.usable_share,
+                flagged=u.flagged,
+            )
+            for u in preview.sensors
+        ],
+        bucket_s=preview.bucket_s,
+        buckets=list(preview.buckets),
+        excluded=list(preview.excluded),
+        values={name: list(v) for name, v in preview.values.items()},
+    )
 
 
 @router.put(

@@ -104,6 +104,11 @@ export function VersionPage() {
         <div className="field-inline">
           <VersionPicker model={m} current={number} />
           <LifecycleActions model={m} />
+          <Link className="button" to={`/models/${m.id}/build/1`}>
+            {["Draft", "Training", "Failed", "Validated"].includes(m.latest.status)
+              ? `Version ${m.latest.version} in the builder`
+              : "New version"}
+          </Link>
         </div>
       </section>
 

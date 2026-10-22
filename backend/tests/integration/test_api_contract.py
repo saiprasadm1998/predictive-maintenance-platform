@@ -251,6 +251,7 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         "validation_period": {"start": "2026-06-04T00:00Z", "end": "2026-06-05T00:00Z"},
         "alert_rules": {"di": {"warning": 15, "alert": 25}},
     }
+    call("POST", f"{v1}/models/training-data", 200, json=definition, params={"px": 20})
     second = call("POST", f"{v1}/models", 201, json=definition).json()
     call("POST", f"{v1}/models/{second['id']}/versions", 202)
 

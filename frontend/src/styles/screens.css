@@ -610,3 +610,130 @@ button.kpi-inner[aria-pressed="true"] {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 12px;
 }
+
+/* ---- SCR-06 model builder ---- */
+
+.builder {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.builder-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: 16px;
+}
+
+.stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stepper li {
+  flex: 1 1 140px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+}
+
+.stepper li.stepper-on {
+  border-color: var(--chrome);
+  box-shadow: inset 0 -3px 0 var(--chrome);
+  font-weight: 600;
+}
+
+.stepper-n {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid currentcolor;
+  font-size: 12px;
+}
+
+.stepper-done .stepper-n {
+  background: var(--chrome);
+  border-color: var(--chrome);
+  color: #fff;
+}
+
+.builder-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 16px;
+  margin-bottom: 12px;
+}
+
+.builder-wide {
+  grid-column: 1 / -1;
+  flex: 1;
+}
+
+.builder-narrow {
+  max-width: 220px;
+}
+
+.builder-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.builder-period {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.builder-filters {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  margin: 0 0 12px;
+}
+
+.builder-cleanse {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--gutter);
+  align-items: start;
+}
+
+.builder-number {
+  width: 7em;
+}
+
+.builder-progress progress {
+  width: 100%;
+  max-width: 480px;
+  height: 14px;
+}
+
+.builder-foot {
+  margin-top: 16px;
+  display: grid;
+  gap: 8px;
+}
+
+.builder-problems {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.builder-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
