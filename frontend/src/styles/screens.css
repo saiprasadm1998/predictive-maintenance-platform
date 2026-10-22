@@ -826,3 +826,50 @@ button.kpi-inner[aria-pressed="true"] {
   display: grid;
   gap: 6px;
 }
+
+.row-muted td {
+  color: var(--text-muted);
+}
+
+.key-once {
+  border: 1px solid var(--watch-text);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+}
+
+.key-value {
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 13px;
+  padding: 6px 8px;
+  background: var(--panel-subtle);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.audit-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.audit-json {
+  margin: 6px 0 0;
+  max-width: 520px;
+  max-height: 260px;
+  overflow: auto;
+  font-size: 12px;
+  background: var(--panel-subtle);
+  padding: 6px 8px;
+  border-radius: 4px;
+}
+
+.tree-table th[scope="row"] {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: inherit;
+  font-weight: 600;
+  color: var(--text);
+}
