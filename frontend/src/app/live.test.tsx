@@ -1,5 +1,5 @@
 import { act, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { fakeApi, sessionRoutes } from "../test/fakeApi";
 import { FakeEventSource } from "../test/fakeEventSource";
@@ -15,6 +15,14 @@ async function signedInApp(path = "/fleet") {
 }
 
 describe("live events (ARC §7.4, PDS §6)", () => {
+  // The indicator shows only the time for a cycle scored today, so "today" is pinned to
+  // the fake API's last cycle; otherwise the test depends on the day it runs.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-21T09:00:00Z"));
+  });
+  afterEach(() => vi.useRealTimers());
+
   it("opens the stream and shows the last scoring cycle", async () => {
     const { stream } = await signedInApp();
     expect(stream.url).toBe("/api/v1/events");

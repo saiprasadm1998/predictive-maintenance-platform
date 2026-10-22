@@ -28,7 +28,8 @@ test.describe("SCR-01 fleet overview, 500 assets", () => {
       .getByRole("link", { name: /Pump S0U0E3/ })
       .click();
     await expect(page).toHaveURL(/\/assets\/\d+\?range=24h$/);
-    await expect(page.getByRole("heading", { level: 1, name: "Asset analysis" })).toBeVisible();
+    // The page title reads "Asset analysis" only until the asset loads, then its name.
+    await expect(page.getByRole("heading", { level: 1, name: "Pump S0U0E3" })).toBeVisible();
   });
 
   test("an asset's analysis is one click from the fleet (NFR-USE-01: sensor trend within three)", async ({
