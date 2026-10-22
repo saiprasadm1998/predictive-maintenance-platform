@@ -17,8 +17,11 @@ from pmp.core import (
     ApiKeyScope,
     Database,
     JobRegistry,
+    Role,
+    RoleAssignment,
     Settings,
     Worker,
+    create_user,
     issue_api_key,
 )
 from pmp.ingestion import BACKFILL_JOB, count_samples, make_backfill_handler, server_now
@@ -133,7 +136,7 @@ def test_unknown_upload_and_job_are_404(env: dict[str, Any]) -> None:
     assert env["client"].get("/api/v1/jobs/999", headers=env["headers"]).status_code == 404
 
 
-def test_upload_needs_an_ingest_key(env: dict[str, Any]) -> None:
+def test_upload_needs_an_ingest_key_or_a_sign_in(env: dict[str, Any]) -> None:
     response = env["client"].post(
         "/api/v1/ingest/backfill",
         files={"file": ("h.csv", env["csv"], "text/csv")},
@@ -159,3 +162,50 @@ def test_an_ingest_key_reads_only_its_own_history_jobs(env: dict[str, Any]) -> N
     stranger = {"Authorization": f"ApiKey {other}"}
     assert client.get(f"/api/v1/jobs/{job_id}", headers=stranger).status_code == 404
     assert client.get(f"/api/v1/jobs/{training_id}", headers=env["headers"]).status_code == 404
+
+
+def test_a_model_engineer_previews_and_imports_history_signed_in(env: dict[str, Any]) -> None:
+    """Plan 6.6: the registry screen imports history with the user's sign-in (ARC §9.2)."""
+    client = env["client"]
+    with env["db"].session() as s:
+        s.execute(text("TRUNCATE app_user RESTART IDENTITY CASCADE"))
+        for name, role in (("eng", Role.MODEL_ENGINEER), ("vera", Role.VIEWER)):
+            create_user(
+                s,
+                ACTOR,
+                username=name,
+                display_name=name,
+                password="correct horse battery",
+                assignments=[RoleAssignment(role)],
+            )
+
+    def bearer(name: str) -> dict[str, str]:
+        token = client.post(
+            "/api/v1/auth/token", json={"username": name, "password": "correct horse battery"}
+        ).json()["access_token"]
+        return {"Authorization": f"Bearer {token}"}
+
+    files = {"file": ("h.csv", env["csv"], "text/csv")}
+    form = {"source": SOURCE, "preview": "true"}
+    refused = client.post("/api/v1/ingest/backfill", headers=bearer("vera"), files=files, data=form)
+    assert refused.status_code == 403
+
+    eng = bearer("eng")
+    queued = client.post("/api/v1/ingest/backfill", headers=eng, files=files, data=form).json()
+    env["worker"].run_once()
+    preview = client.get(f"/api/v1/jobs/{queued['job_id']}", headers=eng).json()
+    assert preview["result"]["rows_read"] == 10
+    # The gateway's key cannot read a job a user started.
+    assert client.get(f"/api/v1/jobs/{queued['job_id']}", headers=env["headers"]).status_code == 404
+
+    load = client.post(
+        f"/api/v1/ingest/backfill/{queued['upload_id']}/load", headers=eng, json={"source": SOURCE}
+    )
+    assert load.status_code == 202
+    env["worker"].run_once()
+    assert _count(env) == 10
+    with env["db"].session() as s:
+        audited = s.execute(
+            text("SELECT count(*) FROM audit_log WHERE entity = 'history_import'")
+        ).scalar_one()
+    assert audited == 1

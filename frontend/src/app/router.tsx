@@ -33,7 +33,16 @@ const BuilderPage = lazy(() =>
   import("../pages/models/BuilderPage").then((m) => ({ default: m.BuilderPage })),
 );
 
+const RegistryPage = lazy(() =>
+  import("../pages/registry/RegistryPage").then((m) => ({ default: m.RegistryPage })),
+);
+const AdminPage = lazy(() =>
+  import("../pages/admin/AdminPage").then((m) => ({ default: m.AdminPage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
+  "SCR-13": <RegistryPage />,
+  "SCR-14": <AdminPage />,
   "SCR-06": <BuilderPage />,
   "SCR-10": <ModelsPage />,
   "SCR-11": <VersionPage />,

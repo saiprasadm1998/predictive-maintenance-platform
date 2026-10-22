@@ -737,3 +737,92 @@ button.kpi-inner[aria-pressed="true"] {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* ---- SCR-13 registry, SCR-14 administration ---- */
+
+.registry {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab {
+  display: inline-block;
+  padding: 8px 12px;
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 3px solid transparent;
+}
+
+.tab:hover {
+  border-bottom-color: var(--line);
+}
+
+.tab-on {
+  font-weight: 600;
+  border-bottom-color: var(--chrome);
+}
+
+.registry-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--gutter);
+  align-items: start;
+}
+
+.registry-split:has(.registry-form) {
+  grid-template-columns: minmax(0, 2fr) minmax(320px, 1fr);
+}
+
+.registry-form {
+  position: sticky;
+  top: 0;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+}
+
+.registry-inline-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-top: 10px;
+}
+
+.registry-types {
+  display: grid;
+  gap: var(--gutter);
+}
+
+.registry-report {
+  margin-top: 14px;
+  display: grid;
+  gap: 8px;
+}
+
+.panel-subtitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.row-selected td {
+  background: var(--panel-subtle);
+}
+
+.admin-links {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}

@@ -61,7 +61,9 @@ export function apiUrl(path: string, query?: RequestOptions["query"]): string {
 export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? "GET";
   const headers: Record<string, string> = { Accept: "application/json" };
-  if (options.body !== undefined) headers["Content-Type"] = "application/json";
+  // A FormData body (file uploads) sets its own multipart Content-Type with the boundary.
+  const form = options.body instanceof FormData;
+  if (options.body !== undefined && !form) headers["Content-Type"] = "application/json";
   if (method !== "GET" && csrfToken) headers["X-CSRF-Token"] = csrfToken;
 
   let response: Response;
@@ -70,7 +72,12 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
       method,
       headers,
       credentials: "same-origin",
-      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+      body:
+        options.body === undefined
+          ? undefined
+          : form
+            ? (options.body as FormData)
+            : JSON.stringify(options.body),
       signal: options.signal,
     });
   } catch (error) {
@@ -95,4 +102,11 @@ async function readProblem(response: Response): Promise<Problem> {
     // not JSON: fall through
   }
   return { status: response.status, title: response.statusText || "Request failed" };
+}
+
+/** The messages of a failed request: the problem's list when it has one, else its detail. */
+export function errorMessages(error: unknown): string[] {
+  if (error instanceof ApiError && Array.isArray(error.problem.problems))
+    return error.problem.problems.map(String);
+  return error instanceof Error ? [error.message] : [];
 }

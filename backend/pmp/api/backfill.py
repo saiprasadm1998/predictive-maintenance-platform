@@ -4,8 +4,9 @@ POST /api/v1/ingest/backfill             upload a file; queue a preview or an im
 POST /api/v1/ingest/backfill/{id}/load   import a file that was uploaded for preview
 GET  /api/v1/jobs/{id}                   job status, progress and result
 
-Authentication: an `ingest` API key until user sign-in arrives in sub-phase 5.1, when
-uploads move to the Model Engineer and Administrator roles (ARC §9.2).
+Authentication: an `ingest` API key (a gateway or script), or a signed-in user allowed to
+change the registry and its imports (ARC §9.2: Model Engineer or Administrator, plan 6.6).
+A key reads only the jobs it started; signed-in users read every job.
 """
 
 from __future__ import annotations
@@ -21,7 +22,16 @@ from pydantic import BaseModel, Field
 
 from pmp.api.deps import authenticate_api_key, database_of, resolve_user, settings_of
 from pmp.api.problems import ProblemError
-from pmp.core import ApiKeyScope, JobStatus, enqueue, get_job
+from pmp.core import (
+    Actor,
+    ApiKeyScope,
+    JobStatus,
+    Permission,
+    audit_change,
+    authorize,
+    enqueue,
+    get_job,
+)
 from pmp.ingestion import (
     BACKFILL_JOB,
     BackfillError,
@@ -93,17 +103,43 @@ def _check_columns(path: Path, options: BackfillOptions) -> None:
         raise ProblemError(400, "invalid_file", "File cannot be imported", str(error)) from None
 
 
+class _Uploader:
+    """Who uploads: an ingest key, or a signed-in user (audited)."""
+
+    def __init__(self, key_id: int | None = None, actor: Actor | None = None) -> None:
+        self.key_id = key_id
+        self.actor = actor
+
+
+def _uploader(request: Request) -> _Uploader:
+    if request.headers.get("authorization", "").lower().startswith("apikey "):
+        return _Uploader(key_id=authenticate_api_key(request, ApiKeyScope.INGEST).id)
+    user = resolve_user(request)
+    authorize(user.actor, Permission.REGISTRY, what="history imports")
+    return _Uploader(actor=user.actor)
+
+
 def _queue(
-    request: Request, key_id: int, upload_id: str, options: BackfillOptions, preview: bool
+    request: Request, who: _Uploader, upload_id: str, options: BackfillOptions, preview: bool
 ) -> QueuedJob:
     payload = {
-        "key_id": key_id,  # only this key may read the job (ARC §1.2: ingest keys write only)
+        "key_id": who.key_id,  # only this key may read the job (ARC §1.2: keys write only)
         "upload": _find_upload(request, upload_id).name,
         "options": options.to_payload(),
         "preview": preview,
     }
     with database_of(request).session() as session:
         job_id = enqueue(session, BACKFILL_JOB, payload, max_attempts=MAX_ATTEMPTS)
+        if who.actor is not None and not preview:
+            audit_change(
+                session,
+                who.actor,
+                entity="history_import",
+                entity_id=job_id,
+                action="queue",
+                before=None,
+                after={"upload": upload_id, "options": options.to_payload()},
+            )
     return QueuedJob(job_id=job_id, upload_id=upload_id, preview=preview)
 
 
@@ -126,7 +162,7 @@ def upload_history(
     value_column: Annotated[str, Form()] = "value",
     quality_column: Annotated[str, Form()] = "quality",
 ) -> QueuedJob:
-    key = authenticate_api_key(request, ApiKeyScope.INGEST)
+    who = _uploader(request)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUFFIXES:
         raise ProblemError(
@@ -164,7 +200,7 @@ def upload_history(
     except ProblemError:
         path.unlink(missing_ok=True)
         raise
-    return _queue(request, key.id, upload_id, options, preview)
+    return _queue(request, who, upload_id, options, preview)
 
 
 @router.post(
@@ -174,11 +210,11 @@ def upload_history(
     summary="Import a file that was uploaded for preview",
 )
 def load_history(request: Request, upload_id: str, body: LoadRequest) -> QueuedJob:
-    key = authenticate_api_key(request, ApiKeyScope.INGEST)
+    who = _uploader(request)
     path = _find_upload(request, upload_id)
     options = BackfillOptions(**body.model_dump())
     _check_columns(path, options)
-    return _queue(request, key.id, upload_id, options, preview=False)
+    return _queue(request, who, upload_id, options, preview=False)
 
 
 @router.get(

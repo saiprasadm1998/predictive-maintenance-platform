@@ -261,7 +261,12 @@ export function fakeApi(routes: Record<string, Handler>) {
       path,
       query: url.searchParams,
       headers,
-      body: typeof init?.body === "string" ? JSON.parse(init.body) : undefined,
+      body:
+        typeof init?.body === "string"
+          ? JSON.parse(init.body)
+          : init?.body instanceof FormData
+            ? init.body
+            : undefined,
     };
     calls.push(call);
     const handler = routes[`${method} ${path}`];
