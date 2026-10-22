@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { AnnounceContext } from "./liveContext";
 
@@ -11,6 +11,8 @@ export function Announcer({ children }: { children: ReactNode }) {
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(() => setMessage(text), 50);
   }, []);
+  // A message still waiting when the app goes away (sign-out, a test ending) is dropped.
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   return (
     <AnnounceContext.Provider value={announce}>
       {children}
