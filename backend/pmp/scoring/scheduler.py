@@ -4,8 +4,11 @@ Only one worker schedules at a time: the leader holds the SCHEDULER advisory loc
 own connection, and if it dies PostgreSQL releases the lock so another worker takes over.
 
 Each model's cycle times are whole multiples of its cycle (default 60 s, minimum 10 s).
-Cycle T is scored once T + grace (default 20 s) has passed, so late gateway samples are
-still included. Only the latest due cycle is scored: cycles missed while no scheduler was
+Cycle T is scored once T + grace has passed, so late gateway samples are still included.
+The grace is 5 s by default (PMP_SCORING_GRACE_S), so a new score reaches the screens
+within one cycle plus 5 s (NFR-PERF-02, AC-05); a source that sends late can have its own
+(`pmp ingest grace`), and a model waits for the longest grace among its sensors' sources.
+Only the latest due cycle is scored: cycles missed while no scheduler was
 running are not back-filled (ARC §5.1); re-scoring history is a separate job (8.7).
 """
 
@@ -27,11 +30,21 @@ from pmp.core import (
     retention_due,
     try_advisory_lock,
 )
-from pmp.modelling import ActiveVersion, ModelCache, list_active_versions
-from pmp.scoring.runtime import CycleResult, last_cycles, mark_out_of_service, score_models
+from pmp.dataquality import read_sensors
+from pmp.ingestion import source_graces
+from pmp.modelling import ActiveVersion, LoadedModel, ModelCache, ModelError, list_active_versions
+from pmp.registry import get_tags, list_tags
+from pmp.scoring.runtime import (
+    CycleResult,
+    last_cycles,
+    mark_out_of_service,
+    references_for,
+    score_models,
+)
 
 logger = logging.getLogger(__name__)
 MIN_CYCLE_S = 10
+STATUS_CYCLE_S = 60  # sensors no deployed model scores are checked on this cycle
 
 
 def latest_due_cycle(now: datetime, cycle_s: int, grace_s: int) -> datetime:
@@ -46,7 +59,7 @@ class Scheduler:
         self,
         database: Database,
         *,
-        grace_s: int = 20,
+        grace_s: int = 5,
         bus: EventBus | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         poll_s: float = 1.0,
@@ -62,6 +75,7 @@ class Scheduler:
         self.poll_s = poll_s
         self.cache = ModelCache(self.bus)
         self._last: dict[int, datetime] | None = None
+        self._swept: datetime | None = None
 
     def tick(self) -> list[CycleResult]:
         """Score every model whose latest due cycle has not been scored yet."""
@@ -75,9 +89,11 @@ class Scheduler:
         self._alert_housekeeping(now, active)
         self._retention(now)
 
+        graces = self._graces(active)
         due: dict[datetime, list[ActiveVersion]] = defaultdict(list)
         for version in active:
-            cycle = latest_due_cycle(now, version.cycle_s, self.grace_s)
+            grace = graces.get(version.version_id, self.grace_s)
+            cycle = latest_due_cycle(now, version.cycle_s, grace)
             previous = last.get(version.version_id)
             if previous is None or cycle > previous:
                 due[cycle].append(version)
@@ -87,7 +103,62 @@ class Scheduler:
             for version in due[cycle]:
                 last[version.version_id] = cycle
             results += batch
+        self._sweep_statuses(now, active)
         return results
+
+    def _graces(self, active: list[ActiveVersion]) -> dict[int, int]:
+        """Each version's grace: the longest of its sensors' sources (ARC §5.1)."""
+        try:
+            with self.database.session() as session:
+                per_source = source_graces(session)
+                if not per_source:
+                    return {}
+                graces = {}
+                for version in active:
+                    try:
+                        model = self.cache.get(session, version.version_id)
+                    except ModelError:
+                        continue
+                    sources = {t.source for t in get_tags(session, model.tag_ids.values())}
+                    graces[version.version_id] = max(
+                        (per_source.get(s, self.grace_s) for s in sources),
+                        default=self.grace_s,
+                    )
+                return graces
+        except Exception:
+            logger.exception("Reading the sources' grace failed; using the default")
+            return {}
+
+    def _sweep_statuses(self, now: datetime, active: list[ActiveVersion]) -> None:
+        """FR-DQ-02: every registered sensor shows its current NE 107 status. Sensors of
+        Deployed models are checked by their scoring cycle; every other sensor (paused or
+        retired models, or none yet) is checked here once a minute, so no status goes
+        stale (plan 6.7). Paused models' training statistics still apply to their sensors.
+        """
+        cycle = latest_due_cycle(now, STATUS_CYCLE_S, self.grace_s)
+        if self._swept is not None and cycle <= self._swept:
+            return
+        self._swept = cycle
+        try:
+            with self.database.session() as session:
+                scored: set[int] = set()
+                paused: list[LoadedModel] = []
+                for version in active:
+                    try:
+                        model = self.cache.get(session, version.version_id)
+                    except ModelError:
+                        continue
+                    if version.status.value == "Deployed":
+                        scored |= {*model.tag_ids.values(), *model.filter_tag_ids.values()}
+                    else:
+                        paused.append(model)
+                rest = [t.id for t in list_tags(session) if t.id not in scored]
+                if rest:
+                    read_sensors(
+                        session, cycle, rest, references=references_for(paused), bus=self.bus
+                    )
+        except Exception:
+            logger.exception("Sensor status check failed; trying again next minute")
 
     def _retention(self, now: datetime) -> None:
         """NFR-DATA-01: the daily retention run, by the leader only."""

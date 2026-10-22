@@ -185,18 +185,24 @@ def test_deploy_needs_the_di_alert_rule(plant: Database, tmp_path: Path) -> None
         assert get_model(s, "EQ-1", "main").latest.status is VersionStatus.VALIDATED
 
 
-def test_reject_returns_to_draft_and_clears_the_artefact(plant: Database, tmp_path: Path) -> None:
+def test_reject_keeps_the_version_and_the_next_draft_is_new(
+    plant: Database, tmp_path: Path
+) -> None:
+    """Plan 6.7 (audit, PRD: a model version is immutable)."""
     _trained(plant, tmp_path)
     with plant.session() as s:
-        folder = Path(get_model(s, "EQ-1", "main").latest.artefact_path or "")
-    assert folder.is_dir()
-    assert _act(plant, Action.REJECT) == [(1, VersionStatus.DRAFT)]
+        trained = get_model(s, "EQ-1", "main").latest
+    assert _act(plant, Action.REJECT) == [(1, VersionStatus.REJECTED)]
     with plant.session() as s:
         v1 = get_model(s, "EQ-1", "main").latest
-    assert (v1.artefact_path, v1.artefact_sha256, v1.metrics) == (None, None, None)
-    assert not folder.exists()
-    with plant.session() as s:  # the Draft can be changed and trained again
-        save_draft(s, ACTOR, replace(DEFINITION, description="retry"))
+    assert (v1.artefact_sha256, v1.metrics) == (trained.artefact_sha256, trained.metrics)
+    assert Path(v1.artefact_path or "").is_dir()
+    with plant.session() as s:  # a changed definition is a new version
+        model = save_draft(s, ACTOR, replace(DEFINITION, description="retry"))
+    assert [(v.version, v.status) for v in model.versions] == [
+        (1, VersionStatus.REJECTED),
+        (2, VersionStatus.DRAFT),
+    ]
 
 
 def test_the_database_allows_one_version_in_service(plant: Database, tmp_path: Path) -> None:

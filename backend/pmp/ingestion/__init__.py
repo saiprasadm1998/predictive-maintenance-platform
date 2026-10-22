@@ -28,6 +28,8 @@ from pmp.ingestion.domain import (
     map_quality,
 )
 from pmp.ingestion.service import (
+    MAX_GRACE_S,
+    IngestError,
     IngestResult,
     Rejection,
     SampleRow,
@@ -41,6 +43,8 @@ from pmp.ingestion.service import (
     read_last_samples_many,
     read_samples,
     server_now,
+    set_source_grace,
+    source_graces,
     source_stats,
     write_samples,
 )
@@ -48,11 +52,13 @@ from pmp.ingestion.service import (
 __all__ = [
     "BACKFILL_JOB",
     "MAX_BODY_BYTES",
+    "MAX_GRACE_S",
     "MAX_SAMPLES",
     "BackfillError",
     "BackfillOptions",
     "BackfillReport",
     "BatchIn",
+    "IngestError",
     "IngestResult",
     "Layout",
     "OverlapMode",
@@ -75,6 +81,8 @@ __all__ = [
     "read_samples",
     "run_backfill",
     "server_now",
+    "set_source_grace",
+    "source_graces",
     "source_stats",
     "write_samples",
 ]

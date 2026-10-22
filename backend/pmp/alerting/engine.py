@@ -55,6 +55,7 @@ class Trigger(StrEnum):
     EXPIRE_NORMAL = "unshelve_normal"  # shelf ended, condition false
     OUT_OF_SERVICE = "out_of_service"  # model paused or retired
     RETURN_TO_SERVICE = "return_to_service"  # model resumed or redeployed
+    RULE_REMOVED = "rule_removed"  # the rule was removed or switched off (plan 6.7)
 
 
 S = AlertState
@@ -76,6 +77,9 @@ TRANSITIONS: dict[tuple[AlertState, Trigger], AlertState] = {
     # Figure 6: "Normal --> OutOfService: model paused"; any state moves there
     **{(state, Trigger.OUT_OF_SERVICE): S.OUT_OF_SERVICE for state in (S.NORMAL, *_ANY_OPEN)},
     (S.OUT_OF_SERVICE, Trigger.RETURN_TO_SERVICE): S.NORMAL,
+    # Not in Figure 6, which assumes rules last: an alert whose rule is removed or switched
+    # off can never clear, so it closes (to Normal) with the reason recorded (plan 6.7).
+    **{(state, Trigger.RULE_REMOVED): S.NORMAL for state in (*_ANY_OPEN, S.OUT_OF_SERVICE)},
 }
 
 

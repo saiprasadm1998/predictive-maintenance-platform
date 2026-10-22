@@ -369,3 +369,26 @@ def test_only_analysts_and_model_engineers_act_on_alerts_in_their_scope(db: Data
     with db.session() as s:
         acknowledge(s, as_(Role.ANALYST, site_a.id), [alert_id], LIVE)
         assert get_alert(s, alert_id).state is AlertState.ACTIVE_ACK
+
+
+@pytest.mark.parametrize("change", ["remove", "switch off"])
+def test_an_alert_closes_when_its_rule_is_removed_or_switched_off(
+    db: Database, change: str
+) -> None:
+    """Plan 6.7 (audit): otherwise the alert could never clear and would hold the band."""
+    alert_id = _raise_one(db)
+    if change == "remove":
+        _rules(db)
+    else:
+        _rules(
+            db, AlertRuleSpec(RuleKind.DI, 10, 200, persistence_n=1, persistence_m=1, enabled=False)
+        )
+    alert = get_alert_by(db, alert_id)
+    assert alert.state is AlertState.NORMAL
+    assert alert.condition_active is False
+    with db.session() as s:
+        last = alert_history(s, alert_id)[-1]
+    assert (last.action, last.to_state) == ("rule_removed", AlertState.NORMAL.value)
+    assert last.comment == (
+        "alert rule removed" if change == "remove" else "alert rule switched off"
+    )

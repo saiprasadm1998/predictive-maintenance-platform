@@ -31,6 +31,7 @@ from pmp.core import (
     audit_change,
     authorize,
     enqueue,
+    log_context,
     report_progress,
 )
 from pmp.dataquality import assess_series, cycle_grid
@@ -779,7 +780,12 @@ def make_training_handler(
     """The worker's handler for `model.train` jobs. Payload: {"version_id": int}."""
 
     def handle(payload: Mapping[str, Any]) -> Mapping[str, Any]:
-        return run_training(database, int(payload["version_id"]), artefact_base)
+        version_id = int(payload["version_id"])
+        with database.session() as session:
+            row = session.get(ModelVersion, version_id)
+            model_id = str(row.model_id) if row is not None else None
+        with log_context(model_id=model_id):  # ARC §10.3
+            return run_training(database, version_id, artefact_base)
 
     return handle
 

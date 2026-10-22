@@ -344,3 +344,51 @@ def test_two_writers_never_count_a_cycle_twice(deployed: Database) -> None:
         levels = s.execute(text("SELECT levels FROM alert_rule_state")).scalars().all()
     assert levels
     assert all(len(lv) == 2 for lv in levels)  # the earlier cycle and this one, once
+
+
+def test_sensors_no_deployed_model_scores_still_get_a_current_status(deployed: Database) -> None:
+    """Plan 6.7 (audit, FR-DQ-02): a tag in no model, and a paused model's tags, are
+    checked by the leader once a minute, so no status freezes."""
+    with deployed.session() as s:
+        upsert_tag(s, ACTOR, TagSpec("gw-1", "EQ1.SPARE", "EQ-1", "u", 0.0, 400.0, 60))
+    clock = Clock(LIVE + timedelta(minutes=5, seconds=25))
+    scheduler = Scheduler(deployed, grace_s=20, clock=clock)
+    scheduler.tick()
+
+    def statuses() -> dict[str, tuple[str, datetime]]:
+        with deployed.session() as s:
+            rows = s.execute(
+                text(
+                    "SELECT t.source_name, st.status, st.evaluated_at FROM sensor_status st "
+                    "JOIN tag t ON t.id = st.tag_id"
+                )
+            ).all()
+        return {name: (status, at) for name, status, at in rows}
+
+    first = statuses()
+    assert first["EQ1.SPARE"][0] == "Failure"  # no samples at all: stale
+    with deployed.session() as s:
+        change_status(s, ACTOR, "EQ-1", "main", Action.PAUSE)
+    clock.now += timedelta(minutes=2)
+    scheduler.tick()
+    later = statuses()
+    assert later["EQ1.T1"][1] > first["EQ1.T1"][1]  # the paused model's sensor too
+    assert later["EQ1.SPARE"][1] > first["EQ1.SPARE"][1]
+
+
+def test_a_model_waits_for_the_longest_grace_of_its_sources(deployed: Database) -> None:
+    """Plan 6.7 (audit, ARC §5.1, AC-05): 5 s by default; a late source gets its own."""
+    from pmp.ingestion import set_source_grace
+
+    clock = Clock(LIVE + timedelta(minutes=10, seconds=25))
+    assert [r.ts for r in Scheduler(deployed, clock=clock).tick()] == [LIVE + timedelta(minutes=10)]
+    with deployed.session() as s:
+        s.execute(
+            text(
+                "INSERT INTO ingest_source (source, last_received_at, accepted_total, "
+                "rejected_total) VALUES ('gw-1', now(), 0, 0)"
+            )
+        )
+        set_source_grace(s, ACTOR, "gw-1", 30)
+    clock.now += timedelta(minutes=1)  # 11:25 after LIVE: 11:00 needs until 11:30
+    assert [r.ts for r in Scheduler(deployed, clock=clock).tick()] == []

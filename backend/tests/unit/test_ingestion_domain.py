@@ -72,7 +72,6 @@ def test_timestamps_with_an_offset_are_accepted() -> None:
         {"tag": "T", "ts": "2026-10-08T14:20:00", "v": 1.0},  # no offset
         {"tag": "T", "ts": "yesterday", "v": 1.0},
         {"tag": "T", "ts": "2026-10-08T14:20:00Z"},  # value missing
-        {"tag": "T", "ts": "2026-10-08T14:20:00Z", "v": None},
         {"tag": "T", "ts": "2026-10-08T14:20:00Z", "v": "78.4"},
         {"tag": "T", "ts": "2026-10-08T14:20:00Z", "v": True},
         {"tag": "T", "ts": "2026-10-08T14:20:00Z", "v": 1.0, "q": True},

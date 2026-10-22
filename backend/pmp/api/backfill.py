@@ -13,14 +13,22 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, File, Form, Request, UploadFile
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
-from pmp.api.deps import authenticate_api_key, database_of, resolve_user, settings_of
+from pmp.api.deps import (
+    SignedIn,
+    authenticate_api_key,
+    database_of,
+    resolve_user,
+    settings_of,
+)
 from pmp.api.problems import ProblemError
 from pmp.core import (
     Actor,
@@ -40,6 +48,7 @@ from pmp.ingestion import (
     OverlapMode,
     check_file,
 )
+from pmp.modelling import TRAIN_JOB, ModelError, asset_path, model_of_version
 
 router = APIRouter(tags=["ingestion"])
 _UPLOAD_ID = re.compile(r"^[0-9a-f]{32}$")
@@ -217,6 +226,23 @@ def load_history(request: Request, upload_id: str, body: LoadRequest) -> QueuedJ
     return _queue(request, who, upload_id, options, preview=False)
 
 
+def _user_sees_job(
+    session: Session, user: SignedIn, job_type: str, payload: Mapping[str, Any]
+) -> bool:
+    """ARC §9.2 scope: a training job is seen by users who may see its model's asset; a
+    history import by users who may import (it can hold any tag); others by all."""
+    principal = user.session.principal
+    if job_type == BACKFILL_JOB:
+        return principal.grant(Permission.REGISTRY, None)
+    if job_type == TRAIN_JOB and "version_id" in payload:
+        try:
+            model = model_of_version(session, int(payload["version_id"]))
+        except ModelError:
+            return principal.grant(Permission.VIEW, None)
+        return principal.grant(Permission.VIEW, asset_path(session, model.asset_code))
+    return True
+
+
 @router.get(
     "/api/v1/jobs/{job_id}",
     response_model=JobView,
@@ -228,13 +254,15 @@ def job_status(request: Request, job_id: int) -> JobView:
     users see every job (training, imports)."""
     by_key = request.headers.get("authorization", "").lower().startswith("apikey ")
     key = authenticate_api_key(request, ApiKeyScope.INGEST) if by_key else None
-    if key is None:
-        resolve_user(request)
+    user = None if key is not None else resolve_user(request)
     with database_of(request).session() as session:
         job = get_job(session, job_id)
-    if job is None or (
-        key is not None and (job.type != BACKFILL_JOB or job.payload.get("key_id") != key.id)
-    ):
+        visible = job is not None and (
+            job.payload.get("key_id") == key.id and job.type == BACKFILL_JOB
+            if key is not None
+            else _user_sees_job(session, user, job.type, job.payload)  # type: ignore[arg-type]
+        )
+    if job is None or not visible:
         raise ProblemError(404, "not_found", "Job not found")
     return JobView(
         id=job.id,

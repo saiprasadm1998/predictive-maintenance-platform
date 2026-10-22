@@ -5,6 +5,9 @@
    response body matches the schema the document gives for its status code. So the
    document and the API cannot drift apart: an endpoint added without a call here, or a
    response that no longer matches its schema, fails this test.
+3. The ARC §9.2 role matrix at every endpoint (FR-SEC-01, AC-07; plan 6.7): every
+   operation is classified by the permission it needs, and each call the flow made is
+   made again as every role the matrix refuses, which must get 403.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from __future__ import annotations
 import io
 import re
 from collections.abc import Iterator
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -23,7 +27,17 @@ from openapi_spec_validator import validate
 from sqlalchemy import text
 
 from pmp.api import create_app
-from pmp.core import Database, JobRegistry, Role, RoleAssignment, Settings, Worker, create_user
+from pmp.core import (
+    MATRIX,
+    Database,
+    JobRegistry,
+    Permission,
+    Role,
+    RoleAssignment,
+    Settings,
+    Worker,
+    create_user,
+)
 from pmp.ingestion import BACKFILL_JOB, make_backfill_handler
 from tests.integration.test_alerts import _raise_one
 from tests.integration.test_scoring_cycle import (  # noqa: F401  (deployed is a fixture)
@@ -37,21 +51,104 @@ PASSWORD = "correct horse battery"
 DATA = Path(__file__).parents[3] / "data" / "demo"
 
 
+# The permission each operation needs (ARC §9.2); None: any signed-in user or no sign-in
+# (reads are VIEW, filtered by scope), "key": an API key.
+V, A = Permission.VIEW, Permission.ALERT_ACTIONS
+PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
+    ("GET", "/healthz"): None,
+    ("GET", "/readyz"): None,
+    ("POST", "/api/v1/auth/login"): None,
+    ("POST", "/api/v1/auth/token"): None,
+    ("POST", "/api/v1/auth/logout"): None,
+    ("GET", "/api/v1/auth/me"): None,
+    ("POST", "/api/v1/auth/password"): None,
+    ("GET", "/api/v1/api-keys"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/api-keys"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/api-keys/{key_id}/revoke"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/api-keys/{key_id}/rotate"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/audit"): Permission.AUDIT_LOG,
+    ("GET", "/api/v1/audit.csv"): Permission.AUDIT_LOG,
+    ("GET", "/api/v1/retention"): Permission.ADMINISTRATION,
+    ("PUT", "/api/v1/retention"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/assets"): V,
+    ("POST", "/api/v1/assets"): Permission.REGISTRY,
+    ("GET", "/api/v1/assets/{asset_id}"): V,
+    ("PATCH", "/api/v1/assets/{asset_id}"): Permission.REGISTRY,
+    ("GET", "/api/v1/tags"): V,
+    ("POST", "/api/v1/tags"): Permission.REGISTRY,
+    ("PATCH", "/api/v1/tags/{tag_id}"): Permission.REGISTRY,
+    ("POST", "/api/v1/tags/import"): Permission.REGISTRY,
+    ("GET", "/api/v1/asset-types"): V,
+    ("POST", "/api/v1/asset-types"): Permission.REGISTRY,
+    ("POST", "/api/v1/asset-types/{type_id}/roles"): Permission.REGISTRY,
+    ("GET", "/api/v1/unmapped-tags"): V,
+    ("POST", "/api/v1/unmapped-tags/promote"): Permission.REGISTRY,
+    ("GET", "/api/v1/sensors/health"): V,
+    ("GET", "/api/v1/models"): V,
+    ("POST", "/api/v1/models"): Permission.MODELS,
+    ("GET", "/api/v1/models/{model_id}"): V,
+    ("GET", "/api/v1/models/{model_id}/scores"): V,
+    ("GET", "/api/v1/models/{model_id}/outputs"): V,
+    ("GET", "/api/v1/models/{model_id}/status-periods"): V,
+    ("GET", "/api/v1/models/{model_id}/latest"): V,
+    ("POST", "/api/v1/models/training-data"): Permission.MODELS,
+    ("PUT", "/api/v1/models/{model_id}/alert-rules"): Permission.MODELS,
+    ("POST", "/api/v1/models/{model_id}/versions"): Permission.MODELS,
+    ("POST", "/api/v1/versions/{version_id}/{action}"): Permission.MODELS,
+    ("GET", "/api/v1/alerts"): V,
+    ("GET", "/api/v1/alerts/{alert_id}"): V,
+    ("POST", "/api/v1/alerts/ack"): A,
+    ("POST", "/api/v1/alerts/shelve"): A,
+    ("POST", "/api/v1/alerts/unshelve"): A,
+    ("POST", "/api/v1/alerts/{alert_id}/ack"): A,
+    ("POST", "/api/v1/alerts/{alert_id}/shelve"): A,
+    ("POST", "/api/v1/alerts/{alert_id}/unshelve"): A,
+    ("GET", "/api/v1/priority-matrix"): V,
+    ("PUT", "/api/v1/priority-matrix"): Permission.MODELS,  # decision 5.1
+    ("GET", "/api/v1/fleet/kpis"): V,
+    ("GET", "/api/v1/dq/rules"): V,
+    ("POST", "/api/v1/dq/rules/preview"): V,
+    ("PUT", "/api/v1/dq/rules"): Permission.DATA_QUALITY_RULES,
+    ("GET", "/api/v1/users"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/users"): Permission.ADMINISTRATION,
+    ("PATCH", "/api/v1/users/{user_id}"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/events"): V,
+    ("POST", "/api/v1/ingest/samples"): "key",
+    ("POST", "/api/v1/ingest/backfill"): Permission.REGISTRY,  # or an ingest key
+    ("POST", "/api/v1/ingest/backfill/{upload_id}/load"): Permission.REGISTRY,
+    ("GET", "/api/v1/jobs/{job_id}"): V,
+}
+
+
+@dataclass(frozen=True)
+class Made:
+    """A call the flow made as the signed-in user, to make again as other roles."""
+
+    method: str
+    url: str
+    template: str
+    kwargs: dict[str, Any]
+
+
 class Recorder:
     """Calls the API, remembers which documented operation answered, and checks the body."""
 
     def __init__(self, client: TestClient, schema: dict[str, Any]) -> None:
         self.client, self.schema = client, schema
         self.called: set[tuple[str, str]] = set()
+        self.made: list[Made] = []
         self.headers: dict[str, str] = {}
 
     def __call__(self, method: str, url: str, expect: int, **kwargs: Any) -> Any:
-        headers = {**self.headers, **kwargs.pop("headers", {})}
+        own_headers = kwargs.pop("headers", {})
+        headers = {**self.headers, **own_headers}
         response = self.client.request(method, url, headers=headers, **kwargs)
         assert response.status_code == expect, (method, url, response.text)
         template = self._template(method, url)
         self.called.add((method, template))
         self._check(method, template, response)
+        if 200 <= expect < 300 and not own_headers and "Authorization" in self.headers:
+            self.made.append(Made(method, url, template, dict(kwargs)))
         return response
 
     def _template(self, method: str, url: str) -> str:
@@ -295,6 +392,38 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("PUT", f"{v1}/retention", 200, json={"raw_months": 24, "aggregate_months": 60})
     call("PUT", f"{v1}/retention", 400, json={"raw_months": 24, "aggregate_months": 12})
 
+    # every role the matrix refuses gets 403 for every call made above (AC-07)
+    tokens = {}
+    with db.session() as s:
+        for role in Role:
+            create_user(
+                s,
+                ACTOR,
+                username=f"as-{role.value}",
+                display_name=role.value,
+                password=PASSWORD,
+                assignments=[RoleAssignment(role)],
+            )
+    for role in Role:
+        answer = call.client.post(
+            f"{v1}/auth/token", json={"username": f"as-{role.value}", "password": PASSWORD}
+        )
+        tokens[role] = {"Authorization": f"Bearer {answer.json()['access_token']}"}
+    refused = 0
+    for made in call.made:
+        needed = PERMISSIONS[(made.method, made.template)]
+        if not isinstance(needed, Permission) or needed is Permission.VIEW:
+            continue
+        for role in Role:
+            if role in MATRIX[needed]:
+                continue
+            response = call.client.request(
+                made.method, made.url, headers=tokens[role], **made.kwargs
+            )
+            assert response.status_code == 403, (role, made.method, made.url, response.text)
+            refused += 1
+    assert refused > 50
+
     # own password, then sign out
     change_pw = {"current_password": PASSWORD, "new_password": "another long passphrase"}
     call("POST", f"{v1}/auth/password", 204, json=change_pw)
@@ -306,4 +435,5 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         for method in operations
     }
     assert documented - call.called == set(), "documented but never called"
+    assert documented == set(PERMISSIONS), "classify every operation by its permission"
     assert call.called - documented == set()

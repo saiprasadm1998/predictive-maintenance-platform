@@ -2,7 +2,8 @@
 
     Draft -> Training -> Validated | Failed        (training, 3.2)
     Failed -> Draft                                 (fix configuration: save the definition)
-    Validated -> Draft                              reject
+    Validated -> Rejected                           reject (kept, with its artefact and
+                                                    report; the next draft is a new version)
     Validated -> Deployed                           deploy; the previous active version is
                                                     Superseded
     Deployed <-> Paused                             pause / resume
@@ -15,11 +16,9 @@ Exactly one version per model is in service (Deployed or Paused); the database e
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
-from pathlib import Path
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,7 +50,7 @@ TRANSITIONS: dict[Action, tuple[frozenset[VersionStatus], VersionStatus]] = {
     Action.PAUSE: (frozenset({_D}), _P),
     Action.RESUME: (frozenset({_P}), _D),
     Action.RETIRE: (frozenset({_D, _P}), VersionStatus.RETIRED),
-    Action.REJECT: (frozenset({_V}), VersionStatus.DRAFT),
+    Action.REJECT: (frozenset({_V}), VersionStatus.REJECTED),
 }
 ACTIVE = (VersionStatus.DEPLOYED.value, VersionStatus.PAUSED.value)
 
@@ -182,13 +181,6 @@ def change_status(
                     action="supersede",
                 )
             )
-
-    if action is Action.REJECT:
-        folder = row.artefact_path
-        row.artefact_path = row.artefact_sha256 = None
-        row.metrics = row.training_def = None
-        if folder:
-            shutil.rmtree(Path(folder), ignore_errors=True)
 
     _set_status(row, target)
     session.flush()

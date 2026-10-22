@@ -177,6 +177,13 @@ def list_rule_versions(session: Session, scope: RuleScope) -> list[RuleSetView]:
     return [_view(scope, r) for r in rows]
 
 
+def authorize_rule_change(session: Session, actor: Actor, scope: RuleScope) -> None:
+    """The scope exists and the actor may change its rules (ARC §9.2: Model Engineers),
+    checked before anything is previewed or saved."""
+    _check_scope(session, scope)
+    authorize(actor, Permission.DATA_QUALITY_RULES, _scope_path(session, scope), what=str(scope))
+
+
 def save_rule_set(
     session: Session,
     actor: Actor,
@@ -189,8 +196,7 @@ def save_rule_set(
     Saving the same overrides again creates no new version. An empty mapping removes all
     overrides for the scope (it inherits again), as a new version.
     """
-    _check_scope(session, scope)
-    authorize(actor, Permission.DATA_QUALITY_RULES, _scope_path(session, scope), what=str(scope))
+    authorize_rule_change(session, actor, scope)
     parsed = parse_overrides(overrides)
     current = get_rule_set(session, scope)
     if current.version and current.overrides == parsed:
@@ -558,9 +564,9 @@ def preview_rules(
     for tag in tags:
         params = _params_for(tag, rows)
         samples = _samples_for(session, tag.id, start, end, params)
+        # As the live cycle does: the flatline guard needs training statistics, so a tag
+        # without a deployed model has none (plan 6.7; training itself uses the period's).
         config = _config(tag, refs.get(tag.id))
-        if tag.id not in refs:
-            config = replace(config, training_std=_period_std(samples))
         codes = evaluate_rules(
             samples,
             config,
@@ -629,7 +635,7 @@ def assess_series(
         params = _params_for(tag, rows)
         samples = _samples_for(session, tag.id, start, end, params)
         config = _config(tag, refs.get(tag.id))
-        if tag.id not in refs:
+        if tag.id not in refs:  # training: the period's own spread (decision 6.0)
             config = replace(config, training_std=_period_std(samples))
         codes = evaluate_rules(
             samples,

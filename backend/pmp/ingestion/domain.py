@@ -60,7 +60,9 @@ class SampleIn(BaseModel):
 
     tag: Annotated[str, Field(min_length=1, max_length=200)]
     ts: AwareDatetime  # timestamps must carry an offset; stored in UTC (NFR-COMP-01)
-    v: float
+    # None: no value (OPC UA servers send none with Bad quality). Such a sample is refused
+    # on its own with a reason; the rest of the batch is stored (plan 6.7, AC-01).
+    v: float | None
     q: int | str | None = None
 
     @field_validator("q", mode="before")
@@ -91,6 +93,7 @@ class BatchIn(BaseModel):
 
 class RejectReason(StrEnum):
     UNREGISTERED_TAG = "unregistered_tag"
+    NO_VALUE = "no_value"
     TOO_OLD = "too_old"
     IN_FUTURE = "in_future"
 

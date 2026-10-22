@@ -195,6 +195,8 @@ def test_a_model_engineer_previews_and_imports_history_signed_in(env: dict[str, 
     env["worker"].run_once()
     preview = client.get(f"/api/v1/jobs/{queued['job_id']}", headers=eng).json()
     assert preview["result"]["rows_read"] == 10
+    # A viewer may not import history, so cannot read the import (plan 6.7).
+    assert client.get(f"/api/v1/jobs/{queued['job_id']}", headers=bearer("vera")).status_code == 404
     # The gateway's key cannot read a job a user started.
     assert client.get(f"/api/v1/jobs/{queued['job_id']}", headers=env["headers"]).status_code == 404
 

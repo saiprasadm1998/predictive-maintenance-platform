@@ -582,7 +582,10 @@ def upsert_tag(
         )
         return Change.CREATED
 
-    old_asset_code = session.get_one(Asset, tag.asset_id).code
+    old_asset = session.get_one(Asset, tag.asset_id)
+    if old_asset.id != asset.id:  # moving a tag needs the right on both assets (ARC §9.2)
+        authorize(actor, Permission.REGISTRY, old_asset.path, what=f"tags of {old_asset.code}")
+    old_asset_code = old_asset.code
     before = _tag_snapshot(tag, old_asset_code, _role_code_of_tag(session, tag.id))
     tag.asset_id = asset.id
     tag.description = spec.description

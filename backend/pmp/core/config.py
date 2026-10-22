@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     database_url: SecretStr
     secret_key: SecretStr
     artefact_dir: Path = Path("/data/artefacts")
-    scoring_grace_s: int = Field(default=20, ge=0)
+    scoring_grace_s: int = Field(default=5, ge=0)  # per source in `pmp ingest grace`
     late_data_days: int = Field(default=7, ge=0)
     ingest_rate_limit: float = Field(default=50.0, gt=0)  # requests per second per API key
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted

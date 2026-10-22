@@ -24,6 +24,7 @@ from pmp.core import (
     csrf_matches,
     get_settings,
     resolve_session,
+    user_id_var,
     verify_api_key,
 )
 
@@ -82,6 +83,7 @@ def authenticate_api_key(request: Request, scope: ApiKeyScope) -> ApiKeyView:
             "The key is unknown or has been revoked.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+    user_id_var.set(f"key:{view.prefix}")  # ARC §10.3: who, on this request's log lines
     _log_key_use(view, client)
     if view.scope is not scope:
         logger.warning(
@@ -178,6 +180,7 @@ def resolve_user(request: Request) -> SignedIn:
         active = resolve_session(session, token, datetime.now(UTC), policy=policy_of(request))
     if active is None:
         raise _unauthorized("The session has ended (signed out, idle for too long or expired).")
+    user_id_var.set(str(active.principal.user_id))  # ARC §10.3: on this request's log lines
     if (
         via_cookie
         and request.method not in _SAFE_METHODS

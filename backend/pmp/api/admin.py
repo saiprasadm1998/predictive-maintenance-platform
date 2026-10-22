@@ -5,11 +5,12 @@ Administrators only; the services check it (ARC §9.2), so these handlers just t
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
@@ -35,6 +36,7 @@ from pmp.core import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["administration"])
+CSV_PAGE = 5000
 User = Annotated[SignedIn, Depends(signed_in)]
 
 
@@ -174,7 +176,11 @@ def get_audit(
     )
 
 
-@router.get("/audit.csv", response_class=PlainTextResponse, summary="Export the audit trail")
+@router.get(
+    "/audit.csv",
+    response_class=StreamingResponse,
+    summary="Export the audit trail: every matching entry",
+)
 def get_audit_csv(
     request: Request,
     user: User,
@@ -183,12 +189,28 @@ def get_audit_csv(
     user_id: int | None = None,
     entity: str | None = None,
     entity_id: str | None = None,
-) -> PlainTextResponse:
+) -> StreamingResponse:
     filters = _filters(since, until, user_id, entity, entity_id)
-    with database_of(request).session() as session:
-        rows = query_audit(session, user.actor, filters, limit=10_000)
-    return PlainTextResponse(
-        audit_csv(rows),
+    database = database_of(request)
+    with database.session() as session:  # checked here, before anything is sent
+        first = query_audit(session, user.actor, filters, limit=CSV_PAGE)
+
+    def pages() -> Iterator[str]:
+        """Every matching entry, newest first, a page at a time (plan 6.7)."""
+        page, header = first, True
+        while True:
+            text = audit_csv(page)
+            yield text if header else text.split("\n", 1)[1]
+            if len(page) < CSV_PAGE:
+                return
+            header = False
+            with database.session() as session:
+                page = query_audit(
+                    session, user.actor, filters, before_id=page[-1].id, limit=CSV_PAGE
+                )
+
+    return StreamingResponse(
+        pages(),
         media_type="text/csv",
         headers={"Content-Disposition": 'attachment; filename="audit.csv"'},
     )

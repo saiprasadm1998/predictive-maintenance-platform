@@ -87,6 +87,8 @@ def test_data_quality_changes_need_confirmation_when_much_is_excluded(api: Any) 
     harsh = {"scope": "global", "overrides": {"spike_pct": 0.001}, "days": 30}
     preview = client.post("/api/v1/dq/rules/preview", json=harsh, headers=h["eng"]).json()
     assert preview["warning"] is True
+    viewer = client.put("/api/v1/dq/rules", json=harsh, headers=h["vera"])
+    assert viewer.status_code == 403  # refused before any preview is shown (plan 6.7)
     refused = client.put("/api/v1/dq/rules", json=harsh, headers=h["eng"])
     assert (refused.status_code, refused.json()["code"]) == (409, "preview_warning")
     assert (
@@ -176,3 +178,15 @@ def test_a_new_draft_without_alert_rules_keeps_the_models_rules(api: Any) -> Non
     body = saved.json()
     assert (body["latest"]["status"], body["latest"]["version"]) == ("Draft", 2)
     assert [r["id"] for r in body["alert_rules"]] == [r["id"] for r in before]
+
+
+def test_every_response_carries_the_security_headers(api: Any) -> None:
+    """Plan 6.7 (audit, ARC §9.3): ASVS L1 headers, HSTS behind HTTPS cookies."""
+    client, h = api
+    response = client.get("/api/v1/models", headers=h["vera"])
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert "frame-ancestors 'none'" in response.headers["Content-Security-Policy"]
+    assert response.headers["Strict-Transport-Security"].startswith("max-age=")
+    docs = client.get("/api/v1/docs")
+    assert "Content-Security-Policy" not in docs.headers  # Swagger UI loads its own assets

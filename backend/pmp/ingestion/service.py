@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import BigInteger, DateTime, Integer, String, func, select, text
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from pmp.core import Actor, Base
+from pmp.core import Actor, Base, Permission, audit_change, authorize
 from pmp.ingestion.domain import (
     BatchIn,
     Quality,
@@ -26,7 +26,7 @@ from pmp.ingestion.domain import (
     map_quality,
     to_utc,
 )
-from pmp.registry import TagSpec, resolve_tag_ids, upsert_tag
+from pmp.registry import RegistryError, TagSpec, find_asset, resolve_tag_ids, upsert_tag
 
 
 class UnmappedTag(Base):
@@ -48,6 +48,7 @@ class IngestSource(Base):
     last_sample_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     accepted_total: Mapped[int] = mapped_column(BigInteger)
     rejected_total: Mapped[int] = mapped_column(BigInteger)
+    grace_s: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None: the default
 
 
 @dataclass(frozen=True)
@@ -114,6 +115,9 @@ def ingest_batch(
         reason = check_window(ts, now, late_window)
         if reason is not None:
             result.rejected.append(Rejection(index, reason))
+            continue
+        if sample.v is None:
+            result.rejected.append(Rejection(index, RejectReason.NO_VALUE))
             continue
         quality, code = map_quality(sample.q)
         # Same tag and timestamp twice in one batch: the later one wins, as on a resend.
@@ -319,20 +323,27 @@ def list_unmapped_tags(session: Session, source: str | None = None) -> list[Unma
     query = select(UnmappedTag).order_by(UnmappedTag.source, UnmappedTag.source_name)
     if source is not None:
         query = query.where(UnmappedTag.source == source)
-    views = []
-    for row in session.scalars(query).all():
-        if resolve_tag_ids(session, row.source, [row.source_name]):
-            continue  # registered since (e.g. by an import)
-        views.append(
-            UnmappedTagView(row.source, row.source_name, row.first_seen, row.last_seen, row.count)
-        )
-    return views
+    rows = session.scalars(query).all()
+    registered: set[tuple[str, str]] = set()  # registered since (e.g. by an import)
+    for name in {r.source for r in rows}:
+        found = resolve_tag_ids(session, name, [r.source_name for r in rows if r.source == name])
+        registered |= {(name, tag) for tag in found}
+    return [
+        UnmappedTagView(row.source, row.source_name, row.first_seen, row.last_seen, row.count)
+        for row in rows
+        if (row.source, row.source_name) not in registered
+    ]
 
 
 def promote_unmapped_tag(
     session: Session, actor: Actor, spec: TagSpec, *, role_code: str | None = None
 ) -> None:
-    """Register an unmapped tag (UC-03 2a). The registry validates and audits it."""
+    """Register an unmapped tag (UC-03 2a). The registry validates and audits it. A name
+    that is registered already is refused: promoting is not a way to move a tag."""
+    target = find_asset(session, spec.asset_code)
+    authorize(actor, Permission.REGISTRY, target.path if target else None, what="tags")
+    if resolve_tag_ids(session, spec.source.strip(), [spec.source_name.strip()]):
+        raise RegistryError(f"{spec.source_name} is registered already; change it on the tag")
     upsert_tag(session, actor, spec, role_code=role_code)
     session.execute(
         text("DELETE FROM unmapped_tag WHERE source = :source AND source_name = :name"),
@@ -351,6 +362,43 @@ def source_stats(session: Session, source: str) -> SourceStats | None:
         row.accepted_total,
         row.rejected_total,
     )
+
+
+MAX_GRACE_S = 600
+
+
+class IngestError(Exception):
+    """An ingestion setting that is not allowed; the message is for the user."""
+
+
+def set_source_grace(session: Session, actor: Actor, source: str, grace_s: int | None) -> None:
+    """How long scoring waits for a source's late samples (ARC §5.1); None: the default.
+    Configuration, so an Administrator's change, audited. The source must have sent data."""
+    authorize(actor, Permission.ADMINISTRATION, what="scoring grace of a source")
+    if grace_s is not None and not 0 <= grace_s <= MAX_GRACE_S:
+        raise IngestError(f"The grace is 0 to {MAX_GRACE_S} seconds")
+    row = session.get(IngestSource, source)
+    if row is None:
+        raise IngestError(f"Source {source!r} has not sent any data yet")
+    before = row.grace_s
+    row.grace_s = grace_s
+    audit_change(
+        session,
+        actor,
+        entity="ingest_source",
+        entity_id=source,
+        action="set_grace",
+        before={"grace_s": before},
+        after={"grace_s": grace_s},
+    )
+
+
+def source_graces(session: Session) -> dict[str, int]:
+    """The sources that have their own scoring grace."""
+    rows = session.execute(
+        select(IngestSource.source, IngestSource.grace_s).where(IngestSource.grace_s.is_not(None))
+    ).all()
+    return {str(source): int(grace) for source, grace in rows if grace is not None}
 
 
 def server_now(session: Session) -> datetime:

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from pmp.api.common import can_see, not_found
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.dataquality import (
@@ -17,11 +18,13 @@ from pmp.dataquality import (
     DataQualityError,
     PreviewReport,
     RuleScope,
+    authorize_rule_change,
     get_rule_set,
     preview_rules,
     save_rule_set,
 )
 from pmp.modelling import ModelCache
+from pmp.registry import get_asset_by_id, get_tags, list_subtree
 from pmp.scoring import deployed_references
 
 router = APIRouter(prefix="/api/v1/dq", tags=["data quality"])
@@ -84,6 +87,21 @@ class SavedOut(BaseModel):
     preview: PreviewOut
 
 
+def _visible_scope(session: Session, user: SignedIn, scope: RuleScope) -> None:
+    """A tag's rules are read only by users who may see the tag's asset (ARC §9.2)."""
+    if scope.kind.value == "tag":
+        tags = get_tags(session, [int(scope.key)])
+        if tags and not can_see(user, get_asset_by_id(session, tags[0].asset_id).path):
+            raise not_found("Tag")
+
+
+def _visible_tags(session: Session, user: SignedIn, report: PreviewOut) -> PreviewOut:
+    """Only the tags the user may see are listed (the overall share covers the scope)."""
+    paths = {a.code: a.path for a in list_subtree(session)}
+    tags = [t for t in report.tags if can_see(user, paths.get(t.asset_code))]
+    return report.model_copy(update={"tags": tags})
+
+
 def _rules_out(session: Session, scope: RuleScope) -> RuleSetOut:
     view = get_rule_set(session, scope)
     return RuleSetOut(
@@ -135,7 +153,9 @@ def get_rules(
 ) -> RuleSetOut:
     try:
         with database_of(request).session() as session:
-            return _rules_out(session, _scope(scope))
+            rule_scope = _scope(scope)
+            _visible_scope(session, user, rule_scope)
+            return _rules_out(session, rule_scope)
     except DataQualityError as error:
         raise ProblemError(400, "dq_refused", "Data-quality request refused", str(error)) from None
 
@@ -144,7 +164,8 @@ def get_rules(
 def post_preview(request: Request, user: User, body: RulesIn) -> PreviewOut:
     try:
         with database_of(request).session() as session:
-            return _preview_out(_preview(session, body))
+            _visible_scope(session, user, _scope(body.scope))
+            return _visible_tags(session, user, _preview_out(_preview(session, body)))
     except DataQualityError as error:
         raise ProblemError(400, "dq_refused", "Data-quality request refused", str(error)) from None
 
@@ -158,6 +179,7 @@ def put_rules(request: Request, user: User, body: RulesIn) -> SavedOut:
     try:
         with database_of(request).session() as session:
             scope = _scope(body.scope)
+            authorize_rule_change(session, user.actor, scope)  # before showing any preview
             report = _preview(session, body)
             if report.warning and not body.confirm:
                 raise ProblemError(
@@ -165,9 +187,14 @@ def put_rules(request: Request, user: User, body: RulesIn) -> SavedOut:
                     "preview_warning",
                     "More than 20 % of some tag's data would be excluded",
                     "Check the preview and send confirm=true to save anyway (UC-04 3a).",
-                    preview=_preview_out(report).model_dump(mode="json"),
+                    preview=_visible_tags(session, user, _preview_out(report)).model_dump(
+                        mode="json"
+                    ),
                 )
             save_rule_set(session, user.actor, scope, body.overrides, body.comment)
-            return SavedOut(rules=_rules_out(session, scope), preview=_preview_out(report))
+            return SavedOut(
+                rules=_rules_out(session, scope),
+                preview=_visible_tags(session, user, _preview_out(report)),
+            )
     except DataQualityError as error:
         raise ProblemError(400, "dq_refused", "Data-quality change refused", str(error)) from None

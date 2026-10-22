@@ -36,6 +36,7 @@ class VersionStatus(StrEnum):
     TRAINING = "Training"
     FAILED = "Failed"
     VALIDATED = "Validated"
+    REJECTED = "Rejected"
     DEPLOYED = "Deployed"
     PAUSED = "Paused"
     SUPERSEDED = "Superseded"

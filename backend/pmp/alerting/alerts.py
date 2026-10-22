@@ -486,6 +486,30 @@ def sync_out_of_service(
     return changes
 
 
+def close_rule_alerts(
+    session: Session, rule_ids: Iterable[int], actor: Actor, now: datetime, why: str
+) -> list[AlertChanged]:
+    """Close the open alerts of rules that are being removed or switched off: they could
+    never clear otherwise, and a sensor alert would hold the band (plan 6.7). The rules'
+    persistence memory is cleared, so a rule switched on again counts afresh."""
+    ids = list(rule_ids)
+    if not ids:
+        return []
+    rows = session.scalars(
+        select(Alert).where(Alert.rule_id.in_(ids), Alert.state.in_(_OPEN))
+    ).all()
+    changes = []
+    for row in rows:
+        row.condition_active = False
+        row.shelved_until = row.shelve_reason = None
+        changes.append(_apply(session, row, Trigger.RULE_REMOVED, now, actor, why))
+    for memory in session.scalars(
+        select(AlertRuleState).where(AlertRuleState.rule_id.in_(ids))
+    ).all():
+        memory.levels, memory.clear_count, memory.condition_since = [], 0, None
+    return changes
+
+
 def rule_states(session: Session, model_id: int) -> dict[int, AlertState]:
     """Each of a model's rules in Figure 6 terms: its open alert's state, Out of service
     while the model is not in service, otherwise Normal."""

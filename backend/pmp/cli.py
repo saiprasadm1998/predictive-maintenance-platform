@@ -98,12 +98,15 @@ from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, repl
 from pmp.demo_story import back_score, setup_models
 from pmp.ingestion import (
     BACKFILL_JOB,
+    MAX_GRACE_S,
     BackfillError,
     BackfillOptions,
+    IngestError,
     Layout,
     OverlapMode,
     make_backfill_handler,
     run_backfill,
+    set_source_grace,
 )
 from pmp.modelling import (
     TRAIN_JOB,
@@ -241,6 +244,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--naive-as-utc", action="store_true", help="read timestamps without an offset as UTC"
     )
     backfill.add_argument("--preview", action="store_true", help="validate only; store nothing")
+    grace = ingest_commands.add_parser(
+        "grace", help="how long scoring waits for a source's late samples (ARC §5.1)"
+    )
+    grace.add_argument("source", help="gateway source")
+    grace.add_argument("seconds", help=f"0 to {MAX_GRACE_S}, or 'default'")
 
     dq = commands.add_parser("dq", help="sensor data-quality rules and NE 107 status (UC-04)")
     dq_commands = dq.add_subparsers(dest="dq_command", required=True)
@@ -676,6 +684,27 @@ def _run_apikey(settings: Settings, args: argparse.Namespace) -> int:
         return 1
     finally:
         database.dispose()
+    return 0
+
+
+def _run_grace(settings: Settings, args: argparse.Namespace) -> int:
+    seconds = None if args.seconds == "default" else args.seconds
+    if seconds is not None and not seconds.isdigit():
+        print(f"Error: give whole seconds (0 to {MAX_GRACE_S}) or 'default'", file=sys.stderr)
+        return 2
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            set_source_grace(
+                session, Actor.system(), args.source, int(seconds) if seconds else None
+            )
+    except IngestError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    shown = f"{seconds} s" if seconds is not None else f"the default ({settings.scoring_grace_s} s)"
+    print(f"Scoring now waits {shown} for {args.source}'s late samples.")
     return 0
 
 
@@ -1222,6 +1251,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_registry_import(settings, args))
     elif args.command == "ingest" and args.ingest_command == "backfill":
         sys.exit(_run_backfill(settings, args))
+    elif args.command == "ingest" and args.ingest_command == "grace":
+        sys.exit(_run_grace(settings, args))
     elif args.command == "dq":
         sys.exit(_run_dq(settings, args))
     elif args.command == "algorithms":

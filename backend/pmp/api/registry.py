@@ -24,6 +24,7 @@ from pmp.api.assets import (
 from pmp.api.common import can_see, not_found
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.api.problems import ProblemError
+from pmp.core import Permission, authorize
 from pmp.ingestion import list_unmapped_tags, promote_unmapped_tag
 from pmp.registry import (
     AssetLevel,
@@ -85,6 +86,9 @@ def _level(label: str) -> AssetLevel:
 def post_asset(request: Request, user: User, body: AssetIn) -> AssetOut:
     try:
         with database_of(request).session() as session:
+            parent = find_asset(session, body.parent) if body.parent else None
+            # ARC §9.2 before anything else, so the answer says nothing to others
+            authorize(user.actor, Permission.REGISTRY, parent.path if parent else None)
             if find_asset(session, body.code) is not None:
                 raise ProblemError(409, "exists", "Asset exists", f"Asset {body.code} exists.")
             upsert_asset(
@@ -163,6 +167,8 @@ def _tag_by_id(session: Session, tag_id: int) -> TagOut:
 def post_tag(request: Request, user: User, body: TagIn) -> TagOut:
     try:
         with database_of(request).session() as session:
+            target = find_asset(session, body.asset)
+            authorize(user.actor, Permission.REGISTRY, target.path if target else None)
             if find_tag(session, body.source, body.source_name) is not None:
                 raise ProblemError(409, "exists", "Tag exists", f"{body.source_name} exists.")
             spec = TagSpec(

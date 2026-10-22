@@ -160,6 +160,7 @@ def revoke_api_key(session: Session, actor: Actor, key_id: int) -> None:
 def rotate_api_key(session: Session, actor: Actor, key_id: int) -> IssuedKey:
     """Issue a replacement with the same name and scope. Revoke the old key once the
     system using it has switched over."""
+    authorize(actor, Permission.ADMINISTRATION, what="API keys")  # before saying it exists
     row = session.get(ApiKey, key_id)
     if row is None or row.revoked_at is not None:
         raise ApiKeyError(f"API key {key_id} does not exist or is revoked")

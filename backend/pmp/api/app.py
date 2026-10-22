@@ -35,6 +35,14 @@ from pmp.api.problems import ProblemError, problem_response
 from pmp.api.ratelimit import RateLimiter
 from pmp.core import AccessDeniedError, Database, Settings, log_context
 
+DOCS_PATH = "/api/v1/docs"
+# The front end is served from this origin only: its scripts, styles (ECharts and React
+# set inline styles), canvas images and the API, and it may not be framed.
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; "
+    "object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+)
 logger = logging.getLogger(__name__)
 REQUEST_ID_HEADER = "X-Request-ID"
 _VALID_REQUEST_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
@@ -107,7 +115,7 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
         title="Predictive Maintenance Platform",
         version=pmp.__version__,
         openapi_url="/api/v1/openapi.json",
-        docs_url="/api/v1/docs",
+        docs_url=DOCS_PATH,
         redoc_url=None,
     )
     app.state.settings = settings
@@ -124,6 +132,24 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
         with log_context(request_id=request_id):
             response = await call_next(request)
         response.headers[REQUEST_ID_HEADER] = request_id
+        return response
+
+    secure = settings.session_cookie_secure if settings else True
+
+    @app.middleware("http")
+    async def security_headers_middleware(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        """ARC §9.3 / ASVS L1 headers on every response (plan 6.7)."""
+        response = await call_next(request)
+        headers = response.headers
+        headers.setdefault("X-Content-Type-Options", "nosniff")
+        headers.setdefault("Referrer-Policy", "same-origin")
+        headers.setdefault("X-Frame-Options", "DENY")
+        if not request.url.path.startswith(DOCS_PATH):  # Swagger UI loads its own assets
+            headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
+        if secure:
+            headers.setdefault("Strict-Transport-Security", "max-age=31536000")
         return response
 
     @app.exception_handler(ProblemError)

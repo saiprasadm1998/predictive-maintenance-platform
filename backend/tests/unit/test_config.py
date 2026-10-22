@@ -29,7 +29,7 @@ def _settings() -> Settings:
 
 def test_defaults_match_the_architecture(env: pytest.MonkeyPatch) -> None:
     settings = _settings()
-    assert settings.scoring_grace_s == 20
+    assert settings.scoring_grace_s == 5  # AC-05: one cycle plus 5 s (plan 6.7)
     assert settings.late_data_days == 7
     assert settings.retention_months == 24
     assert settings.artefact_dir == Path("/data/artefacts")
@@ -38,10 +38,10 @@ def test_defaults_match_the_architecture(env: pytest.MonkeyPatch) -> None:
 
 
 def test_environment_overrides_defaults(env: pytest.MonkeyPatch) -> None:
-    env.setenv("PMP_SCORING_GRACE_S", "5")
+    env.setenv("PMP_SCORING_GRACE_S", "30")
     env.setenv("PMP_LOG_FORMAT", "text")
     settings = _settings()
-    assert settings.scoring_grace_s == 5
+    assert settings.scoring_grace_s == 30
     assert settings.log_format is LogFormat.TEXT
 
 

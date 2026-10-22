@@ -385,6 +385,17 @@ def test_administrators_search_and_export_the_audit_trail(db: Database, client: 
     assert len(lines) >= 3  # frank and root at least (the audit log is append-only)
     assert all(",user," in line for line in lines[1:])
 
+    # Every matching entry, however many pages it takes (plan 6.7: no silent cap).
+    import pmp.api.admin
+
+    original = pmp.api.admin.CSV_PAGE
+    pmp.api.admin.CSV_PAGE = 1
+    try:
+        paged = client.get("/api/v1/audit.csv", params={"entity": "user"}, headers=admin)
+    finally:
+        pmp.api.admin.CSV_PAGE = original
+    assert paged.text.splitlines() == lines
+
 
 def test_audit_command(
     db: Database,

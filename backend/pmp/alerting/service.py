@@ -9,11 +9,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from pmp.alerting.alerts import close_rule_alerts
 from pmp.alerting.domain import (
     DEFAULT_SENSOR_ALERT,
     DEFAULT_SENSOR_WARNING,
@@ -111,10 +113,14 @@ def set_alert_rules(
             after=after,
         )
 
+    now = datetime.now(UTC)
     for key, row in existing.items():
         if key not in wanted:
+            close_rule_alerts(session, [row.id], actor, now, "alert rule removed")
             audit("remove", key, _snapshot(_spec(row)), None)
             session.delete(row)
+        elif row.enabled and not wanted[key].enabled:
+            close_rule_alerts(session, [row.id], actor, now, "alert rule switched off")
     for key, spec in wanted.items():
         current = existing.get(key)
         if current is None:

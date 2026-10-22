@@ -181,3 +181,43 @@ def test_source_statistics_are_kept(clean_ingestion: Database) -> None:
     assert stats is not None
     assert (stats.accepted_total, stats.rejected_total) == (2, 1)
     assert stats.last_sample_ts == ts  # the newest sample, not the last one received
+
+
+def test_a_scoped_engineer_cannot_take_another_sites_tag(clean_ingestion: Database) -> None:
+    """Plan 6.7 (audit, ARC §9.2): moving a tag needs the registry right on both assets,
+    and promoting cannot be used on a registered name."""
+    from pmp.core import AccessDeniedError, Principal, Role, RoleAssignment
+    from pmp.registry import RegistryError, find_asset, upsert_tag
+
+    register(clean_ingestion, "T1")
+    with clean_ingestion.session() as s:
+        upsert_asset(s, ACTOR, AssetSpec("SITE-B", "Site B", AssetLevel.SITE))
+        upsert_asset(
+            s, ACTOR, AssetSpec("P-9", "P-9", AssetLevel.EQUIPMENT, "SITE-B", Criticality.B)
+        )
+        site_b = find_asset(s, "SITE-B")
+        assert site_b is not None
+    engineer_b = Actor.user(Principal(42, "pat", (RoleAssignment(Role.MODEL_ENGINEER, site_b.id),)))
+    spec = TagSpec(SOURCE, "T1", "P-9", "bar", 0, 10, 60)
+    with clean_ingestion.session() as s, pytest.raises(RegistryError, match="registered already"):
+        promote_unmapped_tag(s, engineer_b, spec)
+    with clean_ingestion.session() as s, pytest.raises(AccessDeniedError):
+        upsert_tag(s, engineer_b, spec)
+    with clean_ingestion.session() as s:  # an unscoped engineer may move it
+        upsert_tag(s, ACTOR, spec)
+
+
+def test_a_sample_without_a_value_is_refused_alone(clean_ingestion: Database) -> None:
+    """Plan 6.7 (audit, AC-01): a Bad sample sent without a value loses only itself."""
+    ids = register(clean_ingestion, "T1")
+    ts = now_of(clean_ingestion)
+    response = ingest(
+        clean_ingestion,
+        [
+            {"tag": "T1", "ts": ts.isoformat(), "v": None, "q": "Bad"},
+            {"tag": "T1", "ts": (ts - timedelta(minutes=1)).isoformat(), "v": 4.0, "q": "Bad"},
+        ],
+    )
+    assert response["accepted"] == 1
+    assert response["rejected"] == [{"index": 0, "reason": "no_value"}]
+    assert [v for _, v, _ in stored(clean_ingestion, ids["T1"], ts - timedelta(minutes=1))] == [4.0]

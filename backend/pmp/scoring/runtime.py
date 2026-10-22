@@ -39,7 +39,15 @@ from pmp.alerting import (
     evaluate_cycle,
     list_alert_rules,
 )
-from pmp.core import Database, Event, EventBus, LockKey, lock_for_transaction, notify
+from pmp.core import (
+    Database,
+    Event,
+    EventBus,
+    LockKey,
+    lock_for_transaction,
+    log_context,
+    notify,
+)
 from pmp.dataquality import MIN_COVERAGE, Reference, SensorReading, read_sensors
 from pmp.modelling import (
     ActiveVersion,
@@ -383,6 +391,16 @@ def score_models(
 
 
 def _score_one(
+    database: Database,
+    model: LoadedModel,
+    readings: Mapping[int, SensorReading],
+    cycle: datetime,
+) -> CycleResult:
+    with log_context(model_id=str(model.model_id)):  # ARC §10.3
+        return _score_one_logged(database, model, readings, cycle)
+
+
+def _score_one_logged(
     database: Database,
     model: LoadedModel,
     readings: Mapping[int, SensorReading],
