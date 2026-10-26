@@ -154,15 +154,18 @@ describe("SCR-13 registry and import", () => {
     const routes = registryRoutes();
     routes["GET /unmapped-tags"] = () => ({
       status: 200,
-      body: [
-        {
-          source: "gw-1",
-          source_name: "K101.NEW.PV",
-          first_seen: "2026-10-20T00:00:00Z",
-          last_seen: "2026-10-21T00:00:00Z",
-          count: 1440,
-        },
-      ],
+      body: {
+        items: [
+          {
+            source: "gw-1",
+            source_name: "K101.NEW.PV",
+            first_seen: "2026-10-20T00:00:00Z",
+            last_seen: "2026-10-21T00:00:00Z",
+            count: 1440,
+          },
+        ],
+        next_cursor: null,
+      },
     });
     routes["POST /unmapped-tags/promote"] = (call) => ({
       status: 201,

@@ -221,11 +221,14 @@ describe("SCR-14 administration", () => {
     });
     routes["GET /sensors/health"] = () => ({
       status: 200,
-      body: [
-        sensor(1, "K101.TI1018.PV", "Failure", "flatline"),
-        sensor(2, "K101.PI1001.PV", "Good", "none"),
-        sensor(3, "K101.TI1030.PV", "Out of specification", "out_of_range"),
-      ],
+      body: {
+        items: [
+          sensor(1, "K101.TI1018.PV", "Failure", "flatline"),
+          sensor(2, "K101.PI1001.PV", "Good", "none"),
+          sensor(3, "K101.TI1030.PV", "Out of specification", "out_of_range"),
+        ],
+        next_cursor: null,
+      },
     });
     routes["GET /tags"] = () => ({ status: 200, body: { items: [], next_cursor: null } });
     fakeApi(routes);

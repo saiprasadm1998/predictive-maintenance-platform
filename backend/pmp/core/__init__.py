@@ -70,6 +70,8 @@ from pmp.core.jobs import (
 from pmp.core.logging import configure_logging, log_context, request_id_var, user_id_var
 from pmp.core.migrate import run_migrations
 from pmp.core.retention import (
+    RETENTION_JOB,
+    RetainedTable,
     RetentionError,
     RetentionPolicy,
     apply_retention,
@@ -105,6 +107,7 @@ from pmp.core.users import (
 __all__ = [
     "EVENT_CHANNEL",
     "MATRIX",
+    "RETENTION_JOB",
     "AccessDeniedError",
     "ActiveSession",
     "Actor",
@@ -131,6 +134,7 @@ __all__ = [
     "NewSession",
     "Permission",
     "Principal",
+    "RetainedTable",
     "RetentionError",
     "RetentionPolicy",
     "Role",

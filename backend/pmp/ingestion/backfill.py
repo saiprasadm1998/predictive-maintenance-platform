@@ -29,7 +29,7 @@ import pandas as pd
 import pyarrow.parquet as pq
 from sqlalchemy import text
 
-from pmp.core import Database, refresh_hourly, report_progress
+from pmp.core import Database, RetainedTable, refresh_hourly, report_progress
 from pmp.ingestion.domain import FUTURE_TOLERANCE, map_quality
 from pmp.ingestion.service import merge_staged, server_now, stage_text
 from pmp.registry import resolve_tag_ids
@@ -37,6 +37,9 @@ from pmp.registry import resolve_tag_ids
 CHUNK_CELLS = 200_000  # samples per chunk: bounds memory and transaction size
 MAX_PROBLEMS = 100
 _OFFSET = r"(?:[Zz]|[+-]\d{2}(?::?\d{2})?)$"
+
+
+SAMPLES = RetainedTable("sample", "sample_1h")  # the module's time series (ARC §6.3)
 
 
 class Layout(StrEnum):
@@ -360,7 +363,7 @@ def run_backfill(
             on_progress(percent)
     if not preview and report.loaded and report.first_ts and report.last_ts:
         # history lands behind the hourly aggregate's refresh window (ARC §6.3)
-        refresh_hourly(database, "sample", report.first_ts, report.last_ts)
+        refresh_hourly(database, SAMPLES.hourly, report.first_ts, report.last_ts)
     return report
 
 

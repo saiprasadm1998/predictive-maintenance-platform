@@ -392,3 +392,17 @@ def test_a_model_waits_for_the_longest_grace_of_its_sources(deployed: Database) 
         set_source_grace(s, ACTOR, "gw-1", 30)
     clock.now += timedelta(minutes=1)  # 11:25 after LIVE: 11:00 needs until 11:30
     assert [r.ts for r in Scheduler(deployed, clock=clock).tick()] == []
+
+
+def test_the_leader_queues_the_daily_retention_run_as_a_job(deployed: Database) -> None:
+    """Plan 6.7 (audit, ARC §6.3): retention runs as a job, never inside a scoring tick."""
+    with deployed.session() as s:
+        s.execute(text("DELETE FROM job WHERE type = 'retention'"))
+    clock = Clock(LIVE + timedelta(minutes=5, seconds=25))
+    scheduler = Scheduler(deployed, clock=clock, retention_months=24)
+    scheduler.tick()
+    clock.now += timedelta(minutes=1)
+    scheduler.tick()  # queued once, not on every tick
+    with deployed.session() as s:
+        queued = s.execute(text("SELECT count(*) FROM job WHERE type = 'retention'")).scalar_one()
+    assert queued == 1

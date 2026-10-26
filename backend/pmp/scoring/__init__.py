@@ -43,24 +43,32 @@ from pmp.scoring.runtime import (
     references_for,
     score_models,
 )
-from pmp.scoring.scheduler import Scheduler, latest_due_cycle
+from pmp.scoring.scheduler import (
+    RETAINED_TABLES,
+    Scheduler,
+    latest_due_cycle,
+    make_retention_handler,
+)
 from pmp.scoring.trends import (
     MAX_PX,
     SensorReadingOut,
     StatusPeriod,
     Trend,
     TrendError,
+    UnusedPeriod,
     cycle_outputs,
     latest_cycle,
     output_trends,
     score_trend,
     status_periods,
+    unused_periods,
 )
 
 __all__ = [
     "EVENT_CHANNEL",
     "MAX_PX",
     "RANGE_FLOOR",
+    "RETAINED_TABLES",
     "SIGMA_FLOOR",
     "Band",
     "CycleResult",
@@ -83,6 +91,7 @@ __all__ = [
     "StatusPeriod",
     "Trend",
     "TrendError",
+    "UnusedPeriod",
     "band_for",
     "compute_outputs",
     "cycle_outputs",
@@ -95,6 +104,7 @@ __all__ = [
     "latest_cycle",
     "latest_due_cycle",
     "limits_for",
+    "make_retention_handler",
     "model_healths",
     "output_trends",
     "references_for",
@@ -103,5 +113,6 @@ __all__ = [
     "score_models",
     "score_trend",
     "status_periods",
+    "unused_periods",
     "worst_band",
 ]

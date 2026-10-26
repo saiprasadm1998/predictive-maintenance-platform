@@ -17,21 +17,25 @@ from __future__ import annotations
 import logging
 import threading
 from collections import defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from pmp.alerting import expire_shelves, sync_out_of_service
 from pmp.core import (
+    RETENTION_JOB,
     Database,
     EventBus,
     LockKey,
+    RetainedTable,
     apply_retention,
+    enqueue,
     holds_advisory_lock,
     retention_due,
     try_advisory_lock,
 )
 from pmp.dataquality import read_sensors
-from pmp.ingestion import source_graces
+from pmp.ingestion import SAMPLES, source_graces
 from pmp.modelling import ActiveVersion, LoadedModel, ModelCache, ModelError, list_active_versions
 from pmp.registry import get_tags, list_tags
 from pmp.scoring.runtime import (
@@ -44,6 +48,12 @@ from pmp.scoring.runtime import (
 
 logger = logging.getLogger(__name__)
 MIN_CYCLE_S = 10
+# The time series retention applies to, each named by its owner (ARC §4, §6.3).
+RETAINED_TABLES = (
+    SAMPLES,
+    RetainedTable("score", "score_1h"),
+    RetainedTable("sensor_output", "sensor_output_1h"),
+)
 STATUS_CYCLE_S = 60  # sensors no deployed model scores are checked on this cycle
 
 
@@ -76,6 +86,7 @@ class Scheduler:
         self.cache = ModelCache(self.bus)
         self._last: dict[int, datetime] | None = None
         self._swept: datetime | None = None
+        self._retention_queued: datetime | None = None
 
     def tick(self) -> list[CycleResult]:
         """Score every model whose latest due cycle has not been scored yet."""
@@ -161,15 +172,19 @@ class Scheduler:
             logger.exception("Sensor status check failed; trying again next minute")
 
     def _retention(self, now: datetime) -> None:
-        """NFR-DATA-01: the daily retention run, by the leader only."""
+        """NFR-DATA-01: the leader queues the daily retention run as a job (ARC §6.3), so
+        deleting old data never holds up a scoring cycle."""
         if self.retention_months is None:
+            return
+        if self._retention_queued and now - self._retention_queued < timedelta(hours=1):
             return
         try:
             with self.database.session() as session:
                 if retention_due(session, now):
-                    apply_retention(session, now, self.retention_months)
+                    enqueue(session, RETENTION_JOB, {"default_raw_months": self.retention_months})
+                    self._retention_queued = now
         except Exception:
-            logger.exception("Retention run failed; trying again on a later tick")
+            logger.exception("Queuing the retention run failed; trying again on a later tick")
 
     def _alert_housekeeping(self, now: datetime, active: list[ActiveVersion]) -> None:
         """Shelving that has run out ends, and alerts follow their model in and out of
@@ -210,3 +225,21 @@ class Scheduler:
                 except Exception:
                     logger.exception("Scoring tick failed; trying again next tick")
                 stop.wait(self.poll_s)
+
+
+def make_retention_handler(
+    database: Database,
+) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
+    """The worker's handler for the daily retention job."""
+
+    def handle(payload: Mapping[str, Any]) -> Mapping[str, Any]:
+        with database.session() as session:
+            summary = apply_retention(
+                session,
+                datetime.now(UTC),
+                int(payload.get("default_raw_months", 24)),
+                RETAINED_TABLES,
+            )
+        return {"summary": summary}
+
+    return handle

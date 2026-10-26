@@ -50,6 +50,7 @@ from pmp.alerting import (
 )
 from pmp.api import create_app
 from pmp.core import (
+    RETENTION_JOB,
     Actor,
     ApiKeyError,
     ApiKeyScope,
@@ -138,6 +139,7 @@ from pmp.registry import (
     list_tags,
 )
 from pmp.scoring import (
+    RETAINED_TABLES,
     Band,
     CycleResult,
     NodeHealth,
@@ -146,6 +148,7 @@ from pmp.scoring import (
     get_runtime_statuses,
     health_tree,
     latest_due_cycle,
+    make_retention_handler,
     score_models,
 )
 
@@ -477,6 +480,7 @@ def _run_worker(settings: Settings) -> None:
     registry = JobRegistry()
     uploads = Path(settings.artefact_dir) / "uploads"
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
+    registry.register(RETENTION_JOB, make_retention_handler(database))
     registry.register(
         TRAIN_JOB,
         make_training_handler(database, Path(settings.artefact_dir)),
@@ -637,7 +641,7 @@ def _run_retention(settings: Settings, args: argparse.Namespace) -> int:
                     default_raw_months=default,
                 )
             elif args.retention_command == "run":
-                print(apply_retention(session, datetime.now(UTC), default))
+                print(apply_retention(session, datetime.now(UTC), default, RETAINED_TABLES))
             policy = get_retention(session, default)
         last = f"{policy.last_run_at:%Y-%m-%d %H:%M} UTC" if policy.last_run_at else "never"
         print(

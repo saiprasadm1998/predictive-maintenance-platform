@@ -581,16 +581,40 @@ class AlertQuery:
     priorities: tuple[str, ...] = ()
     severities: tuple[Severity, ...] = ()
     kind: RuleKind | None = None
+    raised_after: datetime | None = None  # age filters (FR-ALM-03)
+    raised_before: datetime | None = None
+    sort: str = "default"
 
 
 _UNACK = (AlertState.ACTIVE_UNACK.value, AlertState.RTN_UNACK.value)
+SORTS = ("default", "newest", "oldest", "priority", "severity")
 
 
-def _sort_columns() -> tuple[Any, ...]:
-    """PDS §4.2: unacknowledged first, then priority, then age; out of service last."""
+def _sort_columns(sort: str = "default") -> tuple[tuple[Any, str], ...]:
+    """The list order as (expression, kind) pairs, all ascending so keyset paging is one
+    row comparison. PDS §4.2 default: unacknowledged first, then priority, then age, out
+    of service last; the others let the user sort by age, priority or severity."""
     out_of_service = case((Alert.state == AlertState.OUT_OF_SERVICE.value, 1), else_=0)
     acknowledged = case((Alert.state.in_(_UNACK), 0), else_=1)
-    return (out_of_service, acknowledged, Alert.priority, Alert.raised_at, Alert.id)
+    severity = case((Alert.severity == Severity.ALERT.value, 0), else_=1)
+    epoch = func.extract("epoch", Alert.raised_at)
+    by = {
+        "default": (
+            (out_of_service, "int"),
+            (acknowledged, "int"),
+            (Alert.priority, "str"),
+            (epoch, "float"),
+        ),
+        "newest": ((-epoch, "float"),),
+        "oldest": ((epoch, "float"),),
+        "priority": ((Alert.priority, "str"), (epoch, "float")),
+        "severity": ((severity, "int"), (Alert.priority, "str"), (epoch, "float")),
+    }[sort]
+    last = (-Alert.id, "int") if sort == "newest" else (Alert.id, "int")
+    return (*by, last)
+
+
+_CAST: dict[str, Any] = {"int": int, "str": str, "float": float}
 
 
 def search_alerts(
@@ -602,8 +626,11 @@ def search_alerts(
 ) -> tuple[list[AlertView], list[Any] | None]:
     """One page of alerts in list order, and the sort key to continue after (keyset
     paging, done in the database: FR-ALM-03 asks for 1,000 alerts filtered in under 1 s)."""
-    columns = _sort_columns()
-    stmt = select(Alert, *columns[:2])
+    if query.sort not in SORTS:
+        raise AlertError(f"Sort by one of {', '.join(SORTS)}")
+    columns = _sort_columns(query.sort)
+    exprs = [e for e, _ in columns]
+    stmt = select(Alert, *(e.label(f"sort_{i}") for i, e in enumerate(exprs)))
     if query.open_only:
         stmt = stmt.where(Alert.state.in_(_OPEN))
     if query.model_ids is not None:
@@ -616,26 +643,24 @@ def search_alerts(
         stmt = stmt.where(Alert.severity.in_([s.value for s in query.severities]))
     if query.kind is not None:
         stmt = stmt.where(Alert.kind == query.kind.value)
+    if query.raised_after is not None:
+        stmt = stmt.where(Alert.raised_at >= query.raised_after)
+    if query.raised_before is not None:
+        stmt = stmt.where(Alert.raised_at < query.raised_before)
     if after is not None:
-        oos, acked, priority, raised_at, alert_id = after
-        stmt = stmt.where(
-            tuple_(*columns)
-            > tuple_(
-                literal(int(oos)),
-                literal(int(acked)),
-                literal(str(priority)),
-                literal(datetime.fromisoformat(str(raised_at))),
-                literal(int(alert_id)),
-            )
-        )
-    rows = session.execute(stmt.order_by(*columns).limit(limit + 1)).all()
+        if len(after) != len(columns):
+            raise AlertError("The cursor belongs to another sort order")
+        values = [literal(_CAST[kind](v)) for (_, kind), v in zip(columns, after, strict=True)]
+        stmt = stmt.where(tuple_(*exprs) > tuple_(*values))
+    rows = session.execute(stmt.order_by(*exprs).limit(limit + 1)).all()
     more = len(rows) > limit
     rows = rows[:limit]
     views = [_view(row[0]) for row in rows]
     if not more or not rows:
         return views, None
-    last, oos, acked = rows[-1]
-    return views, [oos, acked, last.priority, last.raised_at.isoformat(), last.id]
+    return views, [
+        _CAST[kind](value) for (_, kind), value in zip(columns, rows[-1][1:], strict=True)
+    ]
 
 
 def list_alerts(

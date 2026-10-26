@@ -23,7 +23,7 @@ from pmp.core import (
     get_retention,
     set_retention,
 )
-from pmp.scoring import score_trend
+from pmp.scoring import RETAINED_TABLES, score_trend
 
 pytestmark = pytest.mark.integration
 NOW = datetime(2026, 10, 21, 12, tzinfo=UTC)
@@ -67,7 +67,7 @@ def test_retention_removes_only_expired_data(db: Database) -> None:
     _scores(db, old, 1, timedelta(minutes=1))
     _scores(db, recent, 1, timedelta(minutes=1))
     with db.session() as s:
-        summary = apply_retention(s, NOW)
+        summary = apply_retention(s, NOW, 24, RETAINED_TABLES)
         policy = get_retention(s)
         samples = s.execute(text("SELECT ts FROM sample ORDER BY ts")).scalars().all()
         scores = s.execute(text("SELECT min(ts) FROM score")).scalar_one()

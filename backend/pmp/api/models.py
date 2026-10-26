@@ -55,6 +55,7 @@ from pmp.scoring import (
     output_trends,
     score_trend,
     status_periods,
+    unused_periods,
 )
 
 logger = logging.getLogger(__name__)
@@ -280,9 +281,20 @@ class TrendOut(BaseModel):
     max: dict[str, list[float | None]]
 
 
+class UnusedOut(BaseModel):
+    start: datetime = Field(description="first cycle not used")
+    end: datetime = Field(description="last cycle not used")
+    status: str = Field(description="NE 107 status")
+    rule: str | None
+
+
 class SensorTrendOut(TrendOut):
     tag_id: int
     source_name: str
+    unused: list[UnusedOut] = Field(
+        default_factory=list,
+        description="runs of cycles in which the sensor was not used in scoring (FR-VIS-02)",
+    )
 
 
 def _period(start: datetime | None, end: datetime | None) -> tuple[datetime, datetime]:
@@ -381,8 +393,20 @@ def get_outputs(
             )
         except TrendError as error:
             raise ProblemError(400, "invalid_period", "Invalid trend request", str(error)) from None
+        unused = unused_periods(
+            session,
+            [v.id for v in model.versions if only is None or v.id == only],
+            [sensors[t] for t in wanted],
+            begin,
+            finish,
+        )
     return [
-        SensorTrendOut(tag_id=sensors[t], source_name=t, **_trend_out(trends[sensors[t]]))
+        SensorTrendOut(
+            tag_id=sensors[t],
+            source_name=t,
+            unused=[UnusedOut(**vars(u)) for u in unused[sensors[t]]],
+            **_trend_out(trends[sensors[t]]),
+        )
         for t in wanted
     ]
 
@@ -456,17 +480,33 @@ def _model_cache(request: Request) -> ModelCache:
 @router.get(
     "/{model_id}/latest",
     response_model=LatestOut,
-    summary="Every sensor's outputs at the latest cycle (sensor table, contributors)",
+    summary="Every sensor's outputs at the latest cycle, or at a chosen time (contributors)",
 )
-def get_latest(request: Request, user: User, model_id: int, version: VersionNo = None) -> LatestOut:
+def get_latest(
+    request: Request,
+    user: User,
+    model_id: int,
+    version: VersionNo = None,
+    at: Annotated[
+        datetime | None,
+        Query(description="the cycle at or before this time (FR-DIA-01: any timestamp)"),
+    ] = None,
+) -> LatestOut:
+    if at is not None:
+        at = utc(at, "at")
     with database_of(request).session() as session:
         model = _visible_model(session, user, model_id)
         chosen = _version_id(model, version)
+        if chosen is None and at is not None:
+            # the version that scored the cycle nearest before `at`
+            found = [(latest_cycle(session, v.id, at), v.id) for v in model.versions]
+            scored = [(ts, v) for ts, v in found if ts is not None]
+            chosen = max(scored)[1] if scored else None
         if chosen is None:
             current = _in_service(model) or model.latest
             chosen = current.id
         view = next(v for v in model.versions if v.id == chosen)
-        ts = latest_cycle(session, chosen)
+        ts = latest_cycle(session, chosen, at)
         rows = {r.tag_id: r for r in (cycle_outputs(session, chosen, ts) if ts else [])}
         tags = {t.id: t for t in get_tags(session, [s.tag_id for s in view.sensors])}
         limits = {
@@ -649,6 +689,11 @@ def put_alert_rules(
     except AlertRuleError as error:
         raise _model_problem(error) from None
     return _detail(request, user, model_id)
+
+
+@router.get("/{model_id}/versions", response_model=list[VersionOut], summary="A model's versions")
+def get_versions(request: Request, user: User, model_id: int) -> list[VersionOut]:
+    return get_model(request, user, model_id).versions
 
 
 @router.post(

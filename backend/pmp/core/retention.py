@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import calendar
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -24,10 +25,17 @@ from pmp.core.db import Base, Database
 
 logger = logging.getLogger(__name__)
 RETENTION_JOB = "retention"
-RAW_TABLES = ("sample", "score", "sensor_output")  # ARC §6.3 hypertables
-AGGREGATES = ("sample_1h", "score_1h", "sensor_output_1h")
 DEFAULT_AGGREGATE_MONTHS = 60
 RUN_EVERY = timedelta(days=1)
+
+
+@dataclass(frozen=True)
+class RetainedTable:
+    """A raw hypertable and its hourly aggregate, named by the module that owns them
+    (ARC §4: core never names another module's tables; plan 6.7)."""
+
+    raw: str
+    hourly: str
 
 
 class RetentionError(ValueError):
@@ -116,26 +124,35 @@ def _timescale(session: Session) -> bool:
     return bool(found)
 
 
-def apply_retention(session: Session, now: datetime, default_raw_months: int = 24) -> str:
-    """Remove raw data and aggregates older than the policy allows. Returns a summary."""
+def apply_retention(
+    session: Session,
+    now: datetime,
+    default_raw_months: int,
+    tables: Sequence[RetainedTable],
+) -> str:
+    """Remove raw data and aggregates older than the policy allows from the owners'
+    `tables`. Returns a summary."""
     row = _row(session, default_raw_months)
     raw_cutoff = months_before(now, row.raw_months)
     aggregate_cutoff = months_before(now, row.aggregate_months)
     removed = []
     timescale = _timescale(session)
-    for tables, cutoff in ((RAW_TABLES, raw_cutoff), (AGGREGATES, aggregate_cutoff)):
-        for table in tables:
+    for table in tables:
+        for name, cutoff, raw in (
+            (table.raw, raw_cutoff, True),
+            (table.hourly, aggregate_cutoff, False),
+        ):
             if timescale:
                 dropped = session.execute(
                     text("SELECT count(*) FROM drop_chunks(:t, older_than => :cutoff)"),
-                    {"t": table, "cutoff": cutoff},
+                    {"t": name, "cutoff": cutoff},
                 ).scalar_one()
-                removed.append(f"{table}: {dropped} chunks")
-            elif table in RAW_TABLES:  # the plain views hold nothing of their own
+                removed.append(f"{name}: {dropped} chunks")
+            elif raw:  # the plain views hold nothing of their own
                 result = session.execute(
-                    text(f"DELETE FROM {table} WHERE ts < :cutoff"), {"cutoff": cutoff}
+                    text(f"DELETE FROM {name} WHERE ts < :cutoff"), {"cutoff": cutoff}
                 )
-                removed.append(f"{table}: {result.rowcount} rows")  # type: ignore[attr-defined]
+                removed.append(f"{name}: {result.rowcount} rows")  # type: ignore[attr-defined]
     summary = (
         f"raw before {raw_cutoff:%Y-%m-%d}, aggregates before {aggregate_cutoff:%Y-%m-%d}: "
         + ", ".join(removed)
@@ -150,15 +167,11 @@ def retention_due(session: Session, now: datetime) -> bool:
     return row is None or row.last_run_at is None or now - row.last_run_at >= RUN_EVERY
 
 
-HOURLY_OF = {"sample": "sample_1h", "score": "score_1h", "sensor_output": "sensor_output_1h"}
-
-
-def refresh_hourly(database: Database, table: str, start: datetime, end: datetime) -> None:
+def refresh_hourly(database: Database, aggregate: str, start: datetime, end: datetime) -> None:
     """Bring the hourly aggregate of `table` up to date for [start, end) after data was
     written there out of time order (a history import). Live data needs no call: the
     aggregates' refresh policy and real-time aggregation cover it. Without TimescaleDB the
     aggregates are plain views and nothing needs refreshing."""
-    aggregate = HOURLY_OF[table]
     begin = start.replace(minute=0, second=0, microsecond=0)
     finish = end.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
     with database.engine.connect() as connection:

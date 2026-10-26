@@ -1,3 +1,4 @@
+import { fetchAllPages } from "./assets";
 import { api, apiUrl } from "./client";
 import type { AuditEntry } from "./types";
 
@@ -187,5 +188,5 @@ export interface SensorHealth {
 }
 
 export function fetchSensorHealth(signal?: AbortSignal): Promise<SensorHealth[]> {
-  return api<SensorHealth[]>("/sensors/health", { signal });
+  return fetchAllPages<SensorHealth>("/sensors/health", signal);
 }

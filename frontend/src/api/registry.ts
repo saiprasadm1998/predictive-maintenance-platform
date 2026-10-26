@@ -1,4 +1,4 @@
-import type { Asset, Page } from "./assets";
+import { type Asset, type Page, fetchAllPages } from "./assets";
 import { api } from "./client";
 import type { Job, Tag } from "./types";
 
@@ -122,7 +122,7 @@ export interface Unmapped {
 }
 
 export function fetchUnmapped(signal?: AbortSignal): Promise<Unmapped[]> {
-  return api<Unmapped[]>("/unmapped-tags", { signal });
+  return fetchAllPages<Unmapped>("/unmapped-tags", signal);
 }
 
 export function promoteUnmapped(tag: TagIn): Promise<Tag> {

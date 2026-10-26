@@ -47,7 +47,8 @@ def test_outputs_hold_their_invariants(
         assert s.q is not None
         assert s.residual is not None
         assert s.z is not None
-        assert math.isclose(s.q * scale_of(rows, s.tag).range, abs(s.residual), rel_tol=1e-9)
+        q_back = s.q * scale_of(rows, s.tag).range  # subnormal residuals underflow to 0
+        assert math.isclose(q_back, abs(s.residual), rel_tol=1e-9, abs_tol=1e-300)
 
 
 def scale_of(rows: list[tuple[float, float, SensorScale, bool]], tag: str) -> SensorScale:

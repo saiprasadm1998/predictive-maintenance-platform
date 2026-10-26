@@ -162,7 +162,7 @@ def _announce(session: Session, job: Job, percent: float | None) -> None:
         {
             "type": "job.progress",
             "job_id": job.id,
-            "job_type": job.type,
+            "job_type": job.type,  # ARC's "type": that key already names the event
             "status": str(job.status),
             "percent": percent,
         },

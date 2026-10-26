@@ -257,9 +257,58 @@ def cycle_outputs(session: Session, version_id: int, ts: datetime) -> list[Senso
     return [SensorReadingOut(**dict(r)) for r in rows]
 
 
-def latest_cycle(session: Session, version_id: int) -> datetime | None:
-    """The newest cycle a version was scored at."""
+def latest_cycle(session: Session, version_id: int, at: datetime | None = None) -> datetime | None:
+    """The newest cycle a version was scored at (at or before `at`, if given)."""
     found: datetime | None = session.execute(
-        text("SELECT max(ts) FROM score WHERE version_id = :v"), {"v": version_id}
+        text(
+            "SELECT max(ts) FROM score WHERE version_id = :v "
+            "AND (CAST(:at AS timestamptz) IS NULL OR ts <= :at)"
+        ),
+        {"v": version_id, "at": at},
     ).scalar()
     return found
+
+
+@dataclass(frozen=True)
+class UnusedPeriod:
+    """A run of cycles in which a sensor was not used in scoring (FR-VIS-02 overlays)."""
+
+    start: datetime  # first cycle
+    end: datetime  # last cycle
+    status: str  # NE 107
+    rule: str | None
+
+
+def unused_periods(
+    session: Session,
+    version_ids: Iterable[int],
+    tag_ids: Iterable[int],
+    start: datetime,
+    end: datetime,
+    limit: int = 500,
+) -> dict[int, list[UnusedPeriod]]:
+    """Per tag: the runs of consecutive cycles where it was excluded from scoring (bad
+    data, stale, flatline, manual exclusion ...), with the NE 107 status and rule. One
+    query; at most `limit` runs per tag, the newest kept."""
+    tags = sorted(set(tag_ids))
+    out: dict[int, list[UnusedPeriod]] = {t: [] for t in tags}
+    versions = sorted(set(version_ids))
+    if not tags or not versions:
+        return out
+    rows = session.execute(
+        text(
+            "SELECT tag_id, min(ts) AS first, max(ts) AS last, dq_status, dq_rule FROM ("
+            "  SELECT tag_id, ts, dq_status, dq_rule, used,"
+            "    row_number() OVER (PARTITION BY tag_id ORDER BY ts)"
+            "    - row_number() OVER (PARTITION BY tag_id, used, dq_status, dq_rule ORDER BY ts)"
+            "    AS run"
+            "  FROM sensor_output WHERE version_id = ANY(:versions) AND tag_id = ANY(:tags)"
+            "  AND ts >= :start AND ts < :end) s "
+            "WHERE used IS NOT TRUE "
+            "GROUP BY tag_id, run, dq_status, dq_rule ORDER BY tag_id, first"
+        ),
+        {"versions": versions, "tags": tags, "start": start, "end": end},
+    ).all()
+    for tag_id, first, last, status, rule in rows:
+        out[int(tag_id)].append(UnusedPeriod(first, last, str(status), rule))
+    return {t: runs[-limit:] for t, runs in out.items()}

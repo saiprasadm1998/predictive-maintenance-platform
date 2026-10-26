@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pmp.alerting import (
+    SORTS,
     AlertChanged,
     AlertError,
     AlertQuery,
@@ -37,7 +38,15 @@ from pmp.alerting import (
     shelve,
     unshelve,
 )
-from pmp.api.common import MAX_LIMIT, Page, can_see, decode_cursor, encode_cursor, not_found
+from pmp.api.common import (
+    MAX_LIMIT,
+    Page,
+    can_see,
+    decode_cursor,
+    encode_cursor,
+    not_found,
+    utc,
+)
 from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.core import user_names
@@ -171,10 +180,21 @@ def list_alert_page(
     asset: Annotated[str | None, Query(description="asset code: alerts at or below it")] = None,
     model_id: int | None = None,
     include_closed: bool = False,
+    raised_after: Annotated[datetime | None, Query(description="age: raised at or after")] = None,
+    raised_before: Annotated[datetime | None, Query(description="age: raised before")] = None,
+    sort: Annotated[
+        str,
+        Query(description="default (PDS §4.2), newest, oldest, priority or severity"),
+    ] = "default",
+    scope: Annotated[str | None, Query(description="asset code (ARC §7.3 name)")] = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 100,
 ) -> Page[AlertOut]:
-    """Unacknowledged first, then priority, then age; out of service last (PDS §4.2)."""
+    """Unacknowledged first, then priority, then age; out of service last (PDS §4.2);
+    or sorted by age, priority or severity (FR-ALM-03)."""
+    asset = asset or scope
+    if sort not in SORTS:
+        raise ProblemError(400, "invalid_sort", "Unknown sort", f"Use one of {', '.join(SORTS)}.")
     with database_of(request).session() as session:
         models = visible_models(session, user)
         ids = set(models)
@@ -192,9 +212,15 @@ def list_alert_page(
             priorities=tuple(priority or ()),
             severities=tuple(severity or ()),
             kind=kind,
+            raised_after=utc(raised_after, "raised_after"),
+            raised_before=utc(raised_before, "raised_before"),
+            sort=sort,
         )
         after = decode_cursor(cursor) if cursor else None
-        views, last = search_alerts(session, query, after=after, limit=limit)
+        try:
+            views, last = search_alerts(session, query, after=after, limit=limit)
+        except AlertError as error:
+            raise ProblemError(400, "invalid_cursor", "Invalid request", str(error)) from None
         items = _outs(session, views, models)
     return Page[AlertOut](items=items, next_cursor=encode_cursor(last) if last else None)
 
@@ -207,6 +233,17 @@ def _visible_alert(session: Session, user: SignedIn, alert_id: int) -> AlertView
     if view.model_id not in visible_models(session, user):
         raise not_found("Alert")
     return view
+
+
+class AlertSettingsOut(BaseModel):
+    max_shelve_days: int
+
+
+@router.get(
+    "/alerts/settings", response_model=AlertSettingsOut, summary="Limits the alert panel needs"
+)
+def get_alert_settings(request: Request, user: User) -> AlertSettingsOut:
+    return AlertSettingsOut(max_shelve_days=settings_of(request).alert_max_shelve_days)
 
 
 @router.get("/alerts/{alert_id}", response_model=AlertDetailOut, summary="One alert in full")

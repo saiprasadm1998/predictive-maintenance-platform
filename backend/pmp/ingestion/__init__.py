@@ -9,6 +9,7 @@ what this file exports, never the module's internal files.
 
 from pmp.ingestion.backfill import (
     BACKFILL_JOB,
+    SAMPLES,
     BackfillError,
     BackfillOptions,
     BackfillReport,
@@ -54,6 +55,7 @@ __all__ = [
     "MAX_BODY_BYTES",
     "MAX_GRACE_S",
     "MAX_SAMPLES",
+    "SAMPLES",
     "BackfillError",
     "BackfillOptions",
     "BackfillReport",

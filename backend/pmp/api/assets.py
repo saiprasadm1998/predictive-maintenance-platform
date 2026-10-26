@@ -289,6 +289,16 @@ def get_asset_types(request: Request, user: User) -> list[AssetTypeOut]:
     ]
 
 
+@router.get(
+    "/asset-types/{type_id}/roles", response_model=list[RoleOut], summary="An asset type's roles"
+)
+def get_type_roles(request: Request, user: User, type_id: int) -> list[RoleOut]:
+    found = next((t for t in get_asset_types(request, user) if t.id == type_id), None)
+    if found is None:
+        raise not_found("Asset type")
+    return found.roles
+
+
 class SensorHealthOut(BaseModel):
     tag_id: int
     source: str
@@ -303,31 +313,41 @@ class SensorHealthOut(BaseModel):
 
 @router.get(
     "/sensors/health",
-    response_model=list[SensorHealthOut],
+    response_model=Page[SensorHealthOut],
     summary="Each sensor's NE 107 status as of the latest scoring cycle (UCS §6.1)",
 )
 def get_sensor_health(
     request: Request,
     user: User,
     asset: Annotated[str | None, Query(description="asset code: this asset's tags")] = None,
-) -> list[SensorHealthOut]:
+    status: Annotated[str | None, Query(description="only this NE 107 status")] = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 500,
+) -> Page[SensorHealthOut]:
     with database_of(request).session() as session:
         if asset is not None and find_asset(session, asset) is None:
             raise not_found("Asset")
         paths = {a.id: a.path for a in list_subtree(session)}
         tags = [t for t in list_tags(session, asset) if can_see(user, paths.get(t.asset_id))]
         statuses = get_sensor_statuses(session, [t.id for t in tags]) if tags else []
-    return [
-        SensorHealthOut(
-            tag_id=v.tag_id,
-            source=v.source,
-            source_name=v.source_name,
-            asset_code=v.asset_code,
-            status=v.status.value,
-            rule=v.rule.value,
-            effect=v.effect.value,
-            since=v.since,
-            evaluated_at=v.evaluated_at,
-        )
-        for v in statuses
-    ]
+    statuses = sorted(
+        (v for v in statuses if status is None or v.status.value == status), key=lambda v: v.tag_id
+    )
+    items, next_cursor = page(statuses, lambda v: v.tag_id, cursor, limit)
+    return Page[SensorHealthOut](
+        items=[
+            SensorHealthOut(
+                tag_id=v.tag_id,
+                source=v.source,
+                source_name=v.source_name,
+                asset_code=v.asset_code,
+                status=v.status.value,
+                rule=v.rule.value,
+                effect=v.effect.value,
+                since=v.since,
+                evaluated_at=v.evaluated_at,
+            )
+            for v in items
+        ],
+        next_cursor=next_cursor,
+    )

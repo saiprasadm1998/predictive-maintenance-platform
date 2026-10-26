@@ -21,7 +21,7 @@ from pmp.api.assets import (
     get_asset_types,
     tag_out,
 )
-from pmp.api.common import can_see, not_found
+from pmp.api.common import MAX_LIMIT, Page, can_see, not_found, page
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.core import Permission, authorize
@@ -338,20 +338,30 @@ class UnmappedOut(BaseModel):
     count: int
 
 
-@router.get("/unmapped-tags", response_model=list[UnmappedOut], summary="FR-ING-06")
-def get_unmapped(request: Request, user: User, source: str | None = None) -> list[UnmappedOut]:
+@router.get("/unmapped-tags", response_model=Page[UnmappedOut], summary="FR-ING-06")
+def get_unmapped(
+    request: Request,
+    user: User,
+    source: str | None = None,
+    cursor: str | None = None,
+    limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 500,
+) -> Page[UnmappedOut]:
     with database_of(request).session() as session:
         rows = list_unmapped_tags(session, source)
-    return [
-        UnmappedOut(
-            source=r.source,
-            source_name=r.source_name,
-            first_seen=r.first_seen.isoformat(),
-            last_seen=r.last_seen.isoformat(),
-            count=r.count,
-        )
-        for r in rows
-    ]
+    items, next_cursor = page(rows, lambda r: [r.source, r.source_name], cursor, limit)
+    return Page[UnmappedOut](
+        items=[
+            UnmappedOut(
+                source=r.source,
+                source_name=r.source_name,
+                first_seen=r.first_seen.isoformat(),
+                last_seen=r.last_seen.isoformat(),
+                count=r.count,
+            )
+            for r in items
+        ],
+        next_cursor=next_cursor,
+    )
 
 
 @router.post(

@@ -152,7 +152,7 @@ def test_tags_types_and_sensor_health(api: dict[str, Any]) -> None:
     assert len(tags) == 4
     assert get(api, "/api/v1/tags", asset="NOPE").status_code == 404
     assert get(api, "/api/v1/asset-types").status_code == 200
-    health = get(api, "/api/v1/sensors/health", asset="EQ-1").json()
+    health = get(api, "/api/v1/sensors/health", asset="EQ-1").json()["items"]
     assert {h["status"] for h in health} == {"Failure"}  # data stopped two days ago
 
 
@@ -241,3 +241,19 @@ def test_errors_are_problem_details(api: dict[str, Any]) -> None:
     wrong = api["client"].delete("/api/v1/assets", headers=api["headers"]["viewer"])
     assert (wrong.status_code, wrong.json()["code"]) == (405, "method_not_allowed")
     assert api["client"].get("/readyz").json() == {"status": "ready"}
+
+
+def test_contributions_at_a_chosen_time_and_unused_periods(api: dict[str, Any]) -> None:
+    """Plan 6.7 (audit): FR-DIA-01 contributions for any timestamp; FR-VIS-02 overlays."""
+    (model,) = get(api, "/api/v1/models").json()
+    at = (LIVE + timedelta(minutes=2, seconds=30)).isoformat()
+    then = get(api, f"/api/v1/models/{model['id']}/latest", at=at).json()
+    assert then["ts"].startswith((LIVE + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M"))
+    assert any(s["contribution"] is not None for s in then["sensors"])
+    naive = get(api, f"/api/v1/models/{model['id']}/latest", at="2026-06-01T00:00:00")
+    assert naive.status_code == 400
+
+    period = {"from": LIVE.isoformat(), "to": (LIVE + timedelta(days=3)).isoformat()}
+    (t1,) = get(api, f"/api/v1/models/{model['id']}/outputs", tags="EQ1.T1", **period).json()
+    assert [(u["status"], u["rule"]) for u in t1["unused"]] == [("Failure", "stale")]
+    assert t1["unused"][0]["start"].startswith((LIVE + timedelta(days=2)).strftime("%Y-%m-%d"))

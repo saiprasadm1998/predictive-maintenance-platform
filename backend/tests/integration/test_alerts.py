@@ -103,6 +103,8 @@ def _raise_one(db: Database) -> int:
 def test_injected_drift_raises_at_the_right_priority_and_clears(db: Database) -> None:
     """Done when (plan 4.2): an injected drift raises an alert at the right priority and
     clears after recovery."""
+    with db.session() as s:
+        audit_before = s.scalar(text("SELECT coalesce(max(id), 0) FROM audit_log"))
     _rules(db, AlertRuleSpec(RuleKind.DI, 50, 80))  # normal DI ~30: below 45
     drift = {name: (lambda i: 100.0 + 3.0 * (i + 1)) for name in DRIFTING}
     _write(db, LIVE + timedelta(minutes=60), 20, **drift)  # slow ramp: no spikes
@@ -143,9 +145,12 @@ def test_injected_drift_raises_at_the_right_priority_and_clears(db: Database) ->
         acknowledge(s, ACTOR, [alert.id], scheduler.clock.now, "seen")  # type: ignore[attr-defined]
         assert get_alert(s, alert.id).state is AlertState.NORMAL
         actions = [e.action for e in alert_history(s, alert.id)]
-        audits = s.scalar(
-            text("SELECT count(*) FROM audit_log WHERE entity = 'alert' AND entity_id = :id"),
-            {"id": str(alert.id)},
+        audits = s.scalar(  # this run's only: the audit log is append-only
+            text(
+                "SELECT count(*) FROM audit_log WHERE entity = 'alert' "
+                "AND entity_id = :id AND id > :before"
+            ),
+            {"id": str(alert.id), "before": audit_before},
         )
     assert actions == ["raise", "escalate", "clear", "acknowledge"]
     assert audits == 4

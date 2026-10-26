@@ -8,6 +8,7 @@ what this file exports, never the module's internal files.
 
 from pmp.alerting.alerts import (
     MAX_SHELVE,
+    SORTS,
     AlertChanged,
     AlertQuery,
     AlertView,
@@ -52,6 +53,7 @@ __all__ = [
     "DEFAULT_SENSOR_ALERT",
     "DEFAULT_SENSOR_WARNING",
     "MAX_SHELVE",
+    "SORTS",
     "AlertChanged",
     "AlertError",
     "AlertQuery",

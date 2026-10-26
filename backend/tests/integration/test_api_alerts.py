@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -245,3 +246,30 @@ def test_a_thousand_alerts_filter_in_under_a_second(api: dict[str, Any]) -> None
     assert unacked == sorted(unacked, reverse=True)  # every unacknowledged alert first
     first = [a["priority"] for a in items[: unacked.count(True)]]
     assert first == sorted(first)  # then by priority
+
+    # Plan 6.7 (audit, FR-ALM-03): other sort orders and age filters, paged the same way.
+    for sort, key, reverse in (("newest", "raised_at", True), ("oldest", "raised_at", False)):
+        one = call(api, "GET", "/api/v1/alerts", "vera", params={"sort": sort, "limit": 300})
+        two = call(
+            api,
+            "GET",
+            "/api/v1/alerts",
+            "vera",
+            params={"sort": sort, "limit": 300, "cursor": one.json()["next_cursor"]},
+        )
+        got = [a[key] for a in one.json()["items"] + two.json()["items"]]
+        assert got == sorted(got, reverse=reverse)
+    severity = call(api, "GET", "/api/v1/alerts", "vera", params={"sort": "severity"}).json()
+    assert severity["items"][0]["severity"] == "Warning"  # all are warnings here
+    recent = call(
+        api,
+        "GET",
+        "/api/v1/alerts",
+        "vera",
+        params={"raised_after": (LIVE + timedelta(minutes=990)).isoformat(), "limit": 1000},
+    ).json()
+    assert {
+        a["raised_at"] >= (LIVE + timedelta(minutes=990)).isoformat() for a in recent["items"]
+    } == {True}
+    bad = call(api, "GET", "/api/v1/alerts", "vera", params={"sort": "nonsense"})
+    assert bad.status_code == 400

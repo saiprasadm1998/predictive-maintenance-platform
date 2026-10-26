@@ -84,6 +84,9 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("GET", "/api/v1/unmapped-tags"): V,
     ("POST", "/api/v1/unmapped-tags/promote"): Permission.REGISTRY,
     ("GET", "/api/v1/sensors/health"): V,
+    ("GET", "/api/v1/alerts/settings"): V,
+    ("GET", "/api/v1/models/{model_id}/versions"): V,
+    ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
     ("GET", "/api/v1/models"): V,
     ("POST", "/api/v1/models"): Permission.MODELS,
     ("GET", "/api/v1/models/{model_id}"): V,
@@ -273,6 +276,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/asset-types", 200)
     pump = call("POST", f"{v1}/asset-types", 201, json={"code": "pump", "name": "Pump"}).json()
     call("POST", f"{v1}/asset-types/{pump['id']}/roles", 201, json={"code": "flow", "name": "Flow"})
+    roles = call("GET", f"{v1}/asset-types/{pump['id']}/roles", 200).json()
+    assert [r["code"] for r in roles] == ["flow"]
     site = call(
         "POST", f"{v1}/assets", 201, json={"code": "SITE-C", "name": "Site C", "level": "site"}
     ).json()
@@ -334,6 +339,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/models/{model['id']}/outputs", 200, params=period)
     call("GET", f"{v1}/models/{model['id']}/status-periods", 200, params=period)
     call("GET", f"{v1}/models/{model['id']}/latest", 200)
+    assert call("GET", f"{v1}/models/{model['id']}/versions", 200).json() == detail["versions"]
+    call("GET", f"{v1}/alerts/settings", 200)
     rules = {"di": {"warning": 15, "alert": 25}, "sensors": [{"tag": "EQ1.T1"}]}
     call("PUT", f"{v1}/models/{model['id']}/alert-rules", 200, json=rules)
     deployed_version = detail["in_service"]["id"]

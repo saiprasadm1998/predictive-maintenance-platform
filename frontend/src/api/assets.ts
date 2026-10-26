@@ -18,6 +18,25 @@ export interface Page<T> {
 }
 
 /** Every asset the user may see (flat, hierarchy order), following the pages. */
+/** Every item of a cursor-paged list, following the pages. */
+export async function fetchAllPages<T>(
+  path: string,
+  signal?: AbortSignal,
+  query: Record<string, string | number | null> = {},
+): Promise<T[]> {
+  const items: T[] = [];
+  let cursor: string | null = null;
+  do {
+    const page: Page<T> = await api<Page<T>>(path, {
+      query: { ...query, limit: 500, cursor },
+      signal,
+    });
+    items.push(...page.items);
+    cursor = page.next_cursor;
+  } while (cursor);
+  return items;
+}
+
 export async function fetchAllAssets(signal?: AbortSignal): Promise<Asset[]> {
   const assets: Asset[] = [];
   let cursor: string | null = null;
