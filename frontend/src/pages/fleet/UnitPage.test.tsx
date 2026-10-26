@@ -13,6 +13,7 @@ vi.mock("../../components/charting", () => ({
       dispose: vi.fn(),
       on: vi.fn(),
       off: vi.fn(),
+      isDisposed: () => false,
       getZr: () => ({ on: vi.fn(), off: vi.fn() }),
     })),
     connect: vi.fn(),

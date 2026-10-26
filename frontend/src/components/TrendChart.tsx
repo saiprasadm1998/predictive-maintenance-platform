@@ -106,11 +106,15 @@ export function TrendChart({
       const t = Array.isArray(value) ? value[0] : value;
       if (typeof t === "number" && Number.isFinite(t)) picked.current(t);
     };
-    instance.getZr().on("click", pick);
+    const zr = instance.getZr();
+    zr.on("click", pick);
     return () => {
       window.clearTimeout(timer);
+      // The chart may already be disposed (unmounting runs the init effect's cleanup first),
+      // and disposing removes its handlers anyway.
+      if (instance.isDisposed()) return;
       instance.off("datazoom", handler);
-      instance.getZr().off("click", pick);
+      zr.off("click", pick);
     };
   }, [group]);
 

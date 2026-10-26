@@ -10,6 +10,7 @@ const fakeChart = {
   dispose: vi.fn(),
   on: vi.fn(),
   off: vi.fn(),
+  isDisposed: () => false,
   getZr: () => ({ on: vi.fn(), off: vi.fn() }),
 };
 
