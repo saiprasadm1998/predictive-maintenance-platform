@@ -16,6 +16,7 @@ dependencies = [
     "python-multipart>=0.0.20",
     "sqlalchemy>=2.0.30",
     "uvicorn>=0.30",
+    "scikit-learn>=1.5",
 ]
 
 [project.scripts]
@@ -67,7 +68,7 @@ files = ["pmp", "tests", "migrations", "tools"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["pyarrow", "pyarrow.*", "jsonschema", "jsonschema.*"]
+module = ["pyarrow", "pyarrow.*", "jsonschema", "jsonschema.*", "sklearn", "sklearn.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------- pytest

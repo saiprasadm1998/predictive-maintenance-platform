@@ -129,7 +129,7 @@ def test_saving_again_updates_the_draft_then_starts_a_new_version(clean_models: 
         ({"sensors": (SensorChoice("EQ2.T1"),)}, "Not tags of EQ-1: EQ2.T1"),
         ({"validation_period": days(30, 70)}, "overlaps the validation period"),
         ({"mode_filters": ("EQ2.T1 > 1",)}, "names tags not on EQ-1"),
-        ({"algorithm": "aakr"}, "Unknown or refused algorithm"),
+        ({"algorithm": "xgboost"}, "Unknown or refused algorithm"),
     ],
 )
 def test_invalid_definitions_save_nothing(

@@ -66,7 +66,7 @@ def test_the_placeholder_is_the_default_and_enabled() -> None:
 @pytest.mark.usefixtures("plugins")
 def test_plugins_that_pass_are_enabled_and_others_refused() -> None:
     found = {d.name: d for d in available_detectors()}
-    assert set(found) == {"median", "good", "bad", "misnamed", "missing"}
+    assert set(found) == {"aakr", "median", "good", "bad", "misnamed", "missing"}
     assert found["good"].enabled
     assert found["good"].version == "1.2.0"
     assert get_detector("good") is GoodPlugin
@@ -87,8 +87,8 @@ def test_refused_detectors_cannot_be_used(name: str, message: str) -> None:
 
 
 def test_unknown_detectors_are_refused() -> None:
-    with pytest.raises(DetectorError, match="No detector named 'aakr'"):
-        get_detector("aakr")
+    with pytest.raises(DetectorError, match="No detector named 'xgboost'"):
+        get_detector("xgboost")
 
 
 @pytest.mark.usefixtures("plugins")

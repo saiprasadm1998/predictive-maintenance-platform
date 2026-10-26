@@ -11,6 +11,13 @@ sensors in a fixed order. A plug-in registers itself in its package's pyproject.
     my_detector = "my_pkg.detector:MyDetector"
 
 and is enabled only if it passes the contract suite (pmp.modelling.algorithms.checks).
+
+Optional step (decision 7.1): a detector may also define
+
+    def calibrate(self, X: pd.DataFrame) -> None
+
+which training calls after fit() with the scaled validation period (UCS §6.3.1 tunes
+AAKR's bandwidth there). Detectors without it are trained exactly as before.
 """
 
 from __future__ import annotations

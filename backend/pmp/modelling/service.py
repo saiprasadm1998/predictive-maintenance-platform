@@ -749,6 +749,9 @@ def run_training(database: Database, version_id: int, artefact_base: Path) -> di
                     if st.scale.range_floored or st.scale.sigma_floored
                 ),
             }
+            learnt = getattr(result.detector, "summary", None)  # e.g. AAKR's memory size
+            if isinstance(learnt, dict):
+                metrics["detector"] = learnt
             version.artefact_path = str(target)
             version.artefact_sha256 = sha
             version.metrics = metrics

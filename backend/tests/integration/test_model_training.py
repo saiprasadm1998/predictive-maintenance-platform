@@ -220,3 +220,36 @@ def test_a_training_job_lost_for_good_leaves_the_version_failed(
         version = get_model(s, "K-101", "main").latest
     assert version.status is VersionStatus.FAILED
     assert version.error == "Training job failed: worker lost: lock expired"
+
+
+def _validation_nrmse(folder: Path) -> float:
+    report = json.loads((folder / "validation.json").read_text())
+    values = [float(s["nrmse"]) for s in report["sensors"].values()]
+    return sum(values) / len(values)
+
+
+def test_aakr_trains_calibrates_and_beats_the_placeholder(models: tuple[Database, Path]) -> None:
+    """Plan 7.1: the same K-101 definition trained with AAKR is validated, calibrated on the
+    validation period, and predicts the hold-out clearly better than the training medians."""
+    db, artefacts = models
+    registry = JobRegistry()
+    registry.register(TRAIN_JOB, make_training_handler(db, artefacts))
+    for name, algorithm in (("placeholder", "median"), ("aakr", "aakr")):
+        with db.session() as s:
+            save_draft(s, ACTOR, replace(DEFINITION, name=name, algorithm=algorithm))
+            start_training(s, ACTOR, "K-101", name)
+        assert Worker(db, registry).run_once()
+    with db.session() as s:
+        median = get_model(s, "K-101", "placeholder").latest
+        aakr = get_model(s, "K-101", "aakr").latest
+    assert aakr.status is VersionStatus.VALIDATED, aakr.error
+    assert aakr.metrics is not None
+    learnt = aakr.metrics["detector"]
+    assert learnt["calibrated"]
+    assert 200 <= learnt["memory_vectors"] <= 1000
+    folder = Path(aakr.artefact_path or "")
+    manifest = json.loads((folder / "manifest.json").read_text())
+    assert manifest["algorithm"] == "aakr"
+    # The demo plant adds independent noise per sensor, which no model can predict: AAKR
+    # still removes well over a third of the error the medians leave.
+    assert _validation_nrmse(folder) < 0.7 * _validation_nrmse(Path(median.artefact_path or ""))

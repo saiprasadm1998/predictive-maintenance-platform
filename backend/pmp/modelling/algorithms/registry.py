@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from importlib.metadata import EntryPoint, entry_points
 from typing import Any
 
+from pmp.modelling.algorithms.aakr import AakrDetector
 from pmp.modelling.algorithms.checks import check_detector
 from pmp.modelling.algorithms.contract import Detector, DetectorError
 from pmp.modelling.algorithms.median import MedianDetector
@@ -20,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "pmp.algorithms"
 DEFAULT_DETECTOR = "median"  # until AAKR replaces it (7.4)
-BUILT_IN: dict[str, type[Any]] = {MedianDetector.name: MedianDetector}
+BUILT_IN: dict[str, type[Any]] = {
+    MedianDetector.name: MedianDetector,
+    AakrDetector.name: AakrDetector,
+}
 
 
 @dataclass(frozen=True)

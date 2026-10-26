@@ -212,6 +212,9 @@ def train(
             "Validation blocked: no usable cycles in the validation period. Choose a period "
             "with data in the operating mode."
         )
+    calibrate = getattr(detector, "calibrate", None)
+    if callable(calibrate):  # the optional contract step (decision 7.1)
+        calibrate(scaled(playback))
     predicted = detector.predict(scaled(playback))
     stats: dict[str, SensorStats] = {}
     for sensor in sensors:
