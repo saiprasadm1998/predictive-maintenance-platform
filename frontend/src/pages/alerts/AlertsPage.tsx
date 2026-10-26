@@ -5,6 +5,7 @@ import { Link, useLocation, useSearchParams } from "react-router-dom";
 
 import {
   acknowledgeAlerts,
+  fetchAlertSettings,
   fetchAllAlerts,
   fetchPriorityMatrix,
   shelveAlerts,
@@ -27,8 +28,10 @@ import {
   KINDS,
   PRIORITIES,
   SEVERITIES,
+  SORTS,
   STATES,
   type SavedFilter,
+  type Sort,
   allowed,
   filterQuery,
   liveView,
@@ -37,6 +40,7 @@ import {
   modelText,
   persistenceText,
   readFilter,
+  shelveChoices,
   storeSaved,
   toApiFilter,
   writeFilter,
@@ -44,14 +48,13 @@ import {
 import { FilterMenu } from "./FilterMenu";
 
 const ROW_HEIGHT = 40;
-const SHELVE_FOR = [
-  [60, "1 hour"],
-  [4 * 60, "4 hours"],
-  [8 * 60, "8 hours"],
-  [24 * 60, "24 hours"],
-  [3 * 24 * 60, "3 days"],
-  [7 * 24 * 60, "7 days (the most allowed)"],
-] as const;
+const SORT_TEXT: Record<Sort, string> = {
+  default: "unacknowledged first, then priority, then age",
+  newest: "newest first",
+  oldest: "oldest first",
+  priority: "by priority, then age",
+  severity: "by severity, then age",
+};
 const STATE_LABELS = new Map<string, string>(STATES.map(([v, l]) => [v, l]));
 const KIND_LABELS = new Map<string, string>(KINDS.map(([v, l]) => [v, l]));
 
@@ -120,6 +123,12 @@ export function AlertsPage() {
   });
   const [dialog, setDialog] = useState<null | "ack" | "shelve" | "unshelve">(null);
   const [minutes, setMinutes] = useState<number>(8 * 60);
+  const settings = useQuery({
+    queryKey: ["alerts", "settings"],
+    queryFn: ({ signal }) => fetchAlertSettings(signal),
+    staleTime: Infinity,
+  });
+  const choices = shelveChoices(settings.data?.max_shelve_days ?? 7);
 
   // saved filters
   const [saved, setSaved] = useState<SavedFilter[]>([]);
@@ -222,6 +231,20 @@ export function AlertsPage() {
             }
           />
           <label className="field-inline">
+            <span>Sort</span>
+            <select
+              className="control"
+              value={filter.sort}
+              onChange={(e) => update({ sort: e.target.value as Sort })}
+            >
+              {SORTS.map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-inline">
             <input
               type="checkbox"
               checked={filter.closed}
@@ -314,7 +337,7 @@ export function AlertsPage() {
           <div className="panel-head">
             <h2 id="alerts-title" className="panel-title">
               Alerts ({shown.rows.length}
-              {list.data?.truncated ? "+" : ""}) · unacknowledged first, then priority, then age
+              {list.data?.truncated ? "+" : ""}) · {SORT_TEXT[filter.sort]}
             </h2>
             {shown.incoming > 0 && (
               <button
@@ -466,7 +489,7 @@ export function AlertsPage() {
             value={minutes}
             onChange={(e) => setMinutes(Number(e.target.value))}
           >
-            {SHELVE_FOR.map(([m, text]) => (
+            {choices.map(([m, text]) => (
               <option key={m} value={m}>
                 {text}
               </option>

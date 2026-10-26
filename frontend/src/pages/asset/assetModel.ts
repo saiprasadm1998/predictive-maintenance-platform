@@ -83,7 +83,12 @@ export function sensorChartData(
       : predicted
           .filter((p): p is [number, number] => p[1] !== null)
           .map(([t, v]) => [t, v - width, v + width] as [number, number, number]);
-  return { actual, predicted, band, alerts };
+  const excluded = (trend.unused ?? []).map((u) => ({
+    from: Date.parse(u.start),
+    to: Date.parse(u.end) + 60_000, // the last unused cycle covers its minute
+    reason: `not used in scoring (${u.status}${u.rule ? `, ${u.rule.replace(/_/g, " ")}` : ""})`,
+  }));
+  return { actual, predicted, band, alerts, excluded };
 }
 
 /** Alert bars under the time axis: from raise to close (or until now). */

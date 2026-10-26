@@ -6,6 +6,12 @@ import { type TrendData, type TrendSettings, trendOptions } from "./trendOptions
 
 const MAX_TABLE_ROWS = 2000;
 
+/** Values to six significant digits, without trailing zeros ("12.3457", "0.00123"). */
+function tableValue(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return Number(value.toPrecision(6)).toString();
+}
+
 /**
  * The one time-series chart (PDS §3.4, §5, §9). It enforces the chart conventions through
  * `trendOptions`, shares cursor and zoom with the other charts of its `group` (all charts on
@@ -19,6 +25,8 @@ export function TrendChart({
   height = 220,
   group = "page",
   loading = false,
+  onZoom,
+  onPick,
 }: {
   title: string;
   data: TrendData;
@@ -26,6 +34,10 @@ export function TrendChart({
   height?: number;
   group?: string;
   loading?: boolean;
+  /** Called (debounced) with the visible window after a zoom or pan, to fetch finer data. */
+  onZoom?: (from: number, to: number) => void;
+  /** Called with the time under a click, to show what the page knows at that moment. */
+  onPick?: (t: number) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -61,6 +73,44 @@ export function TrendChart({
       resize.disconnect();
       instance.dispose();
       chart.current = null;
+    };
+  }, [group]);
+
+  // A zoom or pan reports the window it settles on, so the page can fetch finer data.
+  const zoomed = useRef(onZoom);
+  const picked = useRef(onPick);
+  useEffect(() => {
+    zoomed.current = onZoom;
+    picked.current = onPick;
+  }, [onZoom, onPick]);
+  useEffect(() => {
+    const instance = chart.current;
+    if (!instance) return;
+    let timer: number | undefined;
+    const handler = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const zoom = (
+          instance.getOption() as { dataZoom?: { startValue?: number; endValue?: number }[] }
+        ).dataZoom?.[0];
+        if (zoom?.startValue !== undefined && zoom.endValue !== undefined)
+          zoomed.current?.(Number(zoom.startValue), Number(zoom.endValue));
+      }, 400);
+    };
+    instance.on("datazoom", handler);
+    const pick = (event: { offsetX: number; offsetY: number }) => {
+      if (!picked.current) return;
+      const point = [event.offsetX, event.offsetY];
+      if (!instance.containPixel({ gridIndex: 0 }, point)) return;
+      const value = instance.convertFromPixel({ xAxisIndex: 0 }, point) as number | number[];
+      const t = Array.isArray(value) ? value[0] : value;
+      if (typeof t === "number" && Number.isFinite(t)) picked.current(t);
+    };
+    instance.getZr().on("click", pick);
+    return () => {
+      window.clearTimeout(timer);
+      instance.off("datazoom", handler);
+      instance.getZr().off("click", pick);
     };
   }, [group]);
 
@@ -109,7 +159,7 @@ export function TrendChart({
 
   const point = position >= 0 ? data.actual[position] : undefined;
   const pointText = point
-    ? `${formatDateTime(new Date(point[0]))}: ${point[1] ?? "no value"} ${point[1] === null ? "" : settings.unit}`.trim()
+    ? `${formatDateTime(new Date(point[0]))}: ${point[1] === null ? "no value" : tableValue(point[1])} ${point[1] === null ? "" : settings.unit}`.trim()
     : "No point selected";
   const rows = data.actual.slice(-MAX_TABLE_ROWS);
   const predicted = new Map(data.predicted?.map(([t, v]) => [t, v]));
@@ -168,9 +218,9 @@ export function TrendChart({
               {rows.map(([t, v]) => (
                 <tr key={t}>
                   <td title={formatIso(new Date(t))}>{formatDateTime(new Date(t))}</td>
-                  <td className="num">{v ?? "—"}</td>
+                  <td className="num">{tableValue(v)}</td>
                   {data.predicted?.length ? (
-                    <td className="num">{predicted.get(t) ?? "—"}</td>
+                    <td className="num">{tableValue(predicted.get(t))}</td>
                   ) : null}
                 </tr>
               ))}

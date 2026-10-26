@@ -12,6 +12,7 @@ export interface AlertFilter {
   severities?: readonly string[];
   kind?: "di" | "sensor";
   cursor?: string | null;
+  sort?: string;
 }
 
 function alertQuery(filter: AlertFilter): string {
@@ -21,6 +22,7 @@ function alertQuery(filter: AlertFilter): string {
   if (filter.includeClosed) params.set("include_closed", "true");
   if (filter.kind) params.set("kind", filter.kind);
   if (filter.cursor) params.set("cursor", filter.cursor);
+  if (filter.sort && filter.sort !== "default") params.set("sort", filter.sort);
   params.set("limit", String(filter.limit ?? 100));
   for (const s of filter.states ?? []) params.append("state", s);
   for (const p of filter.priorities ?? []) params.append("priority", p);
@@ -47,6 +49,11 @@ export async function fetchAllAlerts(
     cursor = page.next_cursor;
   } while (cursor && items.length < max);
   return { items, truncated: cursor !== null };
+}
+
+/** UCS §6.6: the configured longest shelf. */
+export function fetchAlertSettings(signal?: AbortSignal): Promise<{ max_shelve_days: number }> {
+  return api<{ max_shelve_days: number }>("/alerts/settings", { signal });
 }
 
 export function fetchAlert(id: number, signal?: AbortSignal): Promise<AlertDetail> {

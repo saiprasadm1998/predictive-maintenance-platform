@@ -188,6 +188,7 @@ export async function mockApi(
     if (path === "/models") return json(route, models);
     const method = route.request().method();
     if (path === "/alerts") return json(route, { items: alerts, next_cursor: null });
+    if (path === "/alerts/settings") return json(route, { max_shelve_days: 7 });
     if (path === "/priority-matrix") {
       return json(route, [
         { criticality: "A", severity: "Alert", priority: "P1" },

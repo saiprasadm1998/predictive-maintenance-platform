@@ -133,6 +133,23 @@ describe("chart data", () => {
     expect(sensorChartData(bucketed, sensor("TI1012", 1, 1, { sigma: null })).band).toBeUndefined();
   });
 
+  it("shades the cycles a sensor was left out of scoring", () => {
+    const trend = {
+      ...bucketed,
+      unused: [
+        {
+          start: new Date(T0).toISOString(),
+          end: new Date(T0 + 120_000).toISOString(),
+          status: "Failure",
+          rule: "flatline",
+        },
+      ],
+    };
+    expect(sensorChartData(trend, undefined).excluded).toEqual([
+      { from: T0, to: T0 + 180_000, reason: "not used in scoring (Failure, flatline)" },
+    ]);
+  });
+
   it("ends an alert bar when its condition cleared", () => {
     const [cleared, active] = alertPeriods(
       [

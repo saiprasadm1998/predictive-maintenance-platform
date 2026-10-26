@@ -34,6 +34,7 @@ const ACTIONS: Record<string, string> = {
   unshelve_normal: "Shelf ended (closed)",
   out_of_service: "Out of service",
   return_to_service: "Back in service",
+  rule_removed: "Closed: rule removed or switched off",
 };
 
 /**
@@ -57,6 +58,7 @@ export function AlertDetailPanel({
     queryFn: ({ signal }) => fetchAlert(id, signal),
   });
   const [acking, setAcking] = useState(false);
+  const [unshelving, setUnshelving] = useState(false);
   const act = useMutation({
     mutationFn: (run: () => Promise<unknown>) => run(),
     onSuccess: onChanged,
@@ -86,9 +88,21 @@ export function AlertDetailPanel({
           alert={a}
           carried={carried}
           onAck={() => setAcking(true)}
-          onUnshelve={() => void act.mutateAsync(() => unshelveAlerts([a.id]))}
+          onUnshelve={() => setUnshelving(true)}
         />
       ) : null}
+      {a && (
+        <ConfirmDialog
+          open={unshelving}
+          onOpenChange={setUnshelving}
+          title={`Unshelve alert ${a.id}`}
+          consequence="The shelf ends now: the alert shows as active again if its condition still holds, otherwise it closes."
+          confirmLabel="Unshelve"
+          onConfirm={async () => {
+            await act.mutateAsync(() => unshelveAlerts([a.id]));
+          }}
+        />
+      )}
       {a && (
         <ConfirmDialog
           open={acking}

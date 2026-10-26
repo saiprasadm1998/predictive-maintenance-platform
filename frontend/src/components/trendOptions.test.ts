@@ -125,11 +125,21 @@ describe("tooltip", () => {
     ]);
     expect(html).not.toContain("Expected band");
     expect(html).toContain("TI&#60;1&#62;: <b>80.12 &#60;b&#62;°C</b>");
+    expect(html).toContain(new Date(T0).toISOString().slice(0, 16)); // PDS §7: full ISO time
     expect(escapeHtml(`"'&`)).toBe("&#34;&#39;&#38;");
   });
 });
 
 describe("y axis", () => {
+  it("takes a fixed axis when given one (Health: 0 to 100)", () => {
+    const option = trendOptions(
+      { actual: [[T0, 40]] },
+      { unit: "", from: T0, to: T0 + MIN, axis: { min: 0, max: 100, interval: 25 } },
+      COLORS,
+    ) as { yAxis: { min: unknown; max: unknown; interval: unknown }[] };
+    expect(option.yAxis[0]).toMatchObject({ min: 0, max: 100, interval: 25 });
+  });
+
   it("keeps the limits in view even when the data is far from them", () => {
     const option = trendOptions(
       {

@@ -1,5 +1,5 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { acknowledgeAlerts, fetchAlerts } from "../../api/alerts";
@@ -40,6 +40,7 @@ import {
 
 const CHART_PX = 800;
 const MAX_CHARTS = 6;
+const HEALTH_AXIS = { min: 0, max: 100, interval: 25 };
 
 /**
  * SCR-03 Asset analysis (PDS §4.3, UC-09, FR-VIS-02, FR-DIA-01, FR-DQ-02): what is abnormal
@@ -78,11 +79,6 @@ export function AssetPage() {
     queryFn: ({ signal }) => fetchModel(modelId!, signal),
     enabled: modelId !== null,
   });
-  const latest = useQuery({
-    queryKey: ["models", "latest", modelId, version],
-    queryFn: ({ signal }) => fetchLatest(modelId!, version, signal),
-    enabled: modelId !== null,
-  });
   const alerts = useQuery({
     queryKey: ["alerts", "model", modelId],
     queryFn: ({ signal }) =>
@@ -101,13 +97,56 @@ export function AssetPage() {
     }
   }, [linked, hasRange, setCustom]);
 
+  // Contributors at a chosen time (?at=ISO, set by a click on a chart), at a linked alert's
+  // raise, or at the latest cycle (?at=latest after "Back to latest").
+  const atParam = params.get("at");
+  const at = atParam === "latest" ? null : (atParam ?? linked?.raised_at ?? null);
+  const latest = useQuery({
+    queryKey: ["models", "latest", modelId, version, at],
+    queryFn: ({ signal }) => fetchLatest(modelId!, version, signal, at),
+    enabled: modelId !== null,
+  });
+  function pickTime(t: number) {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("at", new Date(t).toISOString());
+      return next;
+    });
+  }
+  function backToLatest() {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      if (next.has("alert")) next.set("at", "latest");
+      else next.delete("at");
+      return next;
+    });
+  }
+
   const from = range.from;
   const to = range.to;
-  const rangeKey = [from.toISOString(), to.toISOString()];
+  // A zoomed window fetches its own, finer data (PDS §5); the axis keeps the whole range.
+  const [zoom, setZoom] = useState<{ from: number; to: number } | null>(null);
+  const zoomKey = `${from.getTime()}-${to.getTime()}`;
+  const [zoomFor, setZoomFor] = useState(zoomKey);
+  if (zoomFor !== zoomKey) {
+    setZoomFor(zoomKey);
+    setZoom(null);
+  }
+  const onZoom = useCallback(
+    (a: number, b: number) => {
+      const whole = a <= from.getTime() + 1000 && b >= to.getTime() - 1000;
+      setZoom(whole ? null : { from: a, to: b });
+    },
+    [from, to],
+  );
+  const fetchFrom = zoom ? new Date(zoom.from) : from;
+  const fetchTo = zoom ? new Date(zoom.to) : to;
+  const rangeKey = [fetchFrom.toISOString(), fetchTo.toISOString()];
   const scores = useQuery({
     queryKey: ["scores", modelId, version, ...rangeKey],
-    queryFn: ({ signal }) => fetchScores(modelId!, from, to, CHART_PX, signal, version),
+    queryFn: ({ signal }) => fetchScores(modelId!, fetchFrom, fetchTo, CHART_PX, signal, version),
     enabled: modelId !== null,
+    placeholderData: keepPreviousData,
   });
   const periods = useQuery({
     queryKey: ["models", "periods", modelId, version, ...rangeKey],
@@ -124,8 +163,10 @@ export function AssetPage() {
   }, [params, contributors]);
   const outputs = useQuery({
     queryKey: ["scores", "outputs", modelId, version, chosen.join(","), ...rangeKey],
-    queryFn: ({ signal }) => fetchOutputs(modelId!, chosen, from, to, CHART_PX, version, signal),
+    queryFn: ({ signal }) =>
+      fetchOutputs(modelId!, chosen, fetchFrom, fetchTo, CHART_PX, version, signal),
     enabled: modelId !== null && chosen.length > 0,
+    placeholderData: keepPreviousData,
   });
 
   function toggleSensor(name: string) {
@@ -254,21 +295,30 @@ export function AssetPage() {
             }}
             settings={{ ...settings, unit: "%", actualName: "DI" }}
             height={210}
-            loading={scores.isPending}
+            loading={scores.isFetching}
+            onZoom={onZoom}
+            onPick={pickTime}
           />
           <TrendChart
             title="Health score"
             data={{ actual: scores.data ? linePoints(scores.data, "health") : [], excluded }}
-            settings={{ ...settings, unit: "", actualName: "Health" }}
+            settings={{ ...settings, unit: "", actualName: "Health", axis: HEALTH_AXIS }}
             height={120}
-            loading={scores.isPending}
+            loading={scores.isFetching}
+            onZoom={onZoom}
+            onPick={pickTime}
           />
         </section>
 
         <section className="panel" aria-labelledby="contrib-title">
           <h2 id="contrib-title" className="panel-title">
-            Top contributors now
+            {at ? `Top contributors at ${formatDateTime(new Date(at))}` : "Top contributors now"}
           </h2>
+          {at && (
+            <button type="button" className="link-button" onClick={backToLatest}>
+              Back to the latest cycle
+            </button>
+          )}
           {latest.isPending ? (
             <Skeleton rows={5} />
           ) : contributors.length === 0 ? (
@@ -304,7 +354,10 @@ export function AssetPage() {
               ))}
             </ul>
           )}
-          <p className="muted small">Select a sensor to chart it; select it again to remove it.</p>
+          <p className="muted small">
+            Select a sensor to chart it; select it again to remove it. Click a chart to see the
+            contributors at that time.
+          </p>
         </section>
 
         <section className="panel" aria-label="Sensors">
@@ -321,6 +374,8 @@ export function AssetPage() {
                   data={sensorChartData(trend, sensor, alertBars)}
                   settings={{ ...settings, unit: sensor?.unit ?? "", actualName: "Actual" }}
                   height={170}
+                  onZoom={onZoom}
+                  onPick={pickTime}
                 />
               );
             })}

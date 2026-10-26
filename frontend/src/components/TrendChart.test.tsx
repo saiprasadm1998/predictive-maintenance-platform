@@ -8,6 +8,9 @@ const fakeChart = {
   dispatchAction: vi.fn(),
   resize: vi.fn(),
   dispose: vi.fn(),
+  on: vi.fn(),
+  off: vi.fn(),
+  getZr: () => ({ on: vi.fn(), off: vi.fn() }),
 };
 
 vi.mock("./charting", () => ({

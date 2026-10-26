@@ -42,8 +42,9 @@ export function fetchLatest(
   id: number,
   version: number | null,
   signal?: AbortSignal,
+  at: string | null = null,
 ): Promise<LatestCycle> {
-  return api<LatestCycle>(`/models/${id}/latest`, { query: { version }, signal });
+  return api<LatestCycle>(`/models/${id}/latest`, { query: { version, at }, signal });
 }
 
 export function fetchStatusPeriods(

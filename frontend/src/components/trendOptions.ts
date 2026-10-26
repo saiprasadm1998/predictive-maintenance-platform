@@ -1,6 +1,6 @@
 import type { EChartsCoreOption } from "echarts/core";
 
-import { formatDateTime, formatTime } from "../app/format";
+import { formatDateTime, formatIso, formatTime } from "../app/format";
 import type { ChartColors } from "./charting";
 
 /**
@@ -37,6 +37,8 @@ export interface TrendSettings {
   from: number;
   to: number;
   actualName?: string;
+  /** A fixed value axis (Health: 0 to 100 with a tick every 25). */
+  axis?: { min: number; max: number; interval: number };
 }
 
 const ALERT_BAR_HEIGHT = 10;
@@ -252,8 +254,9 @@ export function trendOptions(
       {
         type: "value",
         scale: true,
+        ...(settings.axis ?? {}),
         // Limits always in view, so a value's distance to them can be read.
-        ...(limitValues.length
+        ...(limitValues.length && !settings.axis
           ? {
               min: (v: { min: number }) => {
                 const low = Math.min(v.min, ...limitValues);
@@ -281,7 +284,9 @@ export function trendOptions(
         );
         const first = rows[0];
         if (!first) return "";
-        const head = formatDateTime(new Date(first.value[0]));
+        // PDS §7: the tooltip gives the full ISO 8601 time as well.
+        const at = new Date(first.value[0]);
+        const head = `${formatDateTime(at)}<br/><span style="opacity:.7">${formatIso(at)}</span>`;
         const lines = rows.map(
           (p) =>
             `${p.marker}${escapeHtml(p.seriesName)}: <b>${escapeHtml(unitText(p.value[1]))}</b>`,

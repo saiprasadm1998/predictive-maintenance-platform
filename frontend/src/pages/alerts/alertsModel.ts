@@ -12,6 +12,15 @@ export const STATES = [
 ] as const;
 export const PRIORITIES = ["P1", "P2", "P3", "P4"] as const;
 export const SEVERITIES = ["Alert", "Warning"] as const;
+/** The server's sort orders (default: unacknowledged first, then priority, then age). */
+export const SORTS = [
+  ["default", "Unacknowledged first"],
+  ["newest", "Newest first"],
+  ["oldest", "Oldest first"],
+  ["priority", "Priority"],
+  ["severity", "Severity"],
+] as const;
+export type Sort = (typeof SORTS)[number][0];
 export const KINDS = [
   ["di", "Deviation Index"],
   ["sensor", "Sensor residual"],
@@ -25,14 +34,16 @@ export interface ListFilter {
   severities: string[];
   kind: "di" | "sensor" | null;
   closed: boolean;
+  sort: Sort;
 }
 
-const KEYS = ["scope", "state", "priority", "severity", "kind", "closed"] as const;
+const KEYS = ["scope", "state", "priority", "severity", "kind", "closed", "sort"] as const;
 
 export function readFilter(params: URLSearchParams): ListFilter {
   const list = (key: string, allowed: readonly string[]) =>
     params.getAll(key).filter((v) => allowed.includes(v));
   const kind = params.get("kind");
+  const sort = SORTS.find(([v]) => v === params.get("sort"))?.[0] ?? "default";
   return {
     scope: params.get("scope") || null,
     states: list(
@@ -43,6 +54,7 @@ export function readFilter(params: URLSearchParams): ListFilter {
     severities: list("severity", SEVERITIES),
     kind: kind === "di" || kind === "sensor" ? kind : null,
     closed: params.get("closed") === "true",
+    sort,
   };
 }
 
@@ -56,6 +68,7 @@ export function writeFilter(params: URLSearchParams, filter: ListFilter): URLSea
   filter.severities.forEach((s) => next.append("severity", s));
   if (filter.kind) next.set("kind", filter.kind);
   if (filter.closed) next.set("closed", "true");
+  if (filter.sort !== "default") next.set("sort", filter.sort);
   return next;
 }
 
@@ -67,6 +80,7 @@ export function toApiFilter(filter: ListFilter): AlertFilter {
     severities: filter.severities,
     kind: filter.kind ?? undefined,
     includeClosed: filter.closed,
+    sort: filter.sort,
   };
 }
 
@@ -158,6 +172,23 @@ export function modelText(alert: Alert): string {
   return `${alert.asset_code}${alert.version ? ` v${alert.version}` : ""} · ${rule}`;
 }
 
+const SHELVE_FOR: readonly (readonly [number, string])[] = [
+  [60, "1 hour"],
+  [4 * 60, "4 hours"],
+  [8 * 60, "8 hours"],
+  [24 * 60, "24 hours"],
+  [3 * 24 * 60, "3 days"],
+  [7 * 24 * 60, "7 days"],
+  [14 * 24 * 60, "14 days"],
+  [30 * 24 * 60, "30 days"],
+];
+
+/** The shelf lengths up to the configured maximum, the longest one marked. */
+export function shelveChoices(maxDays: number): (readonly [number, string])[] {
+  const max = maxDays * 24 * 60;
+  const choices = SHELVE_FOR.filter(([m]) => m < max);
+  return [...choices, [max, `${maxDays} day${maxDays === 1 ? "" : "s"} (the most allowed)`]];
+}
 /** What the selection allows (bulk actions are all or nothing on the server). */
 export function allowed(selected: readonly Alert[]) {
   const any = selected.length > 0;
@@ -167,9 +198,12 @@ export function allowed(selected: readonly Alert[]) {
       selected.every(
         (a) => a.state === "Active-Unacknowledged" || a.state === "RTN-Unacknowledged",
       ),
+    // UCS Figure 6: only an active alert can be shelved.
     shelve:
       any &&
-      selected.every((a) => a.state !== "Shelved" && a.state !== "Out of service" && !a.closed_at),
+      selected.every(
+        (a) => a.state === "Active-Unacknowledged" || a.state === "Active-Acknowledged",
+      ),
     unshelve: any && selected.every((a) => a.state === "Shelved"),
   };
 }

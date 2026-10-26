@@ -225,6 +225,8 @@ export interface StatusPeriod {
 export interface SensorTrend extends Trend {
   tag_id: number;
   source_name: string;
+  /** Cycles the sensor was left out of scoring, with its NE 107 status then. */
+  unused?: { start: string; end: string; status: string; rule: string | null }[];
 }
 
 /** A model definition as saved (POST /models) or previewed; times are ISO 8601. */

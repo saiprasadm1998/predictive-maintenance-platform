@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 
 /**
@@ -17,6 +17,8 @@ const PRESET_MS: Record<Preset, number> = {
   "30d": 30 * 86_400_000,
   "90d": 90 * 86_400_000,
 };
+
+export const SLIDE_MS = 60_000;
 
 export const PRESET_LABELS: Record<Preset, string> = {
   "1h": "Last 1 hour",
@@ -64,7 +66,18 @@ export function timeRangeParams(params: URLSearchParams): URLSearchParams {
 
 export function useTimeRange() {
   const [params, setParams] = useSearchParams();
-  const range = useMemo(() => resolveTimeRange(params), [params]);
+  // A preset ("last 7 days") slides with the clock once a minute, the scoring cycle, so new
+  // scores stay in view; a custom from/to stays where it was put.
+  const sliding = !(params.get("from") && params.get("to"));
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!sliding) return;
+    const timer = window.setInterval(() => setTick((t) => t + 1), SLIDE_MS);
+    return () => window.clearInterval(timer);
+  }, [sliding]);
+  // tick: a new "now" each minute
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const range = useMemo(() => resolveTimeRange(params), [params, tick]);
   const setPreset = useCallback(
     (preset: Preset) =>
       setParams(

@@ -12,6 +12,7 @@ import {
   readFilter,
   storeSaved,
   toApiFilter,
+  shelveChoices,
   writeFilter,
 } from "./alertsModel";
 
@@ -21,7 +22,7 @@ const alert = (extra: Partial<Alert>): Alert => ({ ...base, ...extra });
 describe("filters in the URL", () => {
   it("reads, ignores unknown values and writes back without touching other parameters", () => {
     const params = new URLSearchParams(
-      "state=Shelved&state=Bogus&priority=P1&severity=Alert&kind=sensor&scope=SA-AMM&closed=true&range=24h",
+      "state=Shelved&state=Bogus&priority=P1&severity=Alert&kind=sensor&scope=SA-AMM&closed=true&sort=newest&range=24h",
     );
     const filter = readFilter(params);
     expect(filter).toEqual({
@@ -31,7 +32,9 @@ describe("filters in the URL", () => {
       severities: ["Alert"],
       kind: "sensor",
       closed: true,
+      sort: "newest",
     });
+    expect(readFilter(new URLSearchParams("sort=bogus")).sort).toBe("default");
     const written = writeFilter(params, { ...filter, priorities: [], closed: false });
     expect(written.get("range")).toBe("24h");
     expect(written.getAll("priority")).toEqual([]);
@@ -40,7 +43,9 @@ describe("filters in the URL", () => {
       asset: "SA-AMM",
       includeClosed: true,
       kind: "sensor",
+      sort: "newest",
     });
+    expect(writeFilter(params, { ...filter, sort: "default" }).has("sort")).toBe(false);
   });
 
   it("labels a filter button as the wireframe does", () => {
@@ -98,6 +103,15 @@ describe("rows and actions", () => {
     expect(allowed([unack])).toEqual({ ack: true, shelve: true, unshelve: false });
     expect(allowed([unack, acked])).toEqual({ ack: false, shelve: true, unshelve: false });
     expect(allowed([shelved])).toEqual({ ack: false, shelve: false, unshelve: true });
+    const rtn = alert({ state: "RTN-Unacknowledged" });
+    expect(allowed([rtn])).toEqual({ ack: true, shelve: false, unshelve: false });
     expect(allowed([])).toEqual({ ack: false, shelve: false, unshelve: false });
+  });
+
+  it("offers shelf lengths up to the configured maximum", () => {
+    const seven = shelveChoices(7);
+    expect(seven.at(-1)).toEqual([7 * 24 * 60, "7 days (the most allowed)"]);
+    expect(seven.some(([m]) => m > 7 * 24 * 60)).toBe(false);
+    expect(shelveChoices(1).map(([m]) => m)).toEqual([60, 240, 480, 1440]);
   });
 });
