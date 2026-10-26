@@ -185,6 +185,7 @@ export interface SensorHealth {
   effect: string;
   since: string;
   evaluated_at: string;
+  models: string[]; // models whose version in service scores it
 }
 
 export function fetchSensorHealth(signal?: AbortSignal): Promise<SensorHealth[]> {

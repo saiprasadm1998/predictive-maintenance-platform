@@ -154,6 +154,7 @@ def test_tags_types_and_sensor_health(api: dict[str, Any]) -> None:
     assert get(api, "/api/v1/asset-types").status_code == 200
     health = get(api, "/api/v1/sensors/health", asset="EQ-1").json()["items"]
     assert {h["status"] for h in health} == {"Failure"}  # data stopped two days ago
+    assert all(h["models"] for h in health), "each sensor names the model scoring it"
 
 
 def test_models_with_runtime_and_rules(api: dict[str, Any]) -> None:

@@ -59,6 +59,23 @@ export function filterByBand(roots: readonly AssetNode[], band: Band): AssetNode
   return roots.map(keep).filter((n): n is AssetNode => n !== null);
 }
 
+export type TreeSort = "name" | "band" | "health";
+const BAND_RANK: Record<string, number> = { Alert: 0, Watch: 1, Unknown: 2, Healthy: 3 };
+
+/** Siblings worst first (band, then Health) or by name; the hierarchy itself stays. */
+export function sortTree(roots: readonly AssetNode[], sort: TreeSort): AssetNode[] {
+  if (sort === "name") return [...roots];
+  const rank = (n: AssetNode) => (n.band ? (BAND_RANK[n.band] ?? 4) : 5);
+  const health = (n: AssetNode) => n.health ?? Number.POSITIVE_INFINITY;
+  const compare = (a: AssetNode, b: AssetNode) =>
+    sort === "band"
+      ? rank(a) - rank(b) || health(a) - health(b) || a.name.localeCompare(b.name)
+      : health(a) - health(b) || rank(a) - rank(b) || a.name.localeCompare(b.name);
+  const order = (nodes: readonly AssetNode[]): AssetNode[] =>
+    [...nodes].sort(compare).map((n) => ({ ...n, children: order(n.children) }));
+  return order(roots);
+}
+
 /** Every branch with children, for "expand all" under a filter. */
 export function allBranches(roots: readonly AssetNode[]): Set<number> {
   return new Set(

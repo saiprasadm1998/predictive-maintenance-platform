@@ -15,11 +15,14 @@ import { useAnnounce } from "../../app/liveContext";
 import { Skeleton } from "../fleet/FleetPage";
 import { Field, Problems } from "./common";
 import { emptyTag, tagProblems } from "./registryModel";
+import { UnsavedChanges } from "../../components/UnsavedChanges";
+import { useRowKeys } from "../../components/tableKeys";
 
 const SHOWN = 500;
 
 /** FR-REG-02: every registered tag, filtered by asset or text, with edit and register. */
 export function TagsTab({ editable }: { editable: boolean }) {
+  const rowKeys = useRowKeys();
   const tags = useQuery({
     queryKey: ["tags", "all"],
     queryFn: ({ signal }) => fetchAllTags(signal),
@@ -85,7 +88,7 @@ export function TagsTab({ editable }: { editable: boolean }) {
             )}
           </div>
         </div>
-        <table className="tree-table">
+        <table ref={rowKeys} className="tree-table">
           <caption className="visually-hidden">Registered tags</caption>
           <thead>
             <tr>
@@ -213,6 +216,8 @@ export function TagForm({
       onDone();
     },
   });
+  const [snapshot] = useState(() => JSON.stringify(form));
+  const dirty = !save.isSuccess && JSON.stringify(form) !== snapshot;
   const problems = tagProblems(form);
   const number = (key: "range_lo" | "range_hi" | "interval_s") => ({
     value: Number.isFinite(form[key]) ? form[key] : "",
@@ -225,6 +230,7 @@ export function TagForm({
       <h2 id="tag-form-title" className="panel-title">
         {tag ? `Edit ${tag.source_name}` : promote ? "Register an unmapped tag" : "Register a tag"}
       </h2>
+      <UnsavedChanges dirty={dirty} />
       <form
         className="form-grid"
         onSubmit={(e) => {

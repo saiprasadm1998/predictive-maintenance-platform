@@ -106,6 +106,12 @@ export function AssetPage() {
     queryFn: ({ signal }) => fetchLatest(modelId!, version, signal, at),
     enabled: modelId !== null,
   });
+  // The summary always describes the latest cycle, whatever time the contributors show.
+  const latestNow = useQuery({
+    queryKey: ["models", "latest", modelId, version, null],
+    queryFn: ({ signal }) => fetchLatest(modelId!, version, signal, null),
+    enabled: modelId !== null,
+  });
   function pickTime(t: number) {
     setParams((current) => {
       const next = new URLSearchParams(current);
@@ -277,7 +283,8 @@ export function AssetPage() {
           </h2>
           <Summary
             model={m}
-            latest={latest.data}
+            latest={latestNow.data}
+            checkedAt={latestNow.dataUpdatedAt}
             alert={worstAlert(alerts.data?.items ?? [])}
             version={version}
             onVersion={chooseVersion}
@@ -285,6 +292,9 @@ export function AssetPage() {
         </section>
 
         <section className="panel" aria-label="Deviation Index and Health">
+          {scores.isError && (
+            <p role="alert">The scores could not be loaded: {scores.error.message}</p>
+          )}
           <TrendChart
             title={`Deviation Index (%)${diRule ? ` · warning ${diRule.warning} · alert ${diRule.alert}` : ""} · shaded = not scored normally`}
             data={{
@@ -321,6 +331,8 @@ export function AssetPage() {
           )}
           {latest.isPending ? (
             <Skeleton rows={5} />
+          ) : latest.isError ? (
+            <p role="alert">The contributors could not be loaded: {latest.error.message}</p>
           ) : contributors.length === 0 ? (
             <p className="muted">No deviation to explain at the latest cycle.</p>
           ) : (
@@ -362,6 +374,9 @@ export function AssetPage() {
 
         <section className="panel" aria-label="Sensors">
           <div className="multiples">
+            {outputs.isError && (
+              <p role="alert">The sensor trends could not be loaded: {outputs.error.message}</p>
+            )}
             {chosen.length === 0 && (
               <p className="muted">Choose a sensor below or among the contributors to chart it.</p>
             )}
@@ -417,9 +432,11 @@ function Summary({
   alert,
   version,
   onVersion,
+  checkedAt,
 }: {
   model: ModelDetail | undefined;
   latest: { ts: string | null; version: number; sensors: SensorNow[] } | undefined;
+  checkedAt: number; // when the latest cycle was read
   alert: ReturnType<typeof worstAlert>;
   version: number | null;
   onVersion: (value: string) => void;
@@ -436,6 +453,9 @@ function Summary({
   const total = latest?.sensors.length ?? 0;
   const unusable = latest?.sensors.filter((s) => s.used === false) ?? [];
   const running = runtime?.status === "Running";
+  // As the fleet banner: no score for three cycles while running means the feed stopped.
+  const stale =
+    running && latest?.ts ? checkedAt - Date.parse(latest.ts) > 3 * cycle * 1000 : false;
   const versions = comparableVersions(model);
   return (
     <div className="summary-body">
@@ -446,6 +466,15 @@ function Summary({
           {look.label} · DI {formatDi(runtime?.di)}
         </span>
       </div>
+      {stale && latest?.ts && (
+        <div className="banner banner-watch" role="status">
+          <StatusShape shape="diamond" tone="watch" />
+          <span>
+            <b>No new scores</b> since {formatDateTime(new Date(latest.ts))}. These figures may be
+            out of date; check the data feed.
+          </span>
+        </div>
+      )}
       {!running && runtime && (
         <div className="summary-state" role="status">
           <StatusChip kind="band" value="Unknown" detail={runtime.status} />

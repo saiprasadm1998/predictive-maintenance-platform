@@ -24,9 +24,12 @@ export function lifecycleChoices(model: ModelSummary): Choice[] {
       action: "deploy",
       version: latest,
       label: `Deploy v${latest.version}`,
-      consequence: current
-        ? `v${latest.version} starts scoring at the next cycle and v${current.version} is superseded; its alerts go out of service.`
-        : `v${latest.version} starts scoring at the next cycle and raises alerts by its rules.`,
+      // Alerts belong to the model, not the version: they carry on under the new version.
+      consequence: !current
+        ? `v${latest.version} starts scoring at the next cycle and raises alerts by the model's rules.`
+        : current.status === "Paused"
+          ? `v${latest.version} replaces the paused v${current.version} (kept as Superseded) and starts scoring at the next cycle; the model's alerts come back into service.`
+          : `v${latest.version} replaces v${current.version} (kept as Superseded) from the next cycle; open alerts carry on and are judged by v${latest.version}'s scores.`,
       danger: false,
     });
     out.push({

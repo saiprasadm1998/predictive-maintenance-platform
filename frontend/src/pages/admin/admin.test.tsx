@@ -218,6 +218,7 @@ describe("SCR-14 administration", () => {
       effect: status === "Good" ? "used" : "excluded",
       since: "2026-10-22T06:00:00Z",
       evaluated_at: "2026-10-22T08:00:00Z",
+      models: id === 1 ? ["K-101 / main v2"] : [],
     });
     routes["GET /sensors/health"] = () => ({
       status: 200,
@@ -238,6 +239,8 @@ describe("SCR-14 administration", () => {
     const table = await screen.findByRole("table", { name: "NAMUR NE 107 status per sensor" });
     expect(within(table).getAllByRole("row")).toHaveLength(3); // header + 2 non-Good
     expect(within(table).getByText("Flatline")).toBeInTheDocument();
+    expect(within(table).getByText("K-101 / main v2")).toBeInTheDocument();
+    expect(within(table).getByText("None in service")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Out of specification/ }));
     await waitFor(() =>
       expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2),

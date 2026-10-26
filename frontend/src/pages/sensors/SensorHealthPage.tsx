@@ -5,16 +5,16 @@ import { Link, useSearchParams } from "react-router-dom";
 import { fetchSensorHealth } from "../../api/admin";
 import { fetchAllTags } from "../../api/registry";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
-import { formatDateTime } from "../../app/format";
+import { formatDateTime, formatIso } from "../../app/format";
 import { StatusChip } from "../../components/StatusChip";
 import { NE107, type Ne107 } from "../../components/status";
 import { EFFECT_LABELS, RULE_LABELS } from "../admin/adminModel";
 import { Skeleton } from "../fleet/FleetPage";
+import { useRowKeys } from "../../components/tableKeys";
 
+// Worst first, in the order of the figures above the list (NE107 puts Good first).
 const ORDER: Record<string, number> = Object.fromEntries(
-  ["Failure", "Out of specification", "Function check", "Maintenance required", "Good"].map(
-    (s, i) => [s, i],
-  ),
+  [...NE107.filter((s) => s !== "Good"), "Good"].map((s, i) => [s, i]),
 );
 
 /**
@@ -24,6 +24,7 @@ const ORDER: Record<string, number> = Object.fromEntries(
  * Overrides and manual exclusion arrive with sensor health in plan 8.1.
  */
 export function SensorHealthPage() {
+  const rowKeys = useRowKeys();
   useBreadcrumbs([{ label: "Sensor health" }]);
   const [params, setParams] = useSearchParams();
   const status = params.get("status");
@@ -106,7 +107,7 @@ export function SensorHealthPage() {
             {status ? `No sensor is in ${status}.` : "Every sensor is Good at the latest cycle."}
           </p>
         ) : (
-          <table className="tree-table">
+          <table ref={rowKeys} className="tree-table">
             <caption className="visually-hidden">NAMUR NE 107 status per sensor</caption>
             <thead>
               <tr>
@@ -116,6 +117,7 @@ export function SensorHealthPage() {
                 <th scope="col">Description</th>
                 <th scope="col">Rule</th>
                 <th scope="col">Scoring use</th>
+                <th scope="col">Models</th>
                 <th scope="col">Since</th>
               </tr>
             </thead>
@@ -142,7 +144,16 @@ export function SensorHealthPage() {
                     <td>{tag?.description ?? ""}</td>
                     <td>{RULE_LABELS[s.rule] ?? s.rule}</td>
                     <td>{EFFECT_LABELS[s.effect] ?? s.effect}</td>
-                    <td>{formatDateTime(new Date(s.since))}</td>
+                    <td>
+                      {s.models.length ? (
+                        s.models.join(", ")
+                      ) : (
+                        <span className="muted">None in service</span>
+                      )}
+                    </td>
+                    <td title={formatIso(new Date(s.since))}>
+                      {formatDateTime(new Date(s.since))}
+                    </td>
                   </tr>
                 );
               })}

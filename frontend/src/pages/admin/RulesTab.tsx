@@ -19,6 +19,7 @@ import {
   ruleForm,
   ruleProblems,
 } from "./adminModel";
+import { UnsavedChanges } from "../../components/UnsavedChanges";
 
 const DAYS = [7, 30, 90];
 
@@ -156,9 +157,11 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
     preview.reset();
     setConfirmed(false);
   };
+  const dirty = editable && JSON.stringify(form) !== JSON.stringify(ruleForm(rules.overrides));
 
   return (
     <section className="panel" aria-labelledby="rules-title">
+      <UnsavedChanges dirty={dirty} />
       <h2 id="rules-title" className="panel-title">
         {rules.scope === "global" ? "Everywhere" : rules.scope}:{" "}
         {rules.version

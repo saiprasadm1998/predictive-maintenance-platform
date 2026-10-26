@@ -55,9 +55,9 @@ export function chartColors(element: Element = document.documentElement): ChartC
     lineSoft: read("--line-soft", "#e3e6e9"),
     band: read("--band", "#dce3ec"),
     panel: read("--panel", "#ffffff"),
-    alert: read("--alert", "#c62828"),
+    alert: read("--alert", "#b71c1c"),
     watch: read("--watch", "#d99a00"),
-    watchText: read("--watch-text", "#9a6c00"),
+    watchText: read("--watch-text", "#805a00"),
     fault: read("--fault", "#a3007d"),
     unknown: read("--unknown", "#7a7f87"),
   };

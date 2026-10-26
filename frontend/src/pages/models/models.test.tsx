@@ -31,7 +31,8 @@ describe("lifecycle choices (ARC Figure 7)", () => {
       "Pause v1",
       "Retire v1",
     ]);
-    expect(choices[0]!.consequence).toContain("v1 is superseded");
+    expect(choices[0]!.consequence).toContain("replaces v1 (kept as Superseded)");
+    expect(choices[0]!.consequence).toContain("open alerts carry on");
     expect(choices.find((c) => c.action === "retire")!.danger).toBe(true);
   });
 

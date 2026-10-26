@@ -9,12 +9,14 @@ import { StatusChip } from "../../components/StatusChip";
 import { Skeleton } from "../fleet/FleetPage";
 import { LifecycleActions } from "./LifecycleActions";
 import { alertRate } from "./modelsModel";
+import { useRowKeys } from "../../components/tableKeys";
 
 /**
  * SCR-10 Model management (PDS §4.8, FR-MOD-07): every model with the version in service,
  * its runtime status, when it was trained, its alert rate, and the lifecycle actions.
  */
 export function ModelsPage() {
+  const rowKeys = useRowKeys();
   useBreadcrumbs([{ label: "Model management" }]);
   const [params, setParams] = useSearchParams();
   const status = params.get("status");
@@ -75,7 +77,7 @@ export function ModelsPage() {
           builder (next step of this phase).
         </p>
       ) : (
-        <table className="tree-table models-table">
+        <table ref={rowKeys} className="tree-table models-table">
           <thead>
             <tr>
               <th scope="col">Asset / model</th>

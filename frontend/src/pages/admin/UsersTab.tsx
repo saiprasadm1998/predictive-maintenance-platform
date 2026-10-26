@@ -17,6 +17,7 @@ import { ConfirmDialog } from "../../components/ConfirmDialog";
 import { Skeleton } from "../fleet/FleetPage";
 import { Field, Problems } from "../registry/common";
 import { grantText, passwordProblems } from "./adminModel";
+import { UnsavedChanges } from "../../components/UnsavedChanges";
 
 type Editing = { kind: "new" } | { kind: "roles"; user: AdminUser } | null;
 type Confirm = { kind: "active" | "password"; user: AdminUser } | null;
@@ -221,6 +222,8 @@ function UserForm({
       onDone();
     },
   });
+  const [snapshot] = useState(() => JSON.stringify({ form, roles }));
+  const dirty = !save.isSuccess && JSON.stringify({ form, roles }) !== snapshot;
   const problems = [
     ...(!user && form.username.trim().length < 3
       ? ["The username needs at least 3 characters"]
@@ -234,6 +237,7 @@ function UserForm({
       <h2 id="user-form-title" className="panel-title">
         {user ? `Roles of ${user.username}` : "Add a user"}
       </h2>
+      <UnsavedChanges dirty={dirty} />
       <form
         className="form-grid"
         onSubmit={(e) => {

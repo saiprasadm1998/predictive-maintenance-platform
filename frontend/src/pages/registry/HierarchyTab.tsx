@@ -14,6 +14,7 @@ import { useAnnounce } from "../../app/liveContext";
 import { Skeleton } from "../fleet/FleetPage";
 import { Field, Problems } from "./common";
 import { childLevel, hierarchyRows, levelsBelow, parentChoices } from "./registryModel";
+import { UnsavedChanges } from "../../components/UnsavedChanges";
 
 type Editing = { kind: "edit"; asset: Asset } | { kind: "add"; parent: Asset | null } | null;
 
@@ -175,9 +176,15 @@ function AssetForm({
   const problems = [
     ...(!current && !form.code.trim() ? ["Code is required"] : []),
     ...(!form.name.trim() ? ["Name is required"] : []),
+    // FR-REG-01: equipment has a criticality class; higher levels may leave it out.
+    ...(form.level === "equipment" && !form.criticality
+      ? ["Equipment needs a criticality class (A, B or C)"]
+      : []),
   ];
   const [tried, setTried] = useState(false);
   const equipment = form.level === "equipment";
+  const [initial] = useState(() => JSON.stringify(form));
+  const dirty = !save.isSuccess && JSON.stringify(form) !== initial;
 
   return (
     <section className="panel registry-form" aria-labelledby="asset-form-title">
@@ -186,6 +193,7 @@ function AssetForm({
           ? `Edit ${current.code}`
           : `New ${form.level}${form.parent ? ` under ${form.parent}` : ""}`}
       </h2>
+      <UnsavedChanges dirty={dirty} />
       <form
         className="form-grid"
         onSubmit={(e) => {
@@ -264,7 +272,7 @@ function AssetForm({
                 value={form.criticality ?? ""}
                 onChange={(e) => setForm({ ...form, criticality: e.target.value || null })}
               >
-                <option value="">Not set</option>
+                <option value="">{equipment ? "Choose…" : "Not set"}</option>
                 {CRITICALITIES.map((c) => (
                   <option key={c} value={c}>
                     {c}

@@ -14,6 +14,7 @@ import {
   unknownReason,
   visibleRows,
   walk,
+  sortTree,
 } from "./fleetModel";
 
 const roots = TREE as unknown as AssetNode[];
@@ -102,5 +103,27 @@ describe("side lists", () => {
       4,
     );
     expect(series.map(([, n]) => n)).toEqual([0, 1, 2, 1, 1]);
+  });
+});
+
+describe("hierarchy sort", () => {
+  const leaf = (name: string, band: string | null, health: number | null) =>
+    ({ ...(TREE[0] as unknown as AssetNode), name, band, health, children: [] }) as AssetNode;
+  const roots = [
+    {
+      ...leaf("Site", "Alert", 30),
+      children: [
+        leaf("B ok", "Healthy", 90),
+        leaf("A bad", "Alert", 30),
+        leaf("C unknown", "Unknown", null),
+      ],
+    },
+  ];
+  const names = (sorted: AssetNode[]) => sorted[0]!.children.map((c) => c.name);
+
+  it("puts siblings worst first by band, or by Health, keeping the hierarchy", () => {
+    expect(names(sortTree(roots, "band"))).toEqual(["A bad", "C unknown", "B ok"]);
+    expect(names(sortTree(roots, "health"))).toEqual(["A bad", "B ok", "C unknown"]);
+    expect(names(sortTree(roots, "name"))).toEqual(["B ok", "A bad", "C unknown"]);
   });
 });

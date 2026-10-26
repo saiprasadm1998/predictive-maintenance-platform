@@ -28,7 +28,10 @@ import {
   recentAlerts,
   unknownReason,
   visibleRows,
+  sortTree,
+  type TreeSort,
 } from "./fleetModel";
+import { useRowKeys } from "../../components/tableKeys";
 
 const HIGHLIGHT_MS = 2500;
 
@@ -54,6 +57,7 @@ function useWithRange() {
  * and the latest alerts. Updates arrive live; nothing re-sorts under the cursor.
  */
 export function FleetPage() {
+  const rowKeys = useRowKeys();
   const [params, setParams] = useSearchParams();
   const band = isBand(params.get("band")) ? (params.get("band") as Band) : null;
   const withRange = useWithRange();
@@ -104,7 +108,31 @@ export function FleetPage() {
     };
   }, [tree.data]);
 
-  const shown = useMemo(() => (band ? filterByBand(roots, band) : roots), [roots, band]);
+  const sortParam = params.get("sort");
+  const sort: TreeSort = sortParam === "band" || sortParam === "health" ? sortParam : "name";
+  const shown = useMemo(
+    () => sortTree(band ? filterByBand(roots, band) : roots, sort),
+    [roots, band, sort],
+  );
+  function sortBy(next: TreeSort) {
+    setParams((current) => {
+      const p = new URLSearchParams(current);
+      if (next === "name") p.delete("sort");
+      else p.set("sort", next);
+      return p;
+    });
+  }
+  const sortHeader = (key: TreeSort, label: string) => (
+    <th
+      scope="col"
+      aria-sort={sort === key ? (key === "name" ? "ascending" : "descending") : "none"}
+    >
+      <button type="button" className="link-button sort-button" onClick={() => sortBy(key)}>
+        {label}
+        <span aria-hidden="true">{sort === key ? " ▾" : ""}</span>
+      </button>
+    </th>
+  );
   const [expanded, setExpanded] = useState<Set<number> | null>(null);
   const open = expanded ?? (band ? allBranches(shown) : defaultExpanded(roots));
   const rows = visibleRows(shown, open);
@@ -165,6 +193,11 @@ export function FleetPage() {
         </div>
       )}
 
+      {kpis.isError && (
+        <p role="alert" className="panel">
+          The fleet figures could not be loaded: {kpis.error.message}
+        </p>
+      )}
       <ul className="kpis" aria-label="Fleet figures">
         <Kpi
           value={kpis.data?.models_by_status.Running}
@@ -210,13 +243,13 @@ export function FleetPage() {
           ) : tree.isError ? (
             <p role="alert">The hierarchy could not be loaded: {tree.error.message}</p>
           ) : (
-            <table className="tree-table">
+            <table ref={rowKeys} className="tree-table">
               <thead>
                 <tr>
-                  <th scope="col">Asset</th>
+                  {sortHeader("name", "Asset")}
                   <th scope="col">Type</th>
-                  <th scope="col">Band</th>
-                  <th scope="col">Health score</th>
+                  {sortHeader("band", "Band")}
+                  {sortHeader("health", "Health score")}
                   <th scope="col" className="num">
                     Active alerts
                   </th>
@@ -279,13 +312,21 @@ export function FleetPage() {
             <h2 id="deviation-title" className="panel-title">
               Highest deviation now
             </h2>
-            <DeviationList items={deviations} link={withRange} loading={models.isPending} />
+            {models.isError ? (
+              <p role="alert">The models could not be loaded: {models.error.message}</p>
+            ) : (
+              <DeviationList items={deviations} link={withRange} loading={models.isPending} />
+            )}
           </section>
           <section className="panel" aria-labelledby="recent-title">
             <h2 id="recent-title" className="panel-title">
               Recent alerts
             </h2>
-            <RecentAlerts items={recent} loading={alerts.isPending} link={withRange} />
+            {alerts.isError ? (
+              <p role="alert">The alerts could not be loaded: {alerts.error.message}</p>
+            ) : (
+              <RecentAlerts items={recent} loading={alerts.isPending} link={withRange} />
+            )}
           </section>
         </div>
       </div>

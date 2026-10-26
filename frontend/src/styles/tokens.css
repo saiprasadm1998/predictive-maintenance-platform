@@ -12,9 +12,9 @@
   --chrome-text: #dce3ec;
   --chrome-active: #8d99aa;
   --band: #dce3ec;
-  --alert: #c62828;
+  --alert: #b71c1c; /* 5.1:1 on --band (6.7) */
   --watch: #d99a00;
-  --watch-text: #9a6c00;
+  --watch-text: #805a00; /* 4.8:1 on --band (6.7) */
   --fault: #a3007d;
   --unknown: #7a7f87;
   --unknown-text: #5f646b;
@@ -60,10 +60,10 @@
   --chrome-text: #c9d2dd;
   --chrome-active: #5d6b7d;
   --band: #2c3846;
-  --alert: #ff6b66;
+  --alert: #ff7f7a; /* 4.9:1 on --band (6.7) */
   --watch: #e8b100;
   --watch-text: #f0c24a;
-  --fault: #ea6fd0;
+  --fault: #ef86da; /* 5.2:1 on --band (6.7) */
   --unknown: #9aa1aa;
   --unknown-text: #a7aeb6;
   --focus: #9fb4cc;

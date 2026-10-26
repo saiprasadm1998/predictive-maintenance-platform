@@ -1005,7 +1005,7 @@ export function StepDeploy({ draft, model, go, done }: StepProps) {
         title={`Deploy ${model.asset_code} / ${model.name} version ${latest.version}?`}
         consequence={
           live
-            ? `Version ${latest.version} scores from the next cycle with these limits; version ${live.version} is superseded and stops scoring.`
+            ? `Version ${latest.version} scores from the next cycle with these limits; version ${live.version} is superseded and stops scoring; open alerts carry on.`
             : `Version ${latest.version} scores from the next cycle with these limits, and its alerts appear on the alert list.`
         }
         confirmLabel="Deploy"

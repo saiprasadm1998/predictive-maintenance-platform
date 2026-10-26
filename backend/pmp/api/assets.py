@@ -15,7 +15,7 @@ from pmp.alerting import open_alerts_by_model
 from pmp.api.common import MAX_LIMIT, Page, can_see, not_found, page
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.dataquality import get_sensor_statuses
-from pmp.modelling import model_assets
+from pmp.modelling import VersionStatus, list_models, model_assets
 from pmp.registry import (
     AssetView,
     RegistryError,
@@ -309,6 +309,23 @@ class SensorHealthOut(BaseModel):
     effect: str
     since: datetime
     evaluated_at: datetime
+    models: list[str] = Field(
+        default_factory=list, description="models whose version in service scores this sensor"
+    )
+
+
+def _models_using(session: Session) -> dict[int, list[str]]:
+    """Tag ID to the models whose version in service (Deployed or Paused) scores it."""
+    in_service = {VersionStatus.DEPLOYED, VersionStatus.PAUSED}
+    out: dict[int, list[str]] = {}
+    for model in list_models(session):
+        for version in model.versions:
+            if version.status in in_service:
+                for sensor in version.sensors:
+                    out.setdefault(sensor.tag_id, []).append(
+                        f"{model.asset_code} / {model.name} v{version.version}"
+                    )
+    return out
 
 
 @router.get(
@@ -330,6 +347,7 @@ def get_sensor_health(
         paths = {a.id: a.path for a in list_subtree(session)}
         tags = [t for t in list_tags(session, asset) if can_see(user, paths.get(t.asset_id))]
         statuses = get_sensor_statuses(session, [t.id for t in tags]) if tags else []
+        users = _models_using(session)
     statuses = sorted(
         (v for v in statuses if status is None or v.status.value == status), key=lambda v: v.tag_id
     )
@@ -346,6 +364,7 @@ def get_sensor_health(
                 effect=v.effect.value,
                 since=v.since,
                 evaluated_at=v.evaluated_at,
+                models=users.get(v.tag_id, []),
             )
             for v in items
         ],

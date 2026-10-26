@@ -46,6 +46,7 @@ import {
   writeFilter,
 } from "./alertsModel";
 import { FilterMenu } from "./FilterMenu";
+import { useRowKeys } from "../../components/tableKeys";
 
 const ROW_HEIGHT = 40;
 const SORT_TEXT: Record<Sort, string> = {
@@ -65,6 +66,7 @@ const KIND_LABELS = new Map<string, string>(KINDS.map(([v, l]) => [v, l]));
  * never re-sort under the user, a "new alerts" button does.
  */
 export function AlertsPage() {
+  const rowKeys = useRowKeys();
   const [params, setParams] = useSearchParams();
   const location = useLocation();
   const carried = timeRangeParams(new URLSearchParams(location.search)).toString();
@@ -358,6 +360,7 @@ export function AlertsPage() {
           ) : (
             <div ref={scroller} className="alerts-scroll">
               <table
+                ref={rowKeys}
                 className="tree-table alerts-table"
                 aria-label="Alerts"
                 aria-rowcount={shown.rows.length + 1}
