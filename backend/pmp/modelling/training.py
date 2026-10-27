@@ -24,6 +24,7 @@ from pmp.modelling.cleansing import Cleansing, cleanse
 from pmp.modelling.definitions import Period
 from pmp.modelling.expressions import Expression
 from pmp.modelling.scaling import SensorScale, scale_with_floors
+from pmp.modelling.validation import ValidationReport, deviation_index, validation_report
 
 MIN_VECTORS = 2000  # UCS §6.4 minimum data
 MIN_RETAINED_SHARE = 0.5
@@ -125,6 +126,7 @@ class TrainingResult:
     validation_cycles: int
     validation_retained: int
     cleansing: Cleansing | None = None
+    report: ValidationReport | None = None
 
     def scaling(self) -> dict[str, Any]:
         return {
@@ -134,6 +136,7 @@ class TrainingResult:
 
     def validation(self) -> dict[str, Any]:
         return {
+            **({"report": self.report.as_dict()} if self.report else {}),
             "cycles": self.validation_cycles,
             "retained": self.validation_retained,
             "sensors": {
@@ -229,10 +232,12 @@ def train(
     if callable(calibrate):  # the optional contract step (decision 7.1)
         calibrate(scaled(playback))
     predicted = detector.predict(scaled(playback))
+    estimates = pd.DataFrame(index=playback.index)
     stats: dict[str, SensorStats] = {}
     for sensor in sensors:
         r = ranges[sensor.name].range
         estimate = predicted[sensor.name].to_numpy(dtype=np.float64) * r + medians[sensor.name]
+        estimates[sensor.name] = estimate
         actual = playback[sensor.name].to_numpy(dtype=np.float64)
         residuals = (actual - estimate)[~np.isnan(actual)]
         raw_sigma = _mad_sigma(residuals)
@@ -248,7 +253,24 @@ def train(
             bias=float(residuals.mean()) if len(residuals) else 0.0,
             nrmse=float(np.sqrt(np.mean(residuals**2)) / r) if len(residuals) else 0.0,
         )
+    # Plan 7.3: the hold-out scored as runtime scores it, and the limits it suggests.
+    ranges_used = {name: st.scale.range for name, st in stats.items()}
+    di = deviation_index(playback[list(stats)], estimates, ranges_used)
+    envelope = getattr(detector, "out_of_envelope", None)
+    outside = (
+        np.asarray(envelope(scaled(playback)).to_numpy(), dtype=bool)
+        if callable(envelope)
+        else None
+    )
+    try:
+        report = validation_report(di, int(params.get("cycle_s", 60)), outside)
+    except ValueError:
+        raise TrainingError(
+            "Validation blocked: no cycle of the validation period has a usable sensor. "
+            "Choose a period with data in the operating mode."
+        ) from None
     return TrainingResult(
+        report=report,
         detector=detector,
         sensors=stats,
         training_cycles=training.cycles,
