@@ -797,7 +797,13 @@ def run_training(database: Database, version_id: int, artefact_base: Path) -> di
                     "clusters": [c.cycles for c in result.cleansing.clusters],
                 }
             if result.report is not None:  # plan 7.3: shown in the wizard and on SCR-11
-                metrics["validation"] = result.report.as_dict()
+                metrics["validation"] = {
+                    **result.report.as_dict(),
+                    "sensors": {  # per sensor: normalised RMSE and bias (FR-MOD-06)
+                        name: {"nrmse": round(st.nrmse, 4), "bias": round(st.bias, 4)}
+                        for name, st in result.sensors.items()
+                    },
+                }
             learnt = getattr(result.detector, "summary", None)  # e.g. AAKR's memory size
             if isinstance(learnt, dict):
                 metrics["detector"] = learnt

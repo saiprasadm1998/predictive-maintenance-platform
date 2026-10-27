@@ -35,7 +35,10 @@ import {
   toDefinition,
   toLocalInput,
   trainingTrend,
+  validationReport,
+  withProposedLimits,
 } from "./builderModel";
+import { ValidationReportTable } from "./ValidationReport";
 
 export interface StepProps {
   draft: BuilderDraft;
@@ -737,6 +740,7 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
   });
   if (!latest) return null;
   const metrics = latest.metrics;
+  const report = validationReport(metrics);
   const percent = job.data?.progress ?? null;
 
   return (
@@ -819,6 +823,7 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
           </tbody>
         </table>
       )}
+      {latest.status === "Validated" && report && <ValidationReportTable report={report} />}
       {retrain.error !== null && (
         <ul role="alert" className="form-error">
           {problemsOf(retrain.error).map((p) => (
@@ -831,7 +836,7 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
         problems={latest.status === "Validated" ? [] : ["Wait until the version is Validated"]}
         go={go}
         next={() => {
-          setDraft({ ...draft, jobId: null });
+          setDraft(withProposedLimits({ ...draft, jobId: null }, latest.id, report));
           go(5);
         }}
       />
@@ -876,6 +881,8 @@ export function StepLimits({ draft, setDraft, model, go }: StepProps) {
   });
   const rules = new Map(draft.sensorRules.map((r) => [r.tag, r]));
   const di = draft.di;
+  const validated = model?.versions.findLast((v) => v.status === "Validated");
+  const report = validationReport(validated?.metrics);
 
   function setRule(tag: string, change: Partial<{ warning: number; alert: number }> | null) {
     const others = draft.sensorRules.filter((r) => r.tag !== tag);
@@ -889,12 +896,23 @@ export function StepLimits({ draft, setDraft, model, go }: StepProps) {
   return (
     <Panel title="5 Alert limits">
       <p className="muted">
-        The limits start at the defaults (Deviation Index warning 15 % and alert 25 %; sensor |z| 3
-        and 5). Limits proposed from the validation period, with the estimated alert rate, arrive
-        with AAKR training.
+        {report
+          ? `The limits start at those proposed from the validation period (DI warning 1.2 × P99 = ${report.proposed.di_warning} %, alert 1.5 × P99.9 and at least 10 % above it = ${report.proposed.di_alert} %; sensor |z| 3 and 5), with about ${report.alerts_per_week.toLocaleString("en-GB")} false alerts a week expected. You can change them.`
+          : "The limits start at the defaults (Deviation Index warning 15 % and alert 25 %; sensor |z| 3 and 5)."}
         {live &&
           ` Version ${live.version} keeps its current limits until this version is deployed.`}
       </p>
+      {report?.warning && (
+        <p className="form-warning" role="status">
+          ⚠ {report.warning}
+        </p>
+      )}
+      {report && di.warning < report.proposed.di_warning && (
+        <p className="form-warning" role="status">
+          ⚠ The DI warning is below the proposed {report.proposed.di_warning} %: expect more false
+          alerts than estimated.
+        </p>
+      )}
       <fieldset className="builder-period">
         <legend>Deviation Index (DI) rule</legend>
         <div className="field">

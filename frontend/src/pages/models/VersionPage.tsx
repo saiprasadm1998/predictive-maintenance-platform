@@ -11,6 +11,8 @@ import { TrendChart } from "../../components/TrendChart";
 import { excludedPeriods, linePoints, sensorLabel } from "../asset/assetModel";
 import { Skeleton } from "../fleet/FleetPage";
 import { LifecycleActions } from "./LifecycleActions";
+import { validationReport } from "./builderModel";
+import { ValidationReportTable } from "./ValidationReport";
 
 /**
  * SCR-11 Model version detail (PDS §4.8, FR-MOD-06, FR-AUD-01): configuration, training
@@ -168,7 +170,7 @@ export function VersionPage() {
           <h2 id="metrics-title" className="panel-title">
             Training and validation
           </h2>
-          <Metrics version={version} />
+          <MetricsAndReport version={version} />
           <h3 className="panel-title">Alert limits (active)</h3>
           <table className="tree-table">
             <thead>
@@ -312,6 +314,20 @@ function Metrics({ version }: { version: VersionDetail }) {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+function MetricsAndReport({ version }: { version: VersionDetail }) {
+  const report = validationReport(version.metrics);
+  return (
+    <>
+      <Metrics version={version} />
+      {report ? (
+        <ValidationReportTable report={report} />
+      ) : version.metrics ? (
+        <p className="muted small">Trained before validation reports were kept (plan 7.3).</p>
+      ) : null}
+    </>
   );
 }
 

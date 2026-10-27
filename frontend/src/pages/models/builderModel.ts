@@ -22,7 +22,7 @@ export const STEPS = [
   "Deploy",
 ] as const;
 
-export const DEFAULT_DI = { warning: 15, alert: 25 }; // until 7.3 proposes them (UCS §6.4)
+export const DEFAULT_DI = { warning: 15, alert: 25 }; // before a version is validated
 export const DEFAULT_SENSOR = { warning: 3, alert: 5 }; // |z|, UCS §6.4
 export const DEFAULT_PERSISTENCE = { n: 3, m: 5 };
 export const MIN_CYCLE_S = 10; // FR-RUN-01
@@ -59,6 +59,8 @@ export interface BuilderDraft {
   sensorRules: SensorRule[];
   /** The training job started from this page, so its progress can be followed. */
   jobId: number | null;
+  /** The version whose proposed limits were last put in `di` (plan 7.3). */
+  proposedFor?: number | null;
 }
 
 /** "2026-10-21T14:05" for a datetime-local input, in the browser's time zone. */
@@ -310,6 +312,42 @@ export function share(part: number, whole: number): string {
 
 /** One sensor's training data as a line (broken where no cycles fall), with the buckets
  * where most cycles are excluded shaded as periods. */
+/** The validation report kept with a version (plan 7.3, UCS §6.4). */
+export interface ValidationReport {
+  cycles: number;
+  di_percentiles: Record<"P50" | "P95" | "P99" | "P99.9", number>;
+  outside_envelope: number | null;
+  proposed: { di_warning: number; di_alert: number; sensor_warning: number; sensor_alert: number };
+  alerts: number;
+  alerts_per_week: number;
+  warning: string | null;
+  sensors?: Record<string, { nrmse: number; bias: number }>;
+}
+
+/** The report from a version's metrics, or null for versions trained before 7.3. */
+export function validationReport(
+  metrics: Record<string, unknown> | null | undefined,
+): ValidationReport | null {
+  const raw = metrics?.validation;
+  if (!raw || typeof raw !== "object") return null;
+  const report = raw as Partial<ValidationReport>;
+  return report.di_percentiles && report.proposed ? (report as ValidationReport) : null;
+}
+
+/** Put a newly validated version's proposed DI limits in the draft, once per version. */
+export function withProposedLimits(
+  draft: BuilderDraft,
+  versionId: number,
+  report: ValidationReport | null,
+): BuilderDraft {
+  if (!report || draft.proposedFor === versionId) return draft;
+  return {
+    ...draft,
+    di: { ...draft.di, warning: report.proposed.di_warning, alert: report.proposed.di_alert },
+    proposedFor: versionId,
+  };
+}
+
 /** A cluster holding less than this share of the retained data may be under-learnt. */
 export const SMALL_CLUSTER = 0.05;
 

@@ -14,6 +14,8 @@ import {
   stepProblems,
   toDefinition,
   trainingTrend,
+  validationReport,
+  withProposedLimits,
 } from "./builderModel";
 
 vi.mock("../../components/charting", () => ({
@@ -193,6 +195,56 @@ const PREVIEW: TrainingData = {
   excluded: [0, 1],
   values: { "K101.TI1.PV": [80, 81] },
 };
+
+const REPORT = {
+  cycles: 40_000,
+  di_percentiles: { P50: 4.1, P95: 7.9, P99: 10.0, "P99.9": 14.0 },
+  outside_envelope: 0.004,
+  proposed: { di_warning: 12, di_alert: 21, sensor_warning: 3, sensor_alert: 5 },
+  alerts: 6,
+  alerts_per_week: 1.5,
+  warning:
+    "About 1.5 false alerts per week are expected with these limits on normal operation (more than one a week). Review the training data or raise the limits.",
+  sensors: { "K101.TI1.PV": { nrmse: 0.021, bias: -0.01 } },
+};
+
+describe("validation report (plan 7.3)", () => {
+  it("reads the report, and puts its proposed limits in the draft once per version", () => {
+    expect(validationReport(null)).toBeNull();
+    expect(validationReport({ training_cycles: 5 })).toBeNull(); // trained before 7.3
+    const report = validationReport({ validation: REPORT })!;
+    const draft = newDraft("K-101");
+    const proposed = withProposedLimits(draft, 4, report);
+    expect(proposed.di).toMatchObject({ warning: 12, alert: 21, n: 3, m: 5 });
+    const edited = { ...proposed, di: { ...proposed.di, warning: 13 } };
+    expect(withProposedLimits(edited, 4, report)).toBe(edited); // the engineer's edit stays
+    expect(withProposedLimits(edited, 5, report).di.warning).toBe(12); // a new version
+  });
+
+  it("shows the report after training and starts the limits from its proposal", async () => {
+    const routes = sessionRoutes(true);
+    const base = version(30, 1, "Validated");
+    const validated = { ...base, metrics: { ...base.metrics, validation: REPORT } };
+    routes["GET /models/9"] = () => ({ status: 200, body: detail([validated]) });
+    routes["GET /tags"] = () => ({ status: 200, body: { items: TAGS, next_cursor: null } });
+    fakeApi(routes);
+    const user = userEvent.setup();
+    renderApp("/models/9/build/4");
+
+    const table = await screen.findByRole("table", { name: "Validation report" });
+    expect(table).toHaveTextContent("P99 10.0");
+    expect(table).toHaveTextContent("DI warning 12 %, alert 21 %");
+    expect(table).toHaveTextContent("0.4 % of cycles");
+    expect(screen.getByText(/1.5 false alerts per week/, { selector: "p" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Next →" }));
+
+    expect(await screen.findByLabelText("DI warning (%)")).toHaveValue(12);
+    expect(screen.getByLabelText("DI alert (%)")).toHaveValue(21);
+    await user.clear(screen.getByLabelText("DI warning (%)"));
+    await user.type(screen.getByLabelText("DI warning (%)"), "9");
+    expect(screen.getByText(/below the proposed 12 %/)).toBeInTheDocument();
+  });
+});
 
 describe("SCR-06 model builder", () => {
   beforeEach(() => window.localStorage.clear());

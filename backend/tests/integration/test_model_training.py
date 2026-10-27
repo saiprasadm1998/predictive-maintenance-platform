@@ -253,6 +253,8 @@ def test_aakr_trains_calibrates_and_beats_the_placeholder(models: tuple[Database
     assert proposed["di_alert"] >= round(1.1 * proposed["di_warning"], 1)
     assert 0 <= report["outside_envelope"] <= 0.05  # the hold-out is normal operation
     assert report["alerts_per_week"] >= 0
+    assert len(report["sensors"]) == 18  # every K-101 sensor
+    assert all(v["nrmse"] >= 0 for v in report["sensors"].values())
     folder = Path(aakr.artefact_path or "")
     manifest = json.loads((folder / "manifest.json").read_text())
     assert manifest["algorithm"] == "aakr"

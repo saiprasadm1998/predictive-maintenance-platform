@@ -52,7 +52,21 @@ async function mockBuilder(page: Parameters<typeof mockApi>[0], asset: string) {
       mode_filters: [],
       metrics:
         status === "Validated" || status === "Deployed"
-          ? { training_cycles: 129_600, training_retained: 120_000, validation_cycles: 43_200 }
+          ? {
+              training_cycles: 129_600,
+              training_retained: 120_000,
+              validation_cycles: 43_200,
+              validation: {
+                cycles: 43_000,
+                di_percentiles: { P50: 6.2, P95: 11.5, P99: 15.0, "P99.9": 19.0 },
+                outside_envelope: 0.003,
+                proposed: { di_warning: 18, di_alert: 28.5, sensor_warning: 3, sensor_alert: 5 },
+                alerts: 1,
+                alerts_per_week: 0.23,
+                warning: null,
+                sensors: {},
+              },
+            }
           : null,
     };
     return {
@@ -204,6 +218,9 @@ test.describe("SCR-06 model builder", () => {
     await expect(page.getByRole("table", { name: "Training and validation" })).toBeVisible({
       timeout: 10_000,
     });
+    await expect(page.getByRole("table", { name: "Validation report" })).toContainText(
+      "DI warning 18 %, alert 28.5 %",
+    );
     await page.getByRole("button", { name: "Next →" }).click();
 
     // 5 Alert limits: tighten the DI alert limit and add a sensor rule
@@ -213,7 +230,7 @@ test.describe("SCR-06 model builder", () => {
 
     // 6 Deploy, confirmed
     await expect(page.getByRole("table", { name: /S0U0E1 \/ bearings version 1/ })).toContainText(
-      "warning 15 %, alert 22 %",
+      "warning 18 %, alert 22 %", // the proposed warning, the alert tightened by hand
     );
     await page.getByRole("button", { name: "Deploy version 1" }).click();
     await page.getByRole("dialog").getByRole("button", { name: "Deploy" }).click();
