@@ -2,7 +2,7 @@
   "asset": "P-205",
   "name": "main",
   "description": "Condensate pump P-205: whole pump",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

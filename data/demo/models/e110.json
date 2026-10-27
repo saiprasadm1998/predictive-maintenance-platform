@@ -2,7 +2,7 @@
   "asset": "E-110",
   "name": "main",
   "description": "Waste-heat boiler E-110",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

@@ -554,11 +554,6 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
               </thead>
               <tbody>
                 <tr>
-                  <th scope="row">Operating mode</th>
-                  <td className="mono">{applied.length ? applied.join(" and ") : "None"}</td>
-                  <td className="num">{share(data.mode_removed, data.cycles)} removed</td>
-                </tr>
-                <tr>
                   <th scope="row">Data quality and coverage</th>
                   <td>
                     Bad, stale and flatline samples; at least 70 % of sensors and every required
@@ -567,13 +562,9 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                   <td className="num">{share(data.quality_removed, data.cycles)} removed</td>
                 </tr>
                 <tr>
-                  <th scope="row">Excluded on the trend</th>
-                  <td>
-                    {exclusions.length
-                      ? `${exclusions.length} period${exclusions.length === 1 ? "" : "s"}`
-                      : "None"}
-                  </td>
-                  <td className="num">{share(data.excluded_removed, data.cycles)} removed</td>
+                  <th scope="row">Operating mode</th>
+                  <td className="mono">{applied.length ? applied.join(" and ") : "None"}</td>
+                  <td className="num">{share(data.mode_removed, data.cycles)} removed</td>
                 </tr>
                 <tr>
                   <th scope="row">Outliers</th>
@@ -584,6 +575,15 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                   <th scope="row">Multivariate outliers</th>
                   <td>Further from every operating cluster than 99.9 % of the data</td>
                   <td className="num">{share(data.multivariate_removed, data.cycles)} removed</td>
+                </tr>
+                <tr>
+                  <th scope="row">Excluded on the trend</th>
+                  <td>
+                    {exclusions.length
+                      ? `${exclusions.length} period${exclusions.length === 1 ? "" : "s"}`
+                      : "None"}
+                  </td>
+                  <td className="num">{share(data.excluded_removed, data.cycles)} removed</td>
                 </tr>
               </tbody>
             </table>
@@ -897,7 +897,7 @@ export function StepLimits({ draft, setDraft, model, go }: StepProps) {
     <Panel title="5 Alert limits">
       <p className="muted">
         {report
-          ? `The limits start at those proposed from the validation period (DI warning 1.2 × P99 = ${report.proposed.di_warning} %, alert 1.5 × P99.9 and at least 10 % above it = ${report.proposed.di_alert} %; sensor |z| 3 and 5), with about ${report.alerts_per_week.toLocaleString("en-GB")} false alerts a week expected. You can change them.`
+          ? `The limits start at those proposed from the validation period (DI warning 1.2 × P99 = ${report.proposed.di_warning} %, alert 1.5 × P99.9, at least 10 % = ${report.proposed.di_alert} %; sensor |z| 3 and 5), with about ${report.alerts_per_week.toLocaleString("en-GB")} false alerts a week expected. You can change them.`
           : "The limits start at the defaults (Deviation Index warning 15 % and alert 25 %; sensor |z| 3 and 5)."}
         {live &&
           ` Version ${live.version} keeps its current limits until this version is deployed.`}

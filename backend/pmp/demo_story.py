@@ -19,13 +19,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import text
+from sqlalchemy.orm import Session
 
-from pmp.alerting import AlertRuleError, require_di_rule, rules_from_dict, set_alert_rules
+from pmp.alerting import (
+    AlertRuleError,
+    RuleKind,
+    list_alert_rules,
+    require_di_rule,
+    rules_from_dict,
+    set_alert_rules,
+)
 from pmp.core import Actor, Database
 from pmp.modelling import (
     Action,
@@ -122,8 +130,25 @@ def _setup_one(
         if result.get("status") != VersionStatus.VALIDATED.value:
             return SetupResult(label, f"failed: training ended {result}", False)
     with database.session() as session:
+        proposed = _use_proposed_limits(session, actor, asset, name)
         change_status(session, actor, asset, name, Action.DEPLOY, deploy_checks=(require_di_rule,))
-    return SetupResult(label, "trained and deployed", True)
+    return SetupResult(label, f"trained and deployed{proposed}", True)
+
+
+def _use_proposed_limits(session: Session, actor: Actor, asset: str, name: str) -> str:
+    """UCS §6.4: the DI limits proposed by validation, as an engineer would take them in the
+    wizard (decision 7.4); the file's persistence and sensor rules stay."""
+    model = find_model(session, asset, name)
+    report = (model.latest.metrics or {}).get("validation") if model else None
+    if model is None or not isinstance(report, dict) or "proposed" not in report:
+        return ""
+    warning, alert = (float(report["proposed"][k]) for k in ("di_warning", "di_alert"))
+    specs = [
+        replace(r.spec, warning=warning, alert=alert) if r.spec.kind is RuleKind.DI else r.spec
+        for r in list_alert_rules(session, model.id)
+    ]
+    set_alert_rules(session, actor, model.id, specs)
+    return f" (DI limits {warning:g} / {alert:g} from validation)"
 
 
 @dataclass(frozen=True)

@@ -41,6 +41,7 @@ def days(a: int, b: int) -> Period:
 
 
 DEFINITION = ModelDefinition(
+    algorithm="median",  # pipeline mechanics: the fixed, predictable placeholder
     asset_code="EQ-1",
     name="main",
     description="Pump 1",

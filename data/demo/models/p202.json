@@ -2,7 +2,7 @@
   "asset": "P-202",
   "name": "main",
   "description": "Carbamate pump P-202: whole pump",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

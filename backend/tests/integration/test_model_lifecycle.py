@@ -49,6 +49,7 @@ pytestmark = pytest.mark.integration
 ACTOR = Actor.system()
 T0 = datetime(2026, 6, 1, tzinfo=UTC)
 DEFINITION = ModelDefinition(
+    algorithm="median",  # pipeline mechanics: the fixed, predictable placeholder
     asset_code="EQ-1",
     name="main",
     sensors=(SensorChoice("EQ1.T1", required=True), SensorChoice("EQ1.T2")),

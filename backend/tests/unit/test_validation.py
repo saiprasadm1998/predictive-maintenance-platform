@@ -30,8 +30,9 @@ def test_deviation_index_is_the_rms_of_normalised_residuals_over_usable_sensors(
     ("p99", "p999", "warning", "alert"),
     [
         (10.0, 20.0, 12.0, 30.0),  # 1.2 x 10; 1.5 x 20
-        (10.0, 8.0, 12.0, 13.2),  # 1.5 x 8 = 12 is not 10 % above 12: 1.1 x 12
-        (3.33, 4.0, 4.0, 6.0),  # 1.2 x 3.33 = 3.996 rounds up to 4.0
+        (12.0, 15.2, 14.4, 22.8),  # 1.5 x 15.2
+        (3.33, 4.0, 4.0, 10.0),  # 1.2 x 3.33 = 3.996 rounds up to 4.0; alert at its minimum 10
+        (0.0, 0.0, 0.1, 10.0),  # a perfect fit still gets usable limits
     ],
 )
 def test_proposed_limits_follow_ucs_6_4(

@@ -36,7 +36,7 @@ GOOD = ModelDefinition(
 
 def problems(definition: ModelDefinition) -> list[str]:
     try:
-        check_definition(definition, TAGS, {"median"})
+        check_definition(definition, TAGS, {"median", "aakr"})
     except ModelError as error:
         return error.problems
     return []
@@ -51,7 +51,7 @@ def test_a_good_definition_passes() -> None:
     [
         ({"name": ""}, "Model name"),
         ({"name": "bad/name"}, "Model name"),
-        ({"algorithm": "aakr"}, "Unknown or refused algorithm 'aakr'"),
+        ({"algorithm": "xgboost"}, "Unknown or refused algorithm 'xgboost'"),
         ({"sensors": ()}, "at least one sensor"),
         ({"sensors": (SensorChoice("T1"), SensorChoice("T1"))}, "listed twice: T1"),
         ({"sensors": (SensorChoice("T1"), SensorChoice("P9"))}, "Not tags of EQ-1: P9"),
@@ -103,7 +103,7 @@ def test_definition_files_accept_relative_and_absolute_times() -> None:
         datetime(2026, 8, 20, tzinfo=UTC), datetime(2026, 9, 19, tzinfo=UTC)
     )
     assert definition.sensors == (SensorChoice("T1", True), SensorChoice("T2"))
-    assert definition.algorithm == "median"
+    assert definition.algorithm == "aakr"  # the default (plan 7.4)
     assert definition.params == {"seed": 1}
     assert definition.exclusion_periods == (
         Period(datetime(2026, 5, 22, tzinfo=UTC), datetime(2026, 5, 23, tzinfo=UTC)),
@@ -169,4 +169,4 @@ def test_the_scoring_cycle_is_at_least_10_seconds(cycle_s: object) -> None:
     """FR-RUN-01: default 60 s, minimum 10 s."""
     definition = replace(GOOD, params={"cycle_s": cycle_s})
     with pytest.raises(ModelError, match="at least 10"):
-        check_definition(definition, TAGS, {"median"})
+        check_definition(definition, TAGS, {"median", "aakr"})

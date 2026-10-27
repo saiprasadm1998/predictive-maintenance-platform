@@ -2,7 +2,7 @@
   "asset": "K-101",
   "name": "main",
   "description": "Syngas compressor K-101: whole machine, all 18 sensors",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

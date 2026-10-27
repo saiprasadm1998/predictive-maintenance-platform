@@ -135,6 +135,7 @@ def _eq1(**changes: Any) -> dict[str, Any]:
             "end": LIVE.isoformat(),
         },
         "mode_filters": ["EQ1.MOTOR > 120"],
+        "algorithm": "median",  # pipeline mechanics: the predictable placeholder
     }
     return {**definition, **changes}
 
@@ -183,7 +184,9 @@ def test_the_training_data_preview_shows_what_each_rule_removes(api: Any) -> Non
         json=_eq1(mode_filters=["EQ1.MOTOR > 500"]),
         headers=h["eng"],
     ).json()
-    assert (stopped["retained"], stopped["mode_removed"]) == (0, 3 * 1440)
+    assert stopped["retained"] == 0
+    # data quality runs first (UCS §6.4), so the mode rule takes what is left
+    assert stopped["quality_removed"] + stopped["mode_removed"] == 3 * 1440
     assert stopped["blocked"].startswith("Training blocked: only 0 clean samples")
     assert all(x == 1 for x in stopped["excluded"])
 

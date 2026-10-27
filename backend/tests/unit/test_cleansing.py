@@ -14,10 +14,11 @@ from pmp.modelling.definitions import Period
 T0 = datetime(2026, 9, 1, tzinfo=UTC)
 
 
-def frame(n: int = 3_000, seed: int = 3) -> pd.DataFrame:
-    """Two operating states (low and high load) of three related sensors."""
+def frame(n: int = 3_000, seed: int = 3, states: int = 2) -> pd.DataFrame:
+    """Two operating states (low and high load), or one, of three related sensors."""
     rng = np.random.default_rng(seed)
-    load = np.where(np.arange(n) % 600 < 300, 30.0, 80.0) + rng.normal(0, 1, n)
+    low = np.arange(n) % 600 < 300 if states == 2 else np.zeros(n, dtype=bool)
+    load = np.where(low, 30.0, 80.0) + rng.normal(0, 1, n)
     index = pd.date_range(T0, periods=n, freq="min", tz="UTC")
     return pd.DataFrame(
         {
@@ -40,17 +41,17 @@ def test_clean_data_loses_only_the_multivariate_tail_and_shows_both_states() -> 
     assert result.clusters[0].share == pytest.approx(0.5, abs=0.05)
 
 
-def test_rules_run_in_order_and_each_counts_only_what_it_removed() -> None:
-    data = frame()
+def test_rules_run_in_the_ucs_order_and_each_counts_only_what_it_removed() -> None:
+    data = frame(states=1)
     in_mode = np.ones(len(data), bool)
     in_mode[:100] = False
     covered = np.ones(len(data), bool)
     covered[50:150] = False  # half already outside the mode
     excluded = Period(T0 + timedelta(minutes=140), T0 + timedelta(minutes=200))
     result = cleanse(data, in_mode, covered, [excluded])
-    assert result.removed["mode"] == 100
-    assert result.removed["quality"] == 50  # 100 to 149: the other 50 went with the mode
-    assert result.removed["excluded"] == 50  # 150 to 199
+    assert result.removed["quality"] == 100  # 50 to 149, first in UCS §6.4
+    assert result.removed["mode"] == 50  # 0 to 49: the rest went with data quality
+    assert result.removed["excluded"] == 50  # 150 to 199, last
     assert not result.retained[:200].any()
 
 
@@ -93,3 +94,17 @@ def test_same_seed_same_result() -> None:
     first, second = cleanse(data, ones, ones, seed=5), cleanse(data, ones, ones, seed=5)
     assert (first.retained == second.retained).all()
     assert first.clusters == second.clusters
+
+
+def test_a_smaller_operating_state_is_kept_by_the_per_cluster_outlier_rule() -> None:
+    """Decision 7.4 (for review): UCS §6.4's |robust z| > 4 against one median and MAD for
+    all training data would remove a smaller operating state, such as a turndown, as
+    outliers. The rule runs within each operating cluster instead."""
+    data = frame()
+    covered = np.ones(len(data), bool)
+    covered[:150] = False  # 150 fewer low-load cycles: the states are no longer balanced
+    result = cleanse(data, np.ones(len(data), bool), covered)
+    assert result.removed["outlier"] < 30
+    assert len(result.clusters) >= 2
+    low_load = data["flow"].to_numpy() < 55
+    assert result.retained[low_load].sum() > 1_200  # the smaller state is still there

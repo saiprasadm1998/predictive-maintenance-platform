@@ -20,7 +20,7 @@ from pmp.modelling.algorithms.median import MedianDetector
 logger = logging.getLogger(__name__)
 
 ENTRY_POINT_GROUP = "pmp.algorithms"
-DEFAULT_DETECTOR = "median"  # until AAKR replaces it (7.4)
+DEFAULT_DETECTOR = "aakr"  # plan 7.4; "median" stays available as a baseline
 BUILT_IN: dict[str, type[Any]] = {
     MedianDetector.name: MedianDetector,
     AakrDetector.name: AakrDetector,

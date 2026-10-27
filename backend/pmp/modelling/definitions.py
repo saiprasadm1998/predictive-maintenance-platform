@@ -80,7 +80,7 @@ class ModelDefinition:
     description: str = ""
     # Periods the engineer excluded on the training trend (UC-05 step 5, plan 7.2).
     exclusion_periods: tuple[Period, ...] = ()
-    algorithm: str = "median"
+    algorithm: str = "aakr"  # the default detector (plan 7.4)
     params: Mapping[str, Any] = field(default_factory=dict)
 
 
@@ -216,7 +216,7 @@ def definition_from_dict(data: Mapping[str, Any], now: datetime) -> ModelDefinit
                 for i, p in enumerate(data.get("exclusion_periods", []), start=1)
             ),
             description=str(data.get("description", "")),
-            algorithm=str(data.get("algorithm", "median")),
+            algorithm=str(data.get("algorithm", "aakr")),
             params=dict(params),
         )
     except KeyError as missing:

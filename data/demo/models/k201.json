@@ -2,7 +2,7 @@
   "asset": "K-201",
   "name": "main",
   "description": "CO₂ compressor K-201: whole machine",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

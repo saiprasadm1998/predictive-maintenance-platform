@@ -350,6 +350,7 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     definition = {
         "asset": "EQ-1",
         "name": "second",
+        "algorithm": "median",  # the API is under test, not the algorithm
         "sensors": [{"tag": "EQ1.T1", "required": True}, "EQ1.T2"],
         "training_periods": [{"start": "2026-06-01T00:00Z", "end": "2026-06-04T00:00Z"}],
         "validation_period": {"start": "2026-06-04T00:00Z", "end": "2026-06-05T00:00Z"},

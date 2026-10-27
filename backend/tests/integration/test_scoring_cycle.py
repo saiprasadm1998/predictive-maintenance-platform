@@ -59,6 +59,7 @@ TAGS = ("EQ1.T1", "EQ1.T2", "EQ1.T3", "EQ1.MOTOR")
 
 def _definition(name: str = "main") -> ModelDefinition:
     return ModelDefinition(
+        algorithm="median",  # pipeline mechanics: the fixed, predictable placeholder
         asset_code="EQ-1",
         name=name,
         sensors=(

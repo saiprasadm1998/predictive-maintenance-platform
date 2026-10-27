@@ -19,6 +19,7 @@ from pmp.modelling import (
     get_detector,
 )
 from pmp.modelling.algorithms import registry
+from pmp.modelling.algorithms.aakr import AakrDetector
 
 
 class GoodPlugin(MedianDetector):
@@ -55,12 +56,13 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     available_detectors(refresh=True)
 
 
-def test_the_placeholder_is_the_default_and_enabled() -> None:
-    assert DEFAULT_DETECTOR == "median"
-    assert get_detector() is MedianDetector
-    median = next(d for d in available_detectors() if d.name == "median")
-    assert median.enabled
-    assert median.source == "built-in"
+def test_aakr_is_the_default_and_the_placeholder_stays_available() -> None:
+    assert DEFAULT_DETECTOR == "aakr"  # plan 7.4
+    assert get_detector() is AakrDetector
+    for name in ("aakr", "median"):
+        found = next(d for d in available_detectors() if d.name == name)
+        assert found.enabled
+        assert found.source == "built-in"
 
 
 @pytest.mark.usefixtures("plugins")

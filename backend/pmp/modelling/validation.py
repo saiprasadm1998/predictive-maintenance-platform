@@ -6,8 +6,8 @@ The validation period is played back exactly as runtime scores it, then summaris
 - the Deviation Index of every cycle, DI = 100 x sqrt(mean q^2) over the usable sensors with
   q = |residual| / R (UCS §6.2), and its percentiles P50, P95, P99 and P99.9
 - the share of cycles outside the model's envelope, for detectors that have one (AAKR)
-- proposed limits: DI warning 1.2 x P99; DI alert 1.5 x P99.9, and at least 10 % above the
-  warning (decision 7.3); sensor |z| warning 3 and alert 5
+- proposed limits: DI warning 1.2 x P99; DI alert 1.5 x P99.9 with a minimum of 10 % (DI is
+  a percentage: the alert limit is never below DI 10); sensor |z| warning 3 and alert 5
 - the alerts the proposed DI limits would have raised over the hold-out, per model-week,
   with the default alert rule (3 of 5 cycles to raise; below the limit less a 10 % deadband
   for 5 cycles to clear). The hold-out is normal operation, so each one is a false alert;
@@ -29,7 +29,7 @@ import numpy.typing as npt
 import pandas as pd
 
 PERCENTILES = (50.0, 95.0, 99.0, 99.9)
-WARNING_FACTOR, ALERT_FACTOR, ALERT_ABOVE_WARNING = 1.2, 1.5, 1.1
+WARNING_FACTOR, ALERT_FACTOR, ALERT_MINIMUM = 1.2, 1.5, 10.0
 SENSOR_WARNING_Z, SENSOR_ALERT_Z = 3.0, 5.0
 PERSISTENCE_N, PERSISTENCE_M = 3, 5  # pmp.alerting.domain defaults
 DEADBAND, CLEAR_CYCLES = 0.10, 5
@@ -81,11 +81,10 @@ def _round_up(value: float) -> float:
 
 
 def propose_limits(percentiles: Mapping[str, float]) -> ProposedLimits:
-    warning = _round_up(WARNING_FACTOR * percentiles["P99"])
-    alert = _round_up(max(ALERT_FACTOR * percentiles["P99.9"], ALERT_ABOVE_WARNING * warning))
-    if not warning > 0:  # a perfect fit: keep the limits usable
-        warning, alert = 0.1, 0.2
-    return ProposedLimits(di_warning=warning, di_alert=max(alert, _round_up(warning * 1.1)))
+    """UCS §6.4. P99.9 >= P99, so the alert limit is always above the warning limit."""
+    warning = max(_round_up(WARNING_FACTOR * percentiles["P99"]), 0.1)  # 0.1: a perfect fit
+    alert = _round_up(max(ALERT_FACTOR * percentiles["P99.9"], ALERT_MINIMUM))
+    return ProposedLimits(di_warning=warning, di_alert=alert)
 
 
 def count_alerts(di: Sequence[float] | npt.NDArray[np.float64], limit: float) -> int:

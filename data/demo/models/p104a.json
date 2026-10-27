@@ -2,7 +2,7 @@
   "asset": "P-104A",
   "name": "main",
   "description": "BFW pump P-104A: whole pump",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },

@@ -45,6 +45,7 @@ def days_before(a: int, b: int) -> Period:
 
 
 DEFINITION = ModelDefinition(
+    algorithm="median",  # pipeline mechanics: the fixed, predictable placeholder
     asset_code="K-101",
     name="main",
     sensors=tuple(SensorChoice(s["tag"], bool(s.get("required", False))) for s in K101["sensors"]),
@@ -250,7 +251,7 @@ def test_aakr_trains_calibrates_and_beats_the_placeholder(models: tuple[Database
     report = aakr.metrics["validation"]  # plan 7.3, kept with the version
     assert set(report["di_percentiles"]) == {"P50", "P95", "P99", "P99.9"}
     proposed = report["proposed"]
-    assert proposed["di_alert"] >= round(1.1 * proposed["di_warning"], 1)
+    assert proposed["di_alert"] >= max(10.0, proposed["di_warning"])  # UCS §6.4 minimum
     assert 0 <= report["outside_envelope"] <= 0.05  # the hold-out is normal operation
     assert report["alerts_per_week"] >= 0
     assert len(report["sensors"]) == 18  # every K-101 sensor

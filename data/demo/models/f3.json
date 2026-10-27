@@ -2,7 +2,7 @@
   "asset": "F-3",
   "name": "main",
   "description": "Cooling-tower fan F-3",
-  "algorithm": "median",
+  "algorithm": "aakr",
   "params": {
     "seed": 42
   },
