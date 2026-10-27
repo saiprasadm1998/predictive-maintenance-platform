@@ -1,0 +1,7 @@
+asset,start,end,description,detectable
+K-101,-21d,0d,Thrust-bearing degradation (DE bearing and pad temperatures; axial displacement),yes
+K-201,-4d,0d,Rod drop rising: rider-band wear,yes
+P-104A,-3d,0d,DE bearing temperature creeping up,yes
+P-205,-10h,-7h,Bearing temperature excursion,yes
+F-3,-20h,0d,Gearbox vibration rising,yes
+P-202,-2d,0d,Gateway link lost: no data,no

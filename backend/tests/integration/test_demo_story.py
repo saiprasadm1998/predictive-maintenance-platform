@@ -93,6 +93,23 @@ def test_models_then_back_scoring(
     assert again.cycles == 721
     assert again.scored == 0
 
+    # AC-04 (plan 7.4): the replayed alerts against the event history.
+    events = models_folder / "events.csv"
+    events.write_text(
+        "asset,start,end,description,detectable\n"
+        "P-205,-10h,-7h,Bearing temperature excursion,yes\n"
+        "P-202,-2d,0d,Gateway link lost,no\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["evaluate", str(events), "--days", "0.5"])
+    assert exit_info.value.code == 0
+    report = capsys.readouterr().out
+    assert "Bearing temperature excursion" in report
+    assert "MISSED" not in report
+    assert "not detectable (reported apart)" in report
+    assert "Detectable events alerted: 100%" in report
+
 
 def test_nothing_to_score_without_models(
     models_folder: Path, capsys: pytest.CaptureFixture[str]

@@ -96,7 +96,8 @@ from pmp.dataquality import (
     save_rule_set,
 )
 from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, replay
-from pmp.demo_story import back_score, setup_models
+from pmp.demo_story import back_score, latest_sample_time, setup_models
+from pmp.evaluation import EvaluationError, evaluate, format_report, read_events
 from pmp.ingestion import (
     BACKFILL_JOB,
     MAX_GRACE_S,
@@ -405,6 +406,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="score the last hours of data, oldest first, as the worker would have live",
     )
     demo_score.add_argument("--hours", type=float, default=24.0, help="how far back (24)")
+
+    evaluate = commands.add_parser(
+        "evaluate",
+        help="AC-04: compare the alerts raised in a period with an event history (CSV)",
+    )
+    evaluate.add_argument(
+        "events", type=Path, help="CSV: asset, start, end, description[, detectable]"
+    )
+    evaluate.add_argument("--days", type=float, default=30.0, help="period to evaluate (30)")
+    evaluate.add_argument(
+        "--anchor",
+        type=_when,
+        help="end of the period and the reference for relative event times "
+        "(default: just after the newest sample)",
+    )
 
     user = commands.add_parser("user", help="user accounts and roles (UC-17)")
     user_commands = user.add_subparsers(dest="user_command", required=True)
@@ -1146,6 +1162,30 @@ def _run_score(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_evaluate(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        anchor = args.anchor
+        if anchor is None:
+            newest = latest_sample_time(database)
+            if newest is None:
+                print("Error: no data to evaluate", file=sys.stderr)
+                return 1
+            anchor = newest.replace(second=0, microsecond=0) + timedelta(minutes=1)
+        try:
+            events = read_events(args.events, anchor)
+        except EvaluationError as error:
+            print(f"Error: {error}", file=sys.stderr)
+            return 1
+        with database.session() as session:
+            result = evaluate(session, events, anchor - timedelta(days=args.days), anchor)
+        for line in format_report(result):
+            print(line)
+        return 0
+    finally:
+        database.dispose()
+
+
 def _run_demo_story(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -1273,6 +1313,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_demo(settings, args))
     elif args.command == "retention":
         sys.exit(_run_retention(settings, args))
+    elif args.command == "evaluate":
+        sys.exit(_run_evaluate(settings, args))
     elif args.command == "audit":
         sys.exit(_run_audit(settings, args))
     elif args.command == "user":

@@ -438,9 +438,9 @@ forbidden_modules = [
 allow_indirect_imports = true
 
 [[tool.importlinter.contracts]]
-name = "demo uses other modules only through their public interface"
+name = "demo and evaluation use other modules only through their public interface"
 type = "forbidden"
-source_modules = ["pmp.demo"]
+source_modules = ["pmp.demo", "pmp.evaluation"]
 forbidden_modules = [
     "pmp.core.**",
     "pmp.ingestion.**",
