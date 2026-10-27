@@ -113,6 +113,7 @@ class VersionOut(VersionSummary):
     training_periods: list[PeriodOut]
     validation_period: PeriodOut | None
     mode_filters: list[str]
+    exclusion_periods: list[PeriodOut] = Field(default_factory=list)
     params: dict[str, Any]
     metrics: dict[str, Any] | None
     error: str | None
@@ -240,6 +241,7 @@ def get_model(request: Request, user: User, model_id: int) -> ModelDetailOut:
                 else None
             ),
             mode_filters=list(v.mode_filters),
+            exclusion_periods=[PeriodOut(start=p.start, end=p.end) for p in v.exclusion_periods],
             params=dict(v.params),
             metrics=dict(v.metrics) if v.metrics else None,
             error=v.error,
@@ -554,7 +556,8 @@ def get_latest(
 
 class ModelIn(BaseModel):
     """A model definition, as in data/demo/models/k101.json: asset, name, sensors,
-    training_periods, validation_period, mode_filters, params, alert_rules. Relative times
+    training_periods, validation_period, mode_filters, exclusion_periods, params,
+    alert_rules. Relative times
     such as "-30d" are resolved against now."""
 
     model_config = {"extra": "allow"}
@@ -622,6 +625,14 @@ class TrainingDataOut(BaseModel):
     quality_removed: int = Field(
         description="in-mode cycles failing data quality or the coverage rule"
     )
+    excluded_removed: int = Field(description="cycles inside the periods excluded on the trend")
+    outlier_removed: int = Field(description="cycles with a sensor at |robust z| > 4")
+    multivariate_removed: int = Field(
+        description="cycles further from every operating cluster than 99.9 % of the data"
+    )
+    clusters: list[int] = Field(
+        description="retained cycles per operating cluster, largest first (2 to 8 clusters)"
+    )
     blocked: str | None = Field(description="why training would be blocked (UC-05 6a)")
     sensors: list[SensorUseOut]
     bucket_s: int = Field(description="width of the trend's time buckets")
@@ -655,6 +666,10 @@ def post_training_data(
         retained=preview.retained,
         mode_removed=preview.mode_removed,
         quality_removed=preview.quality_removed,
+        excluded_removed=preview.excluded_removed,
+        outlier_removed=preview.outlier_removed,
+        multivariate_removed=preview.multivariate_removed,
+        clusters=[c.cycles for c in preview.clusters],
         blocked=preview.blocked,
         sensors=[
             SensorUseOut(

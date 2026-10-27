@@ -78,6 +78,8 @@ class ModelDefinition:
     validation_period: Period
     mode_filters: tuple[str, ...] = ()
     description: str = ""
+    # Periods the engineer excluded on the training trend (UC-05 step 5, plan 7.2).
+    exclusion_periods: tuple[Period, ...] = ()
     algorithm: str = "median"
     params: Mapping[str, Any] = field(default_factory=dict)
 
@@ -137,6 +139,12 @@ def check_definition(
                     f"Training period {i} overlaps the validation period "
                     "(UC-05: they may not overlap)"
                 )
+
+    for i, period in enumerate(definition.exclusion_periods, start=1):
+        if not period.start < period.end:
+            problems.append(f"Excluded period {i}: the start must be before the end")
+        elif not any(period.overlaps(t) for t in definition.training_periods):
+            problems.append(f"Excluded period {i} is outside every training period")
 
     for i, text in enumerate(definition.mode_filters, start=1):
         try:
@@ -203,6 +211,10 @@ def definition_from_dict(data: Mapping[str, Any], now: datetime) -> ModelDefinit
             training_periods=training,
             validation_period=_period(data["validation_period"], now, "Validation period"),
             mode_filters=tuple(str(f) for f in data.get("mode_filters", [])),
+            exclusion_periods=tuple(
+                _period(p, now, f"Excluded period {i}")
+                for i, p in enumerate(data.get("exclusion_periods", []), start=1)
+            ),
             description=str(data.get("description", "")),
             algorithm=str(data.get("algorithm", "median")),
             params=dict(params),

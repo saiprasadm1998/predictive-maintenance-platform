@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -144,7 +145,11 @@ def test_the_training_data_preview_shows_what_each_rule_removes(api: Any) -> Non
     found = client.post(url, json=_eq1(), params={"px": 50}, headers=h["eng"]).json()
     assert found["cycles"] == 3 * 1440
     assert found["mode_removed"] == 0  # the motor runs throughout
-    assert found["retained"] == found["cycles"] - found["quality_removed"]
+    removed = ["mode", "quality", "excluded", "outlier", "multivariate"]
+    assert found["retained"] == found["cycles"] - sum(found[f"{r}_removed"] for r in removed)
+    assert found["excluded_removed"] == 0
+    assert 0 < found["multivariate_removed"] <= found["cycles"] // 1000 + 1  # the 0.1 % tail
+    assert sum(found["clusters"]) == found["retained"]
     assert found["blocked"] is None
     assert [s["source_name"] for s in found["sensors"]] == ["EQ1.T1", "EQ1.T2", "EQ1.T3"]
     assert 40 <= len(found["buckets"]) <= 50
@@ -153,6 +158,25 @@ def test_the_training_data_preview_shows_what_each_rule_removes(api: Any) -> Non
     assert all(0 <= x <= 1 for x in found["excluded"])
     assert set(found["values"]) == {"EQ1.T1", "EQ1.T2", "EQ1.T3"}
     assert all(len(v) == len(found["buckets"]) for v in found["values"].values())
+
+    # A day excluded on the trend (UC-05 step 5) is left out and kept with the draft.
+    day = {
+        "start": (T0 + timedelta(days=1)).isoformat(),
+        "end": (T0 + timedelta(days=2)).isoformat(),
+    }
+    trimmed = client.post(url, json=_eq1(exclusion_periods=[day]), headers=h["eng"]).json()
+    assert 1000 < trimmed["excluded_removed"] <= 1440  # that day, less its bad cycles
+    assert trimmed["retained"] < found["retained"]
+    saved = client.post("/api/v1/models", json=_eq1(exclusion_periods=[day]), headers=h["eng"])
+    assert saved.status_code == 201, saved.text
+    model = client.get(f"/api/v1/models/{saved.json()['id']}", headers=h["eng"]).json()
+    assert [p["start"][:10] for p in model["versions"][-1]["exclusion_periods"]] == [
+        day["start"][:10]
+    ]
+    outside = {"start": LIVE.isoformat(), "end": (LIVE + timedelta(hours=1)).isoformat()}
+    refused_period = client.post(url, json=_eq1(exclusion_periods=[outside]), headers=h["eng"])
+    assert refused_period.status_code == 400
+    assert "outside every training period" in refused_period.text
 
     stopped = client.post(
         url,

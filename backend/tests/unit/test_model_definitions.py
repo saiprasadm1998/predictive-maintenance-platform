@@ -65,6 +65,8 @@ def test_a_good_definition_passes() -> None:
         ),
         ({"mode_filters": ("MOTOR >",)}, "Operating-mode filter 1: Expression ends early"),
         ({"mode_filters": ("P9 > 1",)}, "names tags not on EQ-1: P9"),
+        ({"exclusion_periods": (days(61, 65),)}, "Excluded period 1 is outside every training"),
+        ({"exclusion_periods": (days(5, 5),)}, "Excluded period 1: the start must be before"),
     ],
 )
 def test_each_problem_is_reported(change: dict[str, object], expected: str) -> None:
@@ -91,6 +93,7 @@ def test_definition_files_accept_relative_and_absolute_times() -> None:
             "training_periods": [{"start": "-170d", "end": "2026-08-20T00:00:00+00:00"}],
             "validation_period": {"start": "-60d", "end": "-30d"},
             "mode_filters": ["MOTOR > 120"],
+            "exclusion_periods": [{"start": "-150d", "end": "-149d"}],
             "params": {"seed": 1},
         },
         now,
@@ -102,6 +105,9 @@ def test_definition_files_accept_relative_and_absolute_times() -> None:
     assert definition.sensors == (SensorChoice("T1", True), SensorChoice("T2"))
     assert definition.algorithm == "median"
     assert definition.params == {"seed": 1}
+    assert definition.exclusion_periods == (
+        Period(datetime(2026, 5, 22, tzinfo=UTC), datetime(2026, 5, 23, tzinfo=UTC)),
+    )
 
 
 @pytest.mark.parametrize(

@@ -94,7 +94,8 @@ def _sets(n_train: int = 4000, n_valid: int = 1000) -> tuple[Assembled, Assemble
 def test_training_statistics_follow_ucs_6_2() -> None:
     training, validation = _sets()
     result = train(MedianDetector, {"seed": 1}, SENSORS, training, validation)
-    fit_a = training.frame["A"][training.retained].to_numpy()
+    assert result.cleansing is not None
+    fit_a = training.frame["A"][result.cleansing.retained].to_numpy()  # after cleansing
     a = result.sensors["A"]
     assert a.median == pytest.approx(np.median(fit_a))
     assert (a.p1, a.p99) == pytest.approx(tuple(np.percentile(fit_a, [1, 99])))
@@ -114,7 +115,11 @@ def test_training_statistics_follow_ucs_6_2() -> None:
     assert (c.scale.sigma, c.scale.sigma_floored) == (0.02, True)
 
     assert result.training_cycles == 4000
-    assert result.training_retained == 3600  # motor stopped 10 % of the time
+    removed = result.cleansing.removed
+    assert removed["mode"] == 400  # motor stopped 10 % of the time
+    assert removed["outlier"] == 0  # smooth signals: nothing beyond |robust z| 4
+    assert 0 < removed["multivariate"] <= 4  # the 0.1 % furthest from the clusters
+    assert result.training_retained == 3600 - removed["multivariate"]
     assert result.validation_retained == 900
     assert result.scaling()["sensor_order"] == ["A", "B", "C"]
     assert set(result.validation()["sensors"]) == {"A", "B", "C"}

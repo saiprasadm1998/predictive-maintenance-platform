@@ -4,8 +4,9 @@
 Data is laid out on the model's cycle grid with sample-and-hold and the data-quality
 rules, exactly as scoring will see it, so training and runtime agree. A cycle is retained
 when it is in the operating mode and passes the coverage rule (at least 70 % of sensors
-usable and every required sensor usable). Outlier removal and the full validation metrics
-arrive in Phase 7 (7.2, 7.3).
+usable and every required sensor usable). Training cycles are then cleansed (manual
+exclusions, outliers, multivariate outliers: pmp.modelling.cleansing); the validation
+period is played back with the runtime rules only.
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ import numpy.typing as npt
 import pandas as pd
 
 from pmp.modelling.algorithms.contract import Detector
+from pmp.modelling.cleansing import Cleansing, cleanse
+from pmp.modelling.definitions import Period
 from pmp.modelling.expressions import Expression
 from pmp.modelling.scaling import SensorScale, scale_with_floors
 
@@ -121,6 +124,7 @@ class TrainingResult:
     training_retained: int
     validation_cycles: int
     validation_retained: int
+    cleansing: Cleansing | None = None
 
     def scaling(self) -> dict[str, Any]:
         return {
@@ -144,7 +148,7 @@ class TrainingResult:
         }
 
 
-def check_minimum_data(data: Assembled) -> None:
+def check_minimum_data(data: Assembled | Cleansing) -> None:
     """UC-05 6a: at least 2,000 retained vectors and 50 % of the selected period."""
     retained = int(data.retained.sum())
     if retained < MIN_VECTORS:
@@ -174,10 +178,19 @@ def train(
     sensors: Sequence[SensorInfo],
     training: Assembled,
     validation: Assembled,
+    exclusions: Sequence[Period] = (),
 ) -> TrainingResult:
-    """Fit on the retained training cycles and play back the validation period."""
-    check_minimum_data(training)
-    fit_rows = training.frame[training.retained]
+    """Cleanse the training cycles, fit on what is kept and play back the validation
+    period."""
+    cleansing = cleanse(
+        training.frame,
+        training.in_mode,
+        training.covered,
+        exclusions,
+        seed=int(params.get("seed", 0)),
+    )
+    check_minimum_data(cleansing)
+    fit_rows = training.frame[cleansing.retained]
     medians: dict[str, float] = {}
     percentiles: dict[str, tuple[float, float]] = {}
     stds: dict[str, float] = {}
@@ -239,7 +252,8 @@ def train(
         detector=detector,
         sensors=stats,
         training_cycles=training.cycles,
-        training_retained=int(training.retained.sum()),
+        training_retained=cleansing.kept,
+        cleansing=cleansing,
         validation_cycles=validation.cycles,
         validation_retained=int(validation.retained.sum()),
     )

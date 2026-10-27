@@ -38,6 +38,7 @@ from pmp.dataquality import assess_series, cycle_grid
 from pmp.modelling.algorithms.contract import DetectorError
 from pmp.modelling.algorithms.registry import available_detectors, get_detector
 from pmp.modelling.artefacts import artefact_dir, write_artefact
+from pmp.modelling.cleansing import Cluster, cleanse
 from pmp.modelling.definitions import (
     ModelDefinition,
     ModelError,
@@ -67,7 +68,7 @@ from pmp.registry import (
 
 logger = logging.getLogger(__name__)
 
-TRAINING, VALIDATION = "training", "validation"
+TRAINING, VALIDATION, EXCLUSION = "training", "validation", "exclusion"
 TRAIN_JOB = "model.train"
 DEFAULT_SEED = 42
 DEFAULT_CYCLE_S = 60
@@ -94,6 +95,7 @@ class VersionView:
     validation_period: Period | None
     mode_filters: tuple[str, ...]
     created_at: datetime
+    exclusion_periods: tuple[Period, ...] = ()
     error: str | None = None
     artefact_path: str | None = None
     artefact_sha256: str | None = None
@@ -153,6 +155,9 @@ def _snapshot(definition: ModelDefinition) -> dict[str, Any]:
             definition.validation_period.end.isoformat(),
         ],
         "mode_filters": [str(parse_expression(f)) for f in definition.mode_filters],
+        "exclusion_periods": [
+            [p.start.isoformat(), p.end.isoformat()] for p in definition.exclusion_periods
+        ],
     }
 
 
@@ -176,6 +181,12 @@ def _write_definition(
         session.add(
             TrainingPeriod(
                 version_id=version.id, kind=TRAINING, starts_at=period.start, ends_at=period.end
+            )
+        )
+    for period in definition.exclusion_periods:
+        session.add(
+            TrainingPeriod(
+                version_id=version.id, kind=EXCLUSION, starts_at=period.start, ends_at=period.end
             )
         )
     validation = definition.validation_period
@@ -253,6 +264,9 @@ def _version_views(session: Session, versions: Sequence[ModelVersion]) -> list[V
                 ),
                 validation_period=validation[0] if validation else None,
                 mode_filters=tuple(filters_of.get(version.id, [])),
+                exclusion_periods=tuple(
+                    Period(p.starts_at, p.ends_at) for p in own_periods if p.kind == EXCLUSION
+                ),
                 created_at=version.created_at,
                 error=version.error,
                 artefact_path=version.artefact_path,
@@ -408,6 +422,9 @@ def _view_snapshot(view: VersionView, description: str) -> dict[str, Any]:
             else None
         ),
         "mode_filters": list(view.mode_filters),
+        "exclusion_periods": [
+            [p.start.isoformat(), p.end.isoformat()] for p in view.exclusion_periods
+        ],
     }
 
 
@@ -470,6 +487,9 @@ def _training_definition(view: VersionView, params: Mapping[str, Any]) -> dict[s
             else None
         ),
         "mode_filters": list(view.mode_filters),
+        "exclusion_periods": [
+            [p.start.isoformat(), p.end.isoformat()] for p in view.exclusion_periods
+        ],
     }
 
 
@@ -575,6 +595,10 @@ class TrainingDataPreview:
     retained: int
     mode_removed: int
     quality_removed: int
+    excluded_removed: int  # inside the periods excluded on the trend
+    outlier_removed: int  # a sensor with |robust z| > 4
+    multivariate_removed: int  # far from every operating cluster
+    clusters: tuple[Cluster, ...]  # retained cycles per operating cluster, largest first
     blocked: str | None  # the minimum-data rule's reason, if training would be blocked
     sensors: tuple[SensorUse, ...]
     bucket_s: int
@@ -603,12 +627,19 @@ def preview_training_data(
     cycle_s = int(definition.params.get("cycle_s", DEFAULT_CYCLE_S))
     data = _gather(session, definition.training_periods, cycle_s, sensors, tag_ids, filters)
 
+    cleansing = cleanse(
+        data.frame,
+        data.in_mode,
+        data.covered,
+        definition.exclusion_periods,
+        seed=int(definition.params.get("seed", DEFAULT_SEED)),
+    )
     blocked = None
     if data.cycles == 0:
         blocked = "Training blocked: the training periods hold no scoring cycles."
     else:
         try:
-            check_minimum_data(data)
+            check_minimum_data(cleansing)
         except TrainingError as error:
             blocked = str(error)
     in_mode = data.in_mode
@@ -638,7 +669,7 @@ def preview_training_data(
         per_point = -(-span_s // max(points, 1))  # rounded up, then to whole cycles
         width_s = max(cycle_s, -(-per_point // cycle_s) * cycle_s)
         frame = data.frame.copy()
-        frame["_excluded"] = ~data.retained
+        frame["_excluded"] = ~cleansing.retained
         grouped = frame.groupby((ns - start_ns) // (width_s * 10**9)).mean()
         buckets = tuple(
             datetime.fromtimestamp(start_ns / 1e9 + int(b) * width_s, UTC)
@@ -656,9 +687,13 @@ def preview_training_data(
     return TrainingDataPreview(
         cycle_s=cycle_s,
         cycles=data.cycles,
-        retained=int(data.retained.sum()),
-        mode_removed=int((~in_mode).sum()),
-        quality_removed=int((in_mode & ~data.covered).sum()),
+        retained=cleansing.kept,
+        mode_removed=cleansing.removed["mode"],
+        quality_removed=cleansing.removed["quality"],
+        excluded_removed=cleansing.removed["excluded"],
+        outlier_removed=cleansing.removed["outlier"],
+        multivariate_removed=cleansing.removed["multivariate"],
+        clusters=cleansing.clusters,
         blocked=blocked,
         sensors=tuple(uses),
         bucket_s=width_s,
@@ -710,7 +745,14 @@ def run_training(database: Database, version_id: int, artefact_base: Path) -> di
             )
             report_progress(60)
             detector_cls = get_detector(version.algorithm)
-            result = train(detector_cls, params, sensors, training_data, validation_data)
+            result = train(
+                detector_cls,
+                params,
+                sensors,
+                training_data,
+                validation_data,
+                view.exclusion_periods,
+            )
             report_progress(85)
 
             definition = version.training_def or _training_definition(view, params)
@@ -749,6 +791,11 @@ def run_training(database: Database, version_id: int, artefact_base: Path) -> di
                     if st.scale.range_floored or st.scale.sigma_floored
                 ),
             }
+            if result.cleansing is not None:  # what each rule removed (SCR-06 step 3)
+                metrics["cleansing"] = {
+                    "removed": result.cleansing.removed,
+                    "clusters": [c.cycles for c in result.cleansing.clusters],
+                }
             learnt = getattr(result.detector, "summary", None)  # e.g. AAKR's memory size
             if isinstance(learnt, dict):
                 metrics["detector"] = learnt
