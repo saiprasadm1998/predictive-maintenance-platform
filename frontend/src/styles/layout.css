@@ -354,3 +354,8 @@
   color: var(--alert);
   min-height: 1.35em;
 }
+
+.form-warning {
+  color: var(--watch-text);
+  margin-top: 4px;
+}

@@ -22,15 +22,18 @@ import { Skeleton } from "../fleet/FleetPage";
 import {
   type BuilderDraft,
   DEFAULT_SENSOR,
+  type DraftPeriod,
   MIN_CYCLE_S,
   alertRules,
   applyTemplate,
+  clusterSummary,
   fromLocalInput,
   inService,
   newDraft,
   share,
   stepProblems,
   toDefinition,
+  toLocalInput,
   trainingTrend,
 } from "./builderModel";
 
@@ -419,6 +422,17 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
 
   const data = preview.data;
   const removed = data ? data.cycles - data.retained : 0;
+  const clusters = clusterSummary(data?.clusters ?? []);
+  const exclusions = draft.exclusions ?? [];
+  function setExclusions(next: DraftPeriod[]) {
+    setDraft({ ...draft, exclusions: next });
+  }
+  function exclude(from: number, to: number) {
+    setExclusions([
+      ...exclusions,
+      { start: toLocalInput(new Date(from)), end: toLocalInput(new Date(to)) },
+    ]);
+  }
   const flagged = data?.sensors.filter((s) => s.flagged) ?? [];
   const problems = [
     ...stepProblems(3, draft),
@@ -511,7 +525,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
             </label>
             {trend && (
               <TrendChart
-                title={`Training data · ${shown} · shaded = excluded`}
+                title={`Training data · ${shown} · shaded = excluded · drag across the trend to exclude a period`}
                 group="builder"
                 data={{ actual: trend.points, excluded: trend.excluded }}
                 settings={{
@@ -519,7 +533,9 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                   to: trend.to,
                   unit: tags.data?.find((t) => t.source_name === shown)?.unit ?? "",
                   actualName: shown,
+                  selecting: true,
                 }}
+                onSelect={exclude}
               />
             )}
             <table className="summary-table">
@@ -547,12 +563,66 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                   </td>
                   <td className="num">{share(data.quality_removed, data.cycles)} removed</td>
                 </tr>
+                <tr>
+                  <th scope="row">Excluded on the trend</th>
+                  <td>
+                    {exclusions.length
+                      ? `${exclusions.length} period${exclusions.length === 1 ? "" : "s"}`
+                      : "None"}
+                  </td>
+                  <td className="num">{share(data.excluded_removed, data.cycles)} removed</td>
+                </tr>
+                <tr>
+                  <th scope="row">Outliers</th>
+                  <td>Any sensor more than 4 robust standard deviations from its median</td>
+                  <td className="num">{share(data.outlier_removed, data.cycles)} removed</td>
+                </tr>
+                <tr>
+                  <th scope="row">Multivariate outliers</th>
+                  <td>Further from every operating cluster than 99.9 % of the data</td>
+                  <td className="num">{share(data.multivariate_removed, data.cycles)} removed</td>
+                </tr>
               </tbody>
             </table>
-            <p className="muted small">
-              Outlier removal, periods excluded on the trend and operating clusters arrive with AAKR
-              training.
-            </p>
+            <fieldset className="builder-filters">
+              <legend>Excluded periods</legend>
+              {exclusions.length === 0 && (
+                <p className="muted small">
+                  Drag across the trend over a period that was not normal operation (a trip, a test,
+                  a known fault), or add one by its times.
+                </p>
+              )}
+              {exclusions.map((p, i) => (
+                <div key={i} className="builder-row">
+                  <PeriodFields
+                    label={`Excluded period ${i + 1}`}
+                    value={p}
+                    onChange={(value) =>
+                      setExclusions(exclusions.map((q, j) => (j === i ? value : q)))
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="button button-small"
+                    onClick={() => setExclusions(exclusions.filter((_, j) => j !== i))}
+                  >
+                    Remove excluded period {i + 1}
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="button button-small"
+                onClick={() => {
+                  const first = draft.training[0];
+                  if (!first) return;
+                  const start = fromLocalInput(first.start).getTime();
+                  exclude(start, start + 3_600_000);
+                }}
+              >
+                Add an excluded period
+              </button>
+            </fieldset>
           </div>
           <table className="summary-table">
             <caption>Training data summary</caption>
@@ -592,6 +662,20 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                         .join(", ")}
                       )
                     </>
+                  )}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Operating clusters</th>
+                <td>
+                  {clusters.text}
+                  {clusters.small.length > 0 && (
+                    <div className="form-warning">
+                      ⚠ Cluster{clusters.small.length === 1 ? "" : "s"} {clusters.small.join(", ")}{" "}
+                      hold
+                      {clusters.small.length === 1 ? "s" : ""} under 5 % of the data: that operating
+                      state may be learnt poorly. Extend the training period to include more of it.
+                    </div>
                   )}
                 </td>
               </tr>

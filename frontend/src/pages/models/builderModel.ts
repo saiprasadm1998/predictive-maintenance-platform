@@ -53,6 +53,8 @@ export interface BuilderDraft {
   validation: DraftPeriod;
   cycleS: number;
   modeFilters: string[];
+  /** Periods left out of training, picked on the trend (UC-05 step 5). */
+  exclusions: DraftPeriod[];
   di: { warning: number; alert: number; n: number; m: number };
   sensorRules: SensorRule[];
   /** The training job started from this page, so its progress can be followed. */
@@ -96,6 +98,7 @@ export function newDraft(asset = "", now = new Date()): BuilderDraft {
     },
     cycleS: 60,
     modeFilters: [],
+    exclusions: [],
     di: { ...DEFAULT_DI, ...DEFAULT_PERSISTENCE },
     sensorRules: [],
     jobId: null,
@@ -123,6 +126,7 @@ export function draftFromModel(model: ModelDetail, now = new Date()): BuilderDra
     validation: latest?.validation_period ? periodInput(latest.validation_period) : base.validation,
     cycleS: Number(latest?.params.cycle_s ?? 60),
     modeFilters: latest?.mode_filters ?? [],
+    exclusions: (latest?.exclusion_periods ?? []).map(periodInput),
     di: di
       ? {
           warning: di.warning,
@@ -196,6 +200,12 @@ export function stepProblems(step: number, draft: BuilderDraft): string[] {
     draft.modeFilters.forEach((f, i) => {
       if (!f.trim()) problems.push(`Operating-mode filter ${i + 1} is empty`);
     });
+    (draft.exclusions ?? []).forEach((p, i) => {
+      const start = fromLocalInput(p.start).getTime();
+      const end = fromLocalInput(p.end).getTime();
+      if (!(start < end))
+        problems.push(`Excluded period ${i + 1}: the start must be before the end`);
+    });
   }
   if (step === 5) {
     const { warning, alert, n, m } = draft.di;
@@ -235,6 +245,10 @@ export function toDefinition(draft: BuilderDraft, withRules: boolean): ModelDefi
     training_periods: draft.training.map((p) => ({ start: iso(p.start), end: iso(p.end) })),
     validation_period: { start: iso(draft.validation.start), end: iso(draft.validation.end) },
     mode_filters: draft.modeFilters.map((f) => f.trim()).filter(Boolean),
+    exclusion_periods: (draft.exclusions ?? []).map((p) => ({
+      start: iso(p.start),
+      end: iso(p.end),
+    })),
     params: { cycle_s: draft.cycleS },
     ...(withRules ? { alert_rules: alertRules(draft) } : {}),
   };
@@ -265,7 +279,9 @@ function storageKey(userId: number, key: string): string {
 export function loadDraft(userId: number, key: string): BuilderDraft | null {
   try {
     const raw = window.localStorage.getItem(storageKey(userId, key));
-    return raw ? (JSON.parse(raw) as BuilderDraft) : null;
+    if (!raw) return null;
+    const draft = JSON.parse(raw) as BuilderDraft;
+    return { ...draft, exclusions: draft.exclusions ?? [] }; // copies saved before 7.2
   } catch {
     return null;
   }
@@ -294,6 +310,21 @@ export function share(part: number, whole: number): string {
 
 /** One sensor's training data as a line (broken where no cycles fall), with the buckets
  * where most cycles are excluded shaded as periods. */
+/** A cluster holding less than this share of the retained data may be under-learnt. */
+export const SMALL_CLUSTER = 0.05;
+
+/** "3 operating clusters: 52 %, 31 %, 17 %" and the clusters that are small. */
+export function clusterSummary(clusters: readonly number[]): { text: string; small: number[] } {
+  const total = clusters.reduce((a, b) => a + b, 0);
+  if (!clusters.length || !total) return { text: "Not enough data to find them", small: [] };
+  const shares = clusters.map((c) => c / total);
+  const text = `${clusters.length} operating cluster${clusters.length === 1 ? "" : "s"}: ${shares
+    .map((s) => `${Math.round(s * 100)} %`)
+    .join(", ")}`;
+  const small = shares.flatMap((s, i) => (s < SMALL_CLUSTER ? [i + 1] : []));
+  return { text, small };
+}
+
 export function trainingTrend(data: TrainingData, sensor: string) {
   const step = data.bucket_s * 1000;
   const values = data.values[sensor] ?? [];

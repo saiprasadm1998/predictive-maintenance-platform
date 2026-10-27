@@ -173,7 +173,11 @@ const PREVIEW: TrainingData = {
   cycles: 10_000,
   retained: 7_800,
   mode_removed: 2_000,
-  quality_removed: 200,
+  quality_removed: 150,
+  excluded_removed: 0,
+  outlier_removed: 40,
+  multivariate_removed: 10,
+  clusters: [5_000, 2_500, 300],
   blocked: null,
   sensors: [
     {
@@ -227,6 +231,22 @@ describe("SCR-06 model builder", () => {
     expect(within(summary).getByText(/78\.0 %/)).toBeInTheDocument();
     const rules = screen.getByRole("table", { name: "Cleansing rules applied" });
     expect(within(rules).getByText("20.0 % removed")).toBeInTheDocument();
+    expect(within(rules).getByText("0.4 % removed")).toBeInTheDocument(); // outliers
+    expect(within(summary).getByText(/3 operating clusters: 64 %, 32 %, 4 %/)).toBeInTheDocument();
+    expect(within(summary).getByText(/Cluster 3 holds under 5 %/)).toBeInTheDocument();
+
+    // A period left out by its times (the keyboard route to dragging on the trend).
+    await user.click(screen.getByRole("button", { name: "Add an excluded period" }));
+    expect(screen.getByRole("group", { name: "Excluded period 1" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c: Call) =>
+            c.path === "/models/training-data" &&
+            (c.body as { exclusion_periods: unknown[] }).exclusion_periods.length === 1,
+        ),
+      ).toBe(true),
+    );
     await user.click(screen.getByRole("button", { name: "Train model →" }));
 
     expect(await screen.findByText("Training: 40 %")).toBeInTheDocument();
@@ -237,6 +257,7 @@ describe("SCR-06 model builder", () => {
       sensors: [{ tag: "K101.TI1.PV", required: true }],
       alert_rules: { di: { warning: 15, alert: 25 } }, // nothing in service: saved now
     });
+    expect((save.body as { exclusion_periods: unknown[] }).exclusion_periods).toHaveLength(1);
     // The draft moved to the saved model, so it survives leaving the page.
     expect(window.localStorage.getItem("pmp.builder.1.9")).toContain('"jobId":5');
     expect(window.localStorage.getItem("pmp.builder.1.new")).toBeNull();

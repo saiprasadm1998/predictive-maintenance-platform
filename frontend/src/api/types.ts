@@ -152,6 +152,7 @@ export interface VersionDetail extends VersionSummary {
   training_periods?: Period[];
   validation_period?: Period | null;
   mode_filters?: string[];
+  exclusion_periods?: Period[];
   metrics?: Record<string, unknown> | null;
   artefact_sha256?: string | null;
 }
@@ -238,6 +239,7 @@ export interface ModelDefinitionIn {
   training_periods: Period[];
   validation_period: Period;
   mode_filters: string[];
+  exclusion_periods?: Period[];
   params?: Record<string, unknown>;
   alert_rules?: AlertRulesIn;
 }
@@ -254,6 +256,10 @@ export interface TrainingData {
   retained: number;
   mode_removed: number;
   quality_removed: number;
+  excluded_removed: number; // inside the periods excluded on the trend
+  outlier_removed: number; // a sensor at |robust z| > 4
+  multivariate_removed: number; // far from every operating cluster
+  clusters: number[]; // retained cycles per operating cluster, largest first
   blocked: string | null;
   sensors: {
     source_name: string;

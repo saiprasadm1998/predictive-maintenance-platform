@@ -39,6 +39,8 @@ export interface TrendSettings {
   actualName?: string;
   /** A fixed value axis (Health: 0 to 100 with a tick every 25). */
   axis?: { min: number; max: number; interval: number };
+  /** Dragging selects a period (see TrendChart onSelect) instead of panning. */
+  selecting?: boolean;
 }
 
 const ALERT_BAR_HEIGHT = 10;
@@ -294,7 +296,14 @@ export function trendOptions(
         return [head, ...lines].join("<br/>");
       },
     },
-    dataZoom: [{ type: "inside", xAxisIndex: hasBar ? [0, 1] : [0], filterMode: "none" }],
+    dataZoom: [
+      {
+        type: "inside",
+        xAxisIndex: hasBar ? [0, 1] : [0],
+        filterMode: "none",
+        moveOnMouseMove: !settings.selecting, // the wheel still zooms
+      },
+    ],
     series,
   };
 }

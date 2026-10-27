@@ -27,6 +27,7 @@ export function TrendChart({
   loading = false,
   onZoom,
   onPick,
+  onSelect,
 }: {
   title: string;
   data: TrendData;
@@ -38,6 +39,8 @@ export function TrendChart({
   onZoom?: (from: number, to: number) => void;
   /** Called with the time under a click, to show what the page knows at that moment. */
   onPick?: (t: number) => void;
+  /** Called with the period dragged across the plot (left to right or back). */
+  onSelect?: (from: number, to: number) => void;
 }) {
   const container = useRef<HTMLDivElement>(null);
   const chart = useRef<echarts.ECharts | null>(null);
@@ -79,10 +82,12 @@ export function TrendChart({
   // A zoom or pan reports the window it settles on, so the page can fetch finer data.
   const zoomed = useRef(onZoom);
   const picked = useRef(onPick);
+  const selected = useRef(onSelect);
   useEffect(() => {
     zoomed.current = onZoom;
     picked.current = onPick;
-  }, [onZoom, onPick]);
+    selected.current = onSelect;
+  }, [onZoom, onPick, onSelect]);
   useEffect(() => {
     const instance = chart.current;
     if (!instance) return;
@@ -102,12 +107,33 @@ export function TrendChart({
       if (!picked.current) return;
       const point = [event.offsetX, event.offsetY];
       if (!instance.containPixel({ gridIndex: 0 }, point)) return;
-      const value = instance.convertFromPixel({ xAxisIndex: 0 }, point) as number | number[];
+      const value = instance.convertFromPixel({ gridIndex: 0 }, point) as number | number[];
       const t = Array.isArray(value) ? value[0] : value;
       if (typeof t === "number" && Number.isFinite(t)) picked.current(t);
     };
+    // Drag across the plot to select a period: press, move at least 5 px, release.
+    let pressed: number[] | null = null;
+    const timeAt = (point: number[]) => {
+      const value = instance.convertFromPixel({ gridIndex: 0 }, point) as number | number[];
+      return Array.isArray(value) ? value[0] : value;
+    };
+    const down = (event: { offsetX: number; offsetY: number }) => {
+      const point = [event.offsetX, event.offsetY];
+      pressed = selected.current && instance.containPixel({ gridIndex: 0 }, point) ? point : null;
+    };
+    const up = (event: { offsetX: number; offsetY: number }) => {
+      const start = pressed;
+      pressed = null;
+      if (!start || !selected.current || Math.abs(event.offsetX - start[0]!) < 5) return;
+      const a = timeAt(start);
+      const b = timeAt([event.offsetX, start[1]!]);
+      if (typeof a === "number" && typeof b === "number" && Number.isFinite(a + b))
+        selected.current(Math.min(a, b), Math.max(a, b));
+    };
     const zr = instance.getZr();
     zr.on("click", pick);
+    zr.on("mousedown", down);
+    zr.on("mouseup", up);
     return () => {
       window.clearTimeout(timer);
       // The chart may already be disposed (unmounting runs the init effect's cleanup first),
@@ -115,6 +141,8 @@ export function TrendChart({
       if (instance.isDisposed()) return;
       instance.off("datazoom", handler);
       zr.off("click", pick);
+      zr.off("mousedown", down);
+      zr.off("mouseup", up);
     };
   }, [group]);
 

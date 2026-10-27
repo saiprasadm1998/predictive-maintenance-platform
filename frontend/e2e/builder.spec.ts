@@ -30,6 +30,7 @@ async function mockBuilder(page: Parameters<typeof mockApi>[0], asset: string) {
   let status = "Draft";
   let polls = 0;
   const calls: string[] = [];
+  const bodies: { exclusion_periods?: unknown[] }[] = []; // training-data previews
   const model = () => {
     const v = {
       id: 77,
@@ -74,12 +75,19 @@ async function mockBuilder(page: Parameters<typeof mockApi>[0], asset: string) {
     if (method !== "GET") calls.push(`${method} ${path}`);
     if (path === "/tags") return json(route, { items: tags, next_cursor: null });
     if (method === "POST" && path === "/models/training-data") {
+      const body = route.request().postDataJSON() as { exclusion_periods?: unknown[] };
+      const left = (body.exclusion_periods ?? []).length * 1_440; // a day per period, say
+      bodies.push(body);
       return json(route, {
         cycle_s: 60,
         cycles: 129_600,
-        retained: 120_000,
+        retained: 119_700 - left,
         mode_removed: 9_000,
         quality_removed: 600,
+        excluded_removed: left,
+        outlier_removed: 180,
+        multivariate_removed: 120,
+        clusters: [70_000 - left, 49_700],
         blocked: null,
         sensors: tags.slice(0, 2).map((t) => ({
           source_name: t.source_name,
@@ -144,7 +152,7 @@ async function mockBuilder(page: Parameters<typeof mockApi>[0], asset: string) {
     if (path.startsWith("/models/500/")) return json(route, []);
     return route.fallback();
   });
-  return { calls };
+  return { calls, bodies };
 }
 
 test.describe("SCR-06 model builder", () => {
@@ -152,7 +160,7 @@ test.describe("SCR-06 model builder", () => {
     page,
   }) => {
     await mockApi(page, { sites: 1, units: 1, perUnit: 2 });
-    const { calls } = await mockBuilder(page, "S0U0E1");
+    const { calls, bodies } = await mockBuilder(page, "S0U0E1");
     await page.goto("/models");
     await page.getByRole("link", { name: "New model" }).click();
 
@@ -169,10 +177,26 @@ test.describe("SCR-06 model builder", () => {
 
     // 3 Cleanse: the effect of each rule, then training starts
     const summary = page.getByRole("table", { name: "Training data summary" });
-    await expect(summary).toContainText("92.6 %");
-    await expect(page.getByRole("table", { name: "Cleansing rules applied" })).toContainText(
-      "6.9 % removed",
+    await expect(summary).toContainText("92.4 %"); // after outliers and multivariate
+    const rules = page.getByRole("table", { name: "Cleansing rules applied" });
+    await expect(rules).toContainText("6.9 % removed");
+    await expect(summary).toContainText("2 operating clusters");
+
+    // Drag across the trend to leave a period out of training (UC-05 step 5).
+    const trend = page.getByRole("slider", { name: /Training data · .* drag across the trend/ });
+    const box = (await trend.boundingBox())!;
+    await page.mouse.move(box.x + box.width * 0.4, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width * 0.5, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect(page.getByRole("group", { name: "Excluded period 1" })).toBeVisible();
+    await expect(rules.getByRole("row", { name: /Excluded on the trend/ })).toContainText(
+      "1 period",
     );
+    await expect(rules.getByRole("row", { name: /Excluded on the trend/ })).toContainText(
+      "1.1 % removed",
+    );
+    expect(bodies.at(-1)?.exclusion_periods).toHaveLength(1);
     await page.getByRole("button", { name: "Train model →" }).click();
 
     // 4 Train and validate: progress, then the result
@@ -198,6 +222,7 @@ test.describe("SCR-06 model builder", () => {
 
     expect(calls).toEqual([
       "POST /models/training-data",
+      "POST /models/training-data", // again with the excluded period
       "POST /models",
       "POST /models/500/versions",
       "PUT /models/500/alert-rules",

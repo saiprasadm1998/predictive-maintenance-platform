@@ -14,6 +14,15 @@ test.describe("SCR-03 asset analysis", () => {
       .click(); // 1
     await expect(page.getByRole("figure", { name: /TI1 sensor 1: actual/ })).toBeVisible();
     await expect(page.getByRole("table", { name: /Sensors at the latest cycle/ })).toBeVisible();
+
+    // A click on the DI chart shows the contributors at that time (plan 6.7c).
+    const di = page.getByRole("slider", { name: /Deviation Index/ });
+    const box = (await di.boundingBox())!;
+    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2);
+    await expect(page).toHaveURL(/[?&]at=\d{4}-/);
+    await expect(page.getByRole("heading", { name: /Top contributors at / })).toBeVisible();
+    await page.getByRole("button", { name: "Back to the latest cycle" }).click();
+    await expect(page.getByRole("heading", { name: "Top contributors now" })).toBeVisible();
   });
 
   test("journey: from an alert to its asset with the alert's window selected", async ({ page }) => {
