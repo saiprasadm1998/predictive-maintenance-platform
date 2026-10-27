@@ -349,6 +349,21 @@ uv run pmp health tree                        # K-101, K-201 Alert; P-104A, F-3 
 
 Both are safe to run again: models in service are left alone and scored cycles are skipped.
 
+### Evaluation against an event history (AC-04)
+
+Replay a period through scoring (notifications are not sent), then compare the alerts it
+raised with the plant's event history: a CSV with `asset, start, end, description` and
+optionally `detectable` (times in ISO 8601, or relative to the end of the data such as
+`-21d` or `-10h`). The demo's faults are in `data/demo/events.csv`.
+
+```
+uv run pmp demo score --hours 720             # replay 30 days (about 1.5 h for the 8 demo models)
+uv run pmp evaluate ../data/demo/events.csv   # share of events alerted, lead times, false alerts
+```
+
+The report lists every alert raised, each counted every time it is raised, for a
+reliability engineer to classify.
+
 ## Front end
 
 The screens are a React app in `frontend/` (Node 22 or later). It talks to the web role
