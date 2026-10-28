@@ -342,6 +342,7 @@ plant, deploy the demo models and score the last 24 hours (about 4 minutes), the
 worker so scoring continues live:
 
 ```
+uv run pmp library import ../data/demo/library.json   # failure modes per asset type (8.2)
 uv run pmp demo models                        # create, train and deploy data/demo/models/*.json
 uv run pmp demo score                         # score the last 24 h of data, oldest cycle first
 uv run pmp health tree                        # K-101, K-201 Alert; P-104A, F-3 Watch; P-202 Unknown
