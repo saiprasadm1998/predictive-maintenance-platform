@@ -476,6 +476,27 @@ def _log(event: str, username: str, ip: str | None, detail: str = "") -> None:
     )
 
 
+@dataclass(frozen=True)
+class Person:
+    """An active user as others see them: to assign work to (cases, plan 8.4)."""
+
+    principal: Principal
+    display_name: str
+
+
+def active_people(session: Session, user_ids: Iterable[int] | None = None) -> list[Person]:
+    """Active users with their roles, by display name (no permission needed: callers
+    choose whom to show)."""
+    query = select(AppUser).where(AppUser.active.is_(True))
+    if user_ids is not None:
+        query = query.where(AppUser.id.in_(sorted(set(user_ids))))
+    users = session.scalars(query.order_by(func.lower(AppUser.display_name))).all()
+    return [
+        Person(Principal(u.id, u.username, _assignments(session, u.id)), u.display_name)
+        for u in users
+    ]
+
+
 def user_names(session: Session, user_ids: Iterable[int]) -> dict[int, str]:
     """Usernames by ID, to say who did what in a history (no permission needed: a name
     is shown wherever the action it took is)."""

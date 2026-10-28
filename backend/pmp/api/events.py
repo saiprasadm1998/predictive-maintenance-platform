@@ -1,9 +1,9 @@
 """The live event stream (FR-VIS-03, NFR-PERF-02, ARC §7.4, plan 5.3).
 
-GET /api/v1/events is a server-sent-event stream of `score.updated`, `alert.changed` and
-`job.progress`. The worker announces each change with a PostgreSQL NOTIFY in the same
-transaction as the change; every web process keeps one LISTEN connection (EventHub) and
-fans the notifications out to its open streams.
+GET /api/v1/events is a server-sent-event stream of `score.updated`, `alert.changed`,
+`case.changed` and `job.progress`. The worker (or the web role, for cases) announces each
+change with a PostgreSQL NOTIFY in the same transaction as the change; every web process
+keeps one LISTEN connection (EventHub) and fans the notifications out to its open streams.
 
 A stream only carries events for models the user may see (their scope); job events go to
 every signed-in user. Holding a stream open is not user activity, so it does not keep the
@@ -117,7 +117,7 @@ def _frame(event: dict[str, Any]) -> str:
 @router.get(
     "/events",
     response_class=StreamingResponse,
-    summary="Live events (server-sent events): score.updated, alert.changed, job.progress",
+    summary="Live events (server-sent events): score, alert, case and job changes",
     responses={200: {"content": {"text/event-stream": {}}}},
 )
 async def get_events(

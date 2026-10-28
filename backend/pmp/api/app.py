@@ -22,6 +22,7 @@ from pmp.api import (
     assets,
     auth,
     backfill,
+    cases,
     diagnostics,
     dq,
     events,
@@ -218,6 +219,7 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     app.include_router(models.versions)
     app.include_router(diagnostics.router)
     app.include_router(forecasts.router)
+    app.include_router(cases.router)
     app.include_router(alerts.router)
     app.include_router(registry.router)
     app.include_router(dq.router)

@@ -34,7 +34,7 @@ def test_core_tables_exist(database: Database) -> None:
 def test_database_is_at_the_latest_revision(database: Database) -> None:
     with database.session() as session:
         version = session.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-    assert version == "0016"
+    assert version == "0017"
 
 
 def test_running_migrations_again_is_harmless(database_url: str) -> None:

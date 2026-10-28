@@ -96,6 +96,18 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/forecasts"): Permission.RUN_FORECASTS,
     ("GET", "/api/v1/forecasts"): V,
     ("GET", "/api/v1/forecasts/{forecast_id}"): V,
+    ("GET", "/api/v1/cases"): V,
+    ("POST", "/api/v1/cases"): Permission.MANAGE_CASES,
+    ("GET", "/api/v1/cases/{case_id}"): V,
+    ("PATCH", "/api/v1/cases/{case_id}"): Permission.MANAGE_CASES,
+    ("GET", "/api/v1/cases/{case_id}/people"): V,
+    ("POST", "/api/v1/cases/{case_id}/transition"): Permission.MANAGE_CASES,
+    ("POST", "/api/v1/cases/{case_id}/alerts"): Permission.MANAGE_CASES,
+    ("POST", "/api/v1/cases/{case_id}/activities"): Permission.WORK_ON_CASES,
+    ("POST", "/api/v1/cases/{case_id}/actions/{action_id}/done"): Permission.WORK_ON_CASES,
+    ("POST", "/api/v1/cases/{case_id}/attachments"): Permission.WORK_ON_CASES,
+    ("GET", "/api/v1/cases/{case_id}/attachments/{attachment_id}"): V,
+    ("POST", "/api/v1/cases/{case_id}/close"): Permission.WORK_ON_CASES,
     ("GET", "/api/v1/alerts/settings"): V,
     ("GET", "/api/v1/models/{model_id}/versions"): V,
     ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
@@ -421,6 +433,38 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/forecasts/{forecast['id']}", 200)
     listed = call("GET", f"{v1}/alerts", 200).json()["items"]
     assert {a["id"]: a["forecast_urgency"] for a in listed}[alert_id] == "High"
+
+    # cases (8.4)
+    case = call("POST", f"{v1}/cases", 201, json={"alert_ids": [alert_id]}).json()
+    case_url = f"{v1}/cases/{case['id']}"
+    call("POST", f"{v1}/cases", 409, json={"alert_ids": [alert_id]})
+    call("GET", f"{v1}/cases", 200, params={"open_only": "true"})
+    (me,) = call("GET", f"{case_url}/people", 200).json()
+    call("PATCH", case_url, 200, json={"assignee_id": me["id"], "due": "2026-12-01"})
+    call("POST", f"{case_url}/alerts", 200, json={"alert_ids": [alert_id]})
+    call("POST", f"{case_url}/activities", 201, json={"type": "comment", "body": "Oil sample"})
+    acting = call(
+        "POST", f"{case_url}/activities", 201, json={"type": "action", "body": "Reduce load"}
+    ).json()
+    assert acting["status"] == "Action required"
+    attached = call(
+        "POST",
+        f"{case_url}/attachments",
+        201,
+        files=[("file", ("oil.txt", io.BytesIO(b"iron 40 ppm"), "text/plain"))],
+        data={"comment": "lab report"},
+    ).json()
+    download = call("GET", f"{case_url}/attachments/{attached['attachments'][0]['id']}", 200)
+    assert download.content == b"iron 40 ppm"
+    call("POST", f"{case_url}/actions/{acting['actions'][0]['id']}/done", 200)
+    call("POST", f"{case_url}/transition", 409, json={"status": "Investigating"})
+    call("POST", f"{case_url}/transition", 200, json={"status": "Action required"})
+    call("POST", f"{case_url}/close", 400, json={"outcome": "true_finding"})
+    closed = call("POST", f"{case_url}/close", 200, json={"outcome": "false_alert"}).json()
+    assert closed["status"] == "Closed"
+    assert closed["review_requested"]
+    assert call("GET", case_url, 200).json()["snapshot"] == case["snapshot"]
+    assert call("GET", f"{v1}/fleet/kpis", 200).json()["open_cases"] == 0
     call("POST", f"{v1}/alerts/{alert_id}/ack", 200, json={"comment": "seen"})
     call("POST", f"{v1}/alerts/{alert_id}/shelve", 200, json={"reason": "work", "minutes": 30})
     call("POST", f"{v1}/alerts/{alert_id}/unshelve", 200)

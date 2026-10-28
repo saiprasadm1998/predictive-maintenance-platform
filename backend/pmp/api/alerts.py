@@ -49,6 +49,7 @@ from pmp.api.common import (
 )
 from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
+from pmp.cases import case_number, count_open_cases, open_cases_for_alerts
 from pmp.core import user_names
 from pmp.dataquality import get_sensor_statuses
 from pmp.modelling import list_active_versions, model_assets, version_numbers
@@ -119,6 +120,8 @@ class AlertOut(BaseModel):
     )
     forecast_lower_h: float | None = Field(default=None, description="its 80 % interval")
     forecast_upper_h: float | None = None
+    case_id: int | None = Field(default=None, description="the open case the alert is in")
+    case_number: str | None = Field(default=None, description="C-nnnn")
 
 
 class HistoryOut(BaseModel):
@@ -145,6 +148,7 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
     runtimes = {r.model_id: r for r in get_runtime_statuses(session)} if views else {}
     persisted = persistence(session, [v.id for v in views])
     forecasts = latest_for_alerts(session, [v.id for v in views])
+    cases = open_cases_for_alerts(session, [v.id for v in views])
     return [
         AlertOut(
             id=v.id,
@@ -174,6 +178,8 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
             forecast_urgency=forecasts[v.id].urgency if v.id in forecasts else None,
             forecast_lower_h=forecasts[v.id].lower_h if v.id in forecasts else None,
             forecast_upper_h=forecasts[v.id].upper_h if v.id in forecasts else None,
+            case_id=cases.get(v.id),
+            case_number=case_number(cases[v.id]) if v.id in cases else None,
         )
         for v in views
     ]
@@ -446,6 +452,7 @@ class FleetKpis(BaseModel):
     last_cycle: datetime | None = Field(
         default=None, description="the newest scoring cycle of a visible model (live indicator)"
     )
+    open_cases: int = Field(default=0, description="cases not closed or cancelled (FR-VIS-01)")
 
 
 @router.get("/fleet/kpis", response_model=FleetKpis, summary="Fleet overview figures (SCR-01)")
@@ -470,6 +477,7 @@ def get_kpis(request: Request, user: User) -> FleetKpis:
             for v in list_active_versions(session)
             if v.model_id in models and v.status.value == "Deployed"
         ]
+        open_cases = count_open_cases(session, ids)
     statuses = Counter(
         runtimes[v.model_id].status.value if v.model_id in runtimes else "Not scored yet"
         for v in deployed
@@ -490,4 +498,5 @@ def get_kpis(request: Request, user: User) -> FleetKpis:
         sensors_by_status=dict(sensors),
         models_by_status=dict(statuses),
         stale_models=sorted(stale),
+        open_cases=open_cases,
     )
