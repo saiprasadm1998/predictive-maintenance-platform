@@ -8,6 +8,7 @@ export interface FleetKpis {
   models_by_status: Record<string, number>;
   stale_models: number[];
   last_cycle: string | null;
+  open_cases?: number; // cases not closed or cancelled (8.4)
 }
 
 export function fetchFleetKpis(signal?: AbortSignal): Promise<FleetKpis> {

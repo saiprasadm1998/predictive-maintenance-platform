@@ -8,7 +8,7 @@ import { renderApp } from "../test/renderApp";
 describe("sign-in", () => {
   it("sends a signed-out deep link to sign-in and back to the same view afterwards", async () => {
     const { calls } = fakeApi(sessionRoutes(false));
-    const { router } = renderApp("/cases/6?range=24h");
+    const { router } = renderApp("/reports?range=24h");
     const user = userEvent.setup();
 
     await screen.findByRole("heading", { name: "Predictive Maintenance Platform" });
@@ -18,10 +18,9 @@ describe("sign-in", () => {
     await user.type(screen.getByLabelText("Password"), "correct-horse-battery");
     await user.click(screen.getByRole("button", { name: "Sign in" }));
 
-    await screen.findByRole("heading", { name: "Case detail" });
-    expect(router.state.location.pathname).toBe("/cases/6");
+    await screen.findByRole("heading", { name: "Reports" });
+    expect(router.state.location.pathname).toBe("/reports");
     expect(router.state.location.search).toBe("?range=24h");
-    expect(screen.getByText("6")).toBeInTheDocument(); // the asset ID from the URL
     const login = calls.find((c) => c.path === "/auth/login");
     expect(login?.body).toEqual({ username: "admin", password: "correct-horse-battery" });
   });

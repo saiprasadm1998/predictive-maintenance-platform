@@ -28,7 +28,10 @@ describe("SCR-01 fleet overview", () => {
       "href",
       "/sensors?status=Failure",
     );
-    expect(within(figures).getByText("Cases arrive in Release 2")).toBeInTheDocument();
+    expect(within(figures).getByRole("link", { name: /3\s*Open cases/ })).toHaveAttribute(
+      "href",
+      "/cases?open_only=true",
+    );
   });
 
   it("shows the hierarchy with type, band, Health and alerts, abnormal branches open", async () => {

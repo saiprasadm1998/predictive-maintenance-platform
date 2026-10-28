@@ -220,7 +220,11 @@ export function FleetPage() {
           fault
           to={withRange("/sensors", { status: "Failure" })}
         />
-        <Kpi value={null} label="Open cases" note="Cases arrive in Release 2" />
+        <Kpi
+          value={kpis.data?.open_cases ?? (kpis.data ? 0 : undefined)}
+          label="Open cases"
+          to={withRange("/cases", { open_only: "true" })}
+        />
       </ul>
 
       <div className="fleet-body">

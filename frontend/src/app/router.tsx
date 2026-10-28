@@ -50,7 +50,16 @@ const SensorHealthPage = lazy(() =>
   import("../pages/sensors/SensorHealthPage").then((m) => ({ default: m.SensorHealthPage })),
 );
 
+const CasesPage = lazy(() =>
+  import("../pages/cases/CasesPage").then((m) => ({ default: m.CasesPage })),
+);
+const CasePage = lazy(() =>
+  import("../pages/cases/CasePage").then((m) => ({ default: m.CasePage })),
+);
+
 const BUILT: Record<string, ReactNode> = {
+  "SCR-09": <CasesPage />,
+  "SCR-05": <CasePage />,
   "SCR-07": <SensorHealthPage />,
   "SCR-04": <DiagnosticsPage />,
   "SCR-12": <LibraryPage />,

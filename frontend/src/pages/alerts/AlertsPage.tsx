@@ -47,6 +47,7 @@ import {
 } from "./alertsModel";
 import { FilterMenu } from "./FilterMenu";
 import { useRowKeys } from "../../components/tableKeys";
+import { CreateCaseButton } from "../cases/CreateCase";
 import { urgencyText } from "../diagnostics/forecastModel";
 
 const ROW_HEIGHT = 40;
@@ -334,6 +335,7 @@ export function AlertsPage() {
           >
             Unshelve
           </button>
+          <CreateCaseButton alerts={selection} />
         </section>
 
         <section className="panel alerts-table-panel" aria-labelledby="alerts-title">
@@ -587,7 +589,9 @@ function AlertRow({
       <td className={a.forecast_urgency ? undefined : "muted"}>
         {urgencyText(a.forecast_urgency, a.forecast_lower_h, a.forecast_upper_h)}
       </td>
-      <td className="muted">—</td>
+      <td className={a.case_number ? undefined : "muted"}>
+        {a.case_id && a.case_number ? <Link to={`/cases/${a.case_id}`}>{a.case_number}</Link> : "—"}
+      </td>
       <td>
         <button
           type="button"

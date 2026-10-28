@@ -108,6 +108,9 @@ export interface Alert {
   forecast_urgency?: "Immediate" | "High" | "Medium" | "Low" | "None" | null;
   forecast_lower_h?: number | null;
   forecast_upper_h?: number | null;
+  /** The open case the alert is in (8.4). */
+  case_id?: number | null;
+  case_number?: string | null;
 }
 
 export interface AlertEvent {

@@ -239,6 +239,7 @@ export const ALERTS = [
 ];
 
 export const KPIS = {
+  open_cases: 3,
   assets_by_band: { Alert: 2, Watch: 2, Unknown: 1, Healthy: 3 },
   open_alerts: { P1: 2 },
   unacknowledged_alerts: { P1: 2 },

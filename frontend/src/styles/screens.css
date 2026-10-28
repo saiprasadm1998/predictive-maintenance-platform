@@ -978,3 +978,156 @@ button.kpi-inner[aria-pressed="true"] {
   flex-basis: 100%;
   margin: 0;
 }
+
+/* SCR-05 and SCR-09 cases (plan 8.4) */
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.row-overdue td:first-child {
+  box-shadow: inset 4px 0 0 var(--alert);
+}
+.overdue {
+  color: var(--alert);
+}
+.case-status {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.case-status-open,
+.case-status-investigating {
+  color: var(--text);
+}
+.case-status-action-required {
+  color: var(--alert);
+}
+.case-status-monitoring {
+  color: var(--watch-text);
+}
+.case-status-closed,
+.case-status-cancelled {
+  color: var(--text-muted);
+}
+.case-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}
+.case-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+.case-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.case-stepper .step {
+  flex: 1 1 120px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  text-align: center;
+  opacity: 0.6;
+}
+.case-stepper .step-done {
+  opacity: 0.85;
+}
+.case-stepper .step-current {
+  opacity: 1;
+  border-width: 2px;
+  border-color: var(--text);
+}
+.case-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+.case-side {
+  display: grid;
+  gap: 16px;
+  align-content: start;
+}
+@media (max-width: 1000px) {
+  .case-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.activity-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.activity {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-soft, var(--line));
+}
+.activity-meta {
+  font-size: 0.85rem;
+}
+.activity-state_change,
+.activity-assignment,
+.activity-update,
+.activity-link {
+  color: var(--text-muted);
+}
+.add-activity,
+.closure-form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.segmented {
+  display: flex;
+  gap: 16px;
+  border: 0;
+  margin: 0;
+  padding: 0;
+}
+.field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.case-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.case-list li {
+  padding: 2px 0;
+}
+.cases {
+  display: grid;
+  gap: var(--gutter);
+  min-width: 0;
+}
+.case-table-wrap {
+  overflow-x: auto;
+}
+.snapshot-model + .snapshot-model {
+  margin-top: 16px;
+}
+.snapshot-head {
+  margin: 8px 0;
+  font-size: 1rem;
+}
+.snapshot-sub {
+  margin: 12px 0 4px;
+  font-size: 0.9rem;
+}
+.closure-summary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 16px;
+  margin: 0;
+}
+.closure-summary dd {
+  margin: 0;
+}

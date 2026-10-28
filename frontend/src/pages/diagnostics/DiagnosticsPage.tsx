@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 
+import { fetchAlerts } from "../../api/alerts";
 import { fetchAsset } from "../../api/assets";
 import { type ModeMatch, fetchDiagnosis } from "../../api/diagnostics";
 import { fetchLatest, fetchModel } from "../../api/models";
@@ -9,6 +10,7 @@ import { fetchAssetTypes } from "../../api/registry";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { formatDateTime, formatIso } from "../../app/format";
 import { Skeleton } from "../fleet/FleetPage";
+import { CreateCaseButton } from "../cases/CreateCase";
 import { ForecastPanel } from "./ForecastPanel";
 import { ARROW, NOT_PROBABILITY, scoreText, signed, sparkPaths } from "./diagnosticsModel";
 
@@ -48,6 +50,12 @@ export function DiagnosticsPage() {
   const latest = useQuery({
     queryKey: ["models", "latest", modelId, null, null],
     queryFn: ({ signal }) => fetchLatest(modelId!, null, signal, null),
+    enabled: modelId !== null,
+  });
+  const alerts = useQuery({
+    queryKey: ["alerts", "model", modelId],
+    queryFn: ({ signal }) =>
+      fetchAlerts({ modelId: modelId!, includeClosed: true, limit: 1000 }, signal),
     enabled: modelId !== null,
   });
   useBreadcrumbs(
@@ -101,9 +109,14 @@ export function DiagnosticsPage() {
               "current"
             )}
           </h2>
-          <Link className="link-button" to={`/assets/${id}?model=${modelId}`}>
-            Back to asset analysis
-          </Link>
+          <span className="panel-actions">
+            <CreateCaseButton
+              alerts={(alerts.data?.items ?? []).filter((a) => !a.closed_at && !a.case_id)}
+            />
+            <Link className="link-button" to={`/assets/${id}?model=${modelId}`}>
+              Back to asset analysis
+            </Link>
+          </span>
         </div>
         {diagnosis.isPending ? (
           <Skeleton rows={4} />

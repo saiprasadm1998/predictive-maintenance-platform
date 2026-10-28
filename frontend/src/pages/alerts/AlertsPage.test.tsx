@@ -2,7 +2,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { ALERTS, fakeApi, sessionRoutes } from "../../test/fakeApi";
+import { ADMIN, ALERTS, fakeApi, sessionRoutes } from "../../test/fakeApi";
 import { FakeEventSource } from "../../test/fakeEventSource";
 import { renderApp } from "../../test/renderApp";
 
@@ -96,6 +96,39 @@ async function page(path = "/alerts") {
 }
 
 describe("SCR-02 alert list", () => {
+  it("creates a case from the selected alerts of one asset (analysts)", async () => {
+    const { r, setItems } = routes();
+    r["GET /auth/me"] = () => ({
+      status: 200,
+      body: {
+        user: { ...ADMIN, roles: [{ role: "analyst", scope_asset_id: null }] },
+        csrf_token: "c",
+      },
+    });
+    r["POST /cases"] = () => ({ status: 201, body: { id: 5 } });
+    setItems(ALERTS.map((a) => ({ ...a, asset_id: a.asset_code === "K-101" ? 6 : 9 })));
+    const { calls } = fakeApi(r);
+    const { router } = renderApp("/alerts");
+    const user = userEvent.setup();
+    const table = await screen.findByRole("table", { name: "Alerts" });
+    const rows = await within(table).findAllByRole("checkbox", { name: /Select alert/ });
+    const create = screen.getByRole("button", { name: "Create case…" });
+    expect(create).toBeDisabled();
+    await user.click(rows[0]!);
+    await user.click(rows[1]!);
+    expect(create).toBeDisabled(); // K-101 and P-104A: one asset per case
+    await user.click(rows[1]!);
+    await user.click(create);
+    const dialog = await screen.findByRole("dialog");
+    await user.type(within(dialog).getByLabelText(/Title/), "Thrust bearing suspected");
+    await user.click(within(dialog).getByRole("button", { name: "Create case" }));
+    await waitFor(() => expect(router.state.location.pathname).toBe("/cases/5"));
+    expect(calls.find((c) => c.method === "POST" && c.path === "/cases")?.body).toEqual({
+      alert_ids: [1],
+      title: "Thrust bearing suspected",
+    });
+  });
+
   it("shows the PDS columns in the server's order (unacknowledged first, then priority, then age)", async () => {
     const { table } = await page();
     const rows = within(table).getAllByRole("row").slice(1);

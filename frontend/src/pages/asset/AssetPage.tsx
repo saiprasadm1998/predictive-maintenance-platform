@@ -41,6 +41,7 @@ import { useMe } from "../../app/session";
 import { type ExclusionAction, ExclusionDialog } from "../sensors/ExclusionDialog";
 import { canExclude } from "../sensors/sensorsModel";
 import { type Forecast, fetchForecasts } from "../../api/forecasts";
+import { CreateCaseButton } from "../cases/CreateCase";
 import { forecastBrief } from "../diagnostics/forecastModel";
 
 const CHART_PX = 800;
@@ -291,6 +292,9 @@ export function AssetPage() {
         >
           Acknowledge{openUnack.length ? ` (${openUnack.length})` : ""}
         </button>
+        <CreateCaseButton
+          alerts={(alerts.data?.items ?? []).filter((a) => !a.closed_at && !a.case_id)}
+        />
       </div>
 
       <div className="asset-grid">
