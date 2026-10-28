@@ -37,6 +37,9 @@ import {
   topContributors,
   worstAlert,
 } from "./assetModel";
+import { useMe } from "../../app/session";
+import { type ExclusionAction, ExclusionDialog } from "../sensors/ExclusionDialog";
+import { canExclude } from "../sensors/sensorsModel";
 
 const CHART_PX = 800;
 const MAX_CHARTS = 6;
@@ -161,6 +164,8 @@ export function AssetPage() {
   });
 
   const sensors = useMemo(() => latest.data?.sensors ?? [], [latest.data]);
+  const me = useMe();
+  const [excluding, setExcluding] = useState<ExclusionAction | null>(null);
   const contributors = useMemo(() => topContributors(sensors), [sensors]);
   const chosen = useMemo(() => {
     const listed = params.get("sensors");
@@ -401,10 +406,21 @@ export function AssetPage() {
             charted={chosen}
             onToggle={toggleSensor}
             ts={latest.data?.ts ?? null}
+            onExclude={
+              canExclude(me.data)
+                ? (sensor) =>
+                    setExcluding({
+                      kind: "exclude",
+                      tagId: sensor.tag_id,
+                      name: sensor.source_name,
+                    })
+                : undefined
+            }
           />
         </section>
       </div>
 
+      <ExclusionDialog action={excluding} onDone={() => setExcluding(null)} />
       <ConfirmDialog
         open={acking}
         onOpenChange={setAcking}
@@ -555,11 +571,14 @@ function SensorTable({
   charted,
   onToggle,
   ts,
+  onExclude,
 }: {
   sensors: SensorNow[];
   charted: readonly string[];
   onToggle: (name: string) => void;
   ts: string | null;
+  /** UC-14: "Exclude sensor on asset analysis" (analysts and model engineers). */
+  onExclude?: (sensor: SensorNow) => void;
 }) {
   return (
     <table className="tree-table sensor-table">
@@ -619,6 +638,16 @@ function SensorTable({
                 >
                   {on ? "Charted" : "Chart"}
                 </button>
+                {onExclude && s.dq_status !== "Function check" && (
+                  <button
+                    type="button"
+                    className="link-button"
+                    aria-label={`Exclude ${sensorLabel(s)}`}
+                    onClick={() => onExclude(s)}
+                  >
+                    Exclude…
+                  </button>
+                )}
               </td>
             </tr>
           );

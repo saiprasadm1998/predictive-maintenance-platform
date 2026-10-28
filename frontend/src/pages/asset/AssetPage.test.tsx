@@ -2,7 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { ALERTS, MODELS, TREE, fakeApi, sessionRoutes } from "../../test/fakeApi";
+import { ADMIN, ALERTS, type Call, MODELS, TREE, fakeApi, sessionRoutes } from "../../test/fakeApi";
 import { renderApp } from "../../test/renderApp";
 
 vi.mock("../../components/charting", () => ({
@@ -199,6 +199,34 @@ describe("SCR-03 asset analysis", () => {
     );
     expect(new URLSearchParams(router.state.location.search).get("sensors")).toBe(
       "K101.TI1012.PV,K101.ZI1015.PV,K101.TI1018.PV",
+    );
+  });
+
+  it("excludes a sensor from asset analysis (UC-14), for analysts and model engineers", async () => {
+    const r = routes();
+    r["GET /auth/me"] = () => ({
+      status: 200,
+      body: {
+        user: { ...ADMIN, roles: [{ role: "model_engineer", scope_asset_id: null }] },
+        csrf_token: "c",
+      },
+    });
+    r["POST /sensors/13/exclusions"] = () => ({ status: 201, body: { id: 1 } });
+    const { calls } = fakeApi(r);
+    renderApp("/assets/6");
+    const user = userEvent.setup();
+    const table = await screen.findByRole("table", { name: /Sensors at the latest cycle/ });
+    await user.click(
+      await within(table).findByRole("button", { name: "Exclude TI-1018 NDE bearing temperature" }),
+    );
+    const dialog = screen.getByRole("dialog", { name: "Exclude K101.TI1018.PV" });
+    await user.type(within(dialog).getByLabelText(/Reason/), "loose wiring");
+    await user.click(within(dialog).getByRole("button", { name: "Exclude" }));
+    await waitFor(() =>
+      expect(calls.find((c: Call) => c.path === "/sensors/13/exclusions")?.body).toMatchObject({
+        kind: "exclude",
+        reason: "loose wiring",
+      }),
     );
   });
 

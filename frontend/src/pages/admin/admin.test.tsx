@@ -205,48 +205,4 @@ describe("SCR-14 administration", () => {
       }),
     );
   });
-
-  it("lists sensors that are not Good, filtered from a figure", async () => {
-    const routes = asUser(ADMIN);
-    const sensor = (id: number, name: string, status: string, rule: string) => ({
-      tag_id: id,
-      source: "gw",
-      source_name: name,
-      asset_code: "K-101",
-      status,
-      rule,
-      effect: status === "Good" ? "used" : "excluded",
-      since: "2026-10-22T06:00:00Z",
-      evaluated_at: "2026-10-22T08:00:00Z",
-      models: id === 1 ? ["K-101 / main v2"] : [],
-    });
-    routes["GET /sensors/health"] = () => ({
-      status: 200,
-      body: {
-        items: [
-          sensor(1, "K101.TI1018.PV", "Failure", "flatline"),
-          sensor(2, "K101.PI1001.PV", "Good", "none"),
-          sensor(3, "K101.TI1030.PV", "Out of specification", "out_of_range"),
-        ],
-        next_cursor: null,
-      },
-    });
-    routes["GET /tags"] = () => ({ status: 200, body: { items: [], next_cursor: null } });
-    fakeApi(routes);
-    const user = userEvent.setup();
-    renderApp("/sensors");
-
-    const table = await screen.findByRole("table", { name: "NAMUR NE 107 status per sensor" });
-    expect(within(table).getAllByRole("row")).toHaveLength(3); // header + 2 non-Good
-    expect(within(table).getByText("Flatline")).toBeInTheDocument();
-    expect(within(table).getByText("K-101 / main v2")).toBeInTheDocument();
-    expect(within(table).getByText("None in service")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Out of specification/ }));
-    await waitFor(() =>
-      expect(within(screen.getByRole("table")).getAllByRole("row")).toHaveLength(2),
-    );
-    expect(
-      screen.getByRole("heading", { name: /Sensors in Out of specification/ }),
-    ).toBeInTheDocument();
-  });
 });

@@ -186,8 +186,38 @@ export interface SensorHealth {
   since: string;
   evaluated_at: string;
   models: string[]; // models whose version in service scores it
+  exclusion: Exclusion | null; // the active manual exclusion or override (UC-14)
 }
 
-export function fetchSensorHealth(signal?: AbortSignal): Promise<SensorHealth[]> {
-  return fetchAllPages<SensorHealth>("/sensors/health", signal);
+export interface Exclusion {
+  id: number;
+  tag_id: number;
+  source_name: string;
+  asset_code: string;
+  kind: "exclude" | "override";
+  reason: string;
+  starts_at: string;
+  expires_at: string;
+  ended_at: string | null;
+  created_by: number | null;
+}
+
+/** Every sensor's status; with `scope`, only sensors beneath that asset (a site, say). */
+export function fetchSensorHealth(
+  signal?: AbortSignal,
+  scope?: string | null,
+): Promise<SensorHealth[]> {
+  return fetchAllPages<SensorHealth>("/sensors/health", signal, scope ? { scope } : {});
+}
+
+/** UC-14: exclude a sensor, or override its status to Good, until `until`. */
+export function addExclusion(
+  tagId: number,
+  body: { kind: "exclude" | "override"; reason: string; until: string },
+): Promise<Exclusion> {
+  return api<Exclusion>(`/sensors/${tagId}/exclusions`, { method: "POST", body });
+}
+
+export function endExclusion(id: number): Promise<Exclusion> {
+  return api<Exclusion>(`/sensor-exclusions/${id}/end`, { method: "POST" });
 }
