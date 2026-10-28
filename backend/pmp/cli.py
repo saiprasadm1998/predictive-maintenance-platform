@@ -130,6 +130,16 @@ from pmp.modelling import (
     save_draft,
     start_training,
 )
+from pmp.prognostics import (
+    DEFAULT_WINDOW_DAYS,
+    ForecastError,
+    ForecastRequest,
+    Target,
+    ThresholdKind,
+    UrgencyBands,
+    describe,
+    run_forecast,
+)
 from pmp.registry import (
     ImportFailedError,
     ImportReport,
@@ -385,6 +395,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diagnose_cmd.add_argument("asset")
     diagnose_cmd.add_argument("--name", default="main", help="model name (main)")
+
+    forecast_cmd = commands.add_parser(
+        "forecast", help="time to threshold for a model's DI or a sensor (UC-11, UCS §6.8)"
+    )
+    forecast_cmd.add_argument("asset")
+    forecast_cmd.add_argument("--name", default="main", help="model name (main)")
+    forecast_cmd.add_argument(
+        "--target", choices=[t.value for t in Target], default="di", help="di (default)"
+    )
+    forecast_cmd.add_argument("--tag", help="the sensor's source name, for actual and residual")
+    forecast_cmd.add_argument(
+        "--threshold",
+        default="alert",
+        help="alert or warning (the model's DI limits), or a value in the target's units",
+    )
+    forecast_cmd.add_argument("--direction", choices=["up", "down"], help="custom thresholds")
+    forecast_cmd.add_argument("--window", type=float, default=DEFAULT_WINDOW_DAYS, help="days")
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -1230,6 +1257,60 @@ def _run_diagnose(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_forecast(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            model = find_model(session, args.asset, args.name)
+            if model is None:
+                print(f"Error: no model {args.asset} / {args.name}", file=sys.stderr)
+                return 1
+            tag_id = None
+            if args.tag:
+                tag_id = next(
+                    (s.tag_id for v in model.versions for s in v.sensors
+                     if s.source_name == args.tag),
+                    None,
+                )  # fmt: skip
+                if tag_id is None:
+                    print(f"Error: {args.tag} is not a sensor of the model", file=sys.stderr)
+                    return 1
+            if args.threshold in ("alert", "warning"):
+                kind, value = ThresholdKind(args.threshold), None
+            else:
+                try:
+                    kind, value = ThresholdKind.CUSTOM, float(args.threshold)
+                except ValueError:
+                    print("Error: --threshold is alert, warning or a number", file=sys.stderr)
+                    return 1
+            request = ForecastRequest(
+                model_id=model.id,
+                target=Target(args.target),
+                tag_id=tag_id,
+                threshold_kind=kind,
+                threshold=value,
+                direction=None if args.direction is None else (1 if args.direction == "up" else -1),
+                window_days=args.window,
+            )
+            bands = UrgencyBands(
+                settings.forecast_immediate_h, settings.forecast_high_h, settings.forecast_medium_h
+            )
+            try:
+                view = run_forecast(session, Actor.system(), request, bands)
+            except ForecastError as error:
+                print(f"Error: {error}", file=sys.stderr)
+                return 1
+        print(f"{model.asset_code} {args.target} at {view.at:%Y-%m-%d %H:%M} UTC, "
+              f"{view.window_days:g}-day window, {view.points} points")  # fmt: skip
+        if view.method:
+            print(f"Fit: {view.method}, R² {view.r2:.2f}")
+        print(describe(view))
+        print(f"Urgency: {view.urgency}" + (f" (alert {view.alert_id})" if view.alert_id else ""))
+        return 0
+    finally:
+        database.dispose()
+
+
 def _run_evaluate(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -1385,6 +1466,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_library(settings, args))
     elif args.command == "diagnose":
         sys.exit(_run_diagnose(settings, args))
+    elif args.command == "forecast":
+        sys.exit(_run_forecast(settings, args))
     elif args.command == "evaluate":
         sys.exit(_run_evaluate(settings, args))
     elif args.command == "audit":

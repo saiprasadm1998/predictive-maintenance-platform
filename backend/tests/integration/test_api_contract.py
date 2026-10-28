@@ -40,6 +40,7 @@ from pmp.core import (
 )
 from pmp.ingestion import BACKFILL_JOB, make_backfill_handler
 from tests.integration.test_alerts import _raise_one
+from tests.integration.test_prognostics import seed_di_ramp
 from tests.integration.test_scoring_cycle import (  # noqa: F401  (deployed is a fixture)
     ACTOR,
     LIVE,
@@ -92,6 +93,9 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("PUT", "/api/v1/library"): Permission.FAILURE_MODES,
     ("POST", "/api/v1/library/{mode_id}/retire"): Permission.FAILURE_MODES,
     ("GET", "/api/v1/models/{model_id}/diagnostics"): V,
+    ("POST", "/api/v1/forecasts"): Permission.RUN_FORECASTS,
+    ("GET", "/api/v1/forecasts"): V,
+    ("GET", "/api/v1/forecasts/{forecast_id}"): V,
     ("GET", "/api/v1/alerts/settings"): V,
     ("GET", "/api/v1/models/{model_id}/versions"): V,
     ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
@@ -398,6 +402,25 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     alert_id = _raise_one(db)
     call("GET", f"{v1}/alerts", 200)
     call("GET", f"{v1}/alerts/{alert_id}", 200)
+    model_id = seed_di_ramp(db)
+    forecast = call(
+        "POST",
+        f"{v1}/forecasts",
+        201,
+        json={
+            "model_id": model_id,
+            "threshold_kind": "custom",
+            "threshold": 30,
+            "alert_id": alert_id,
+        },
+    ).json()
+    assert forecast["urgency"] == "High"
+    assert forecast["alert_id"] == alert_id
+    call("POST", f"{v1}/forecasts", 400, json={"model_id": model_id, "target": "actual"})
+    call("GET", f"{v1}/forecasts", 200, params={"model_id": model_id})
+    call("GET", f"{v1}/forecasts/{forecast['id']}", 200)
+    listed = call("GET", f"{v1}/alerts", 200).json()["items"]
+    assert {a["id"]: a["forecast_urgency"] for a in listed}[alert_id] == "High"
     call("POST", f"{v1}/alerts/{alert_id}/ack", 200, json={"comment": "seen"})
     call("POST", f"{v1}/alerts/{alert_id}/shelve", 200, json={"reason": "work", "minutes": 30})
     call("POST", f"{v1}/alerts/{alert_id}/unshelve", 200)

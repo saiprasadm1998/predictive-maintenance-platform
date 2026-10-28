@@ -25,6 +25,7 @@ from pmp.api import (
     diagnostics,
     dq,
     events,
+    forecasts,
     ingest,
     models,
     registry,
@@ -216,6 +217,7 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     app.include_router(models.router)
     app.include_router(models.versions)
     app.include_router(diagnostics.router)
+    app.include_router(forecasts.router)
     app.include_router(alerts.router)
     app.include_router(registry.router)
     app.include_router(dq.router)

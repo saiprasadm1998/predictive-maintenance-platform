@@ -276,6 +276,39 @@ def z_history(
     return out
 
 
+QUARTER_HOUR_COLUMNS = {"di": "score", "actual": "sensor_output", "residual": "sensor_output"}
+
+
+def quarter_hour_means(
+    session: Session,
+    version_id: int,
+    column: str,
+    start: datetime,
+    end: datetime,
+    tag_id: int | None = None,
+) -> list[tuple[datetime, float]]:
+    """15-minute means of a version's valid values in (start, end] (UCS §6.8 forecast input):
+    DI where it was computed; a sensor's actual or residual where the sensor was used."""
+    table = QUARTER_HOUR_COLUMNS.get(column)
+    if table is None:
+        raise ValueError(f"Unknown forecast target {column!r}")
+    if table == "score":
+        where, params = "di IS NOT NULL", {}
+    else:
+        if tag_id is None:
+            raise ValueError("A sensor target needs its tag")
+        where, params = f"tag_id = :tag AND used AND {column} IS NOT NULL", {"tag": tag_id}
+    rows = session.execute(
+        text(
+            "SELECT date_bin('15 minutes', ts, TIMESTAMPTZ '2000-01-01') AS bin, "
+            f"avg({column}) FROM {table} WHERE version_id = :v AND ts > :start AND ts <= :end "
+            f"AND {where} GROUP BY bin ORDER BY bin"
+        ),
+        {"v": version_id, "start": start, "end": end, **params},
+    ).all()
+    return [(ts, float(value)) for ts, value in rows]
+
+
 def latest_cycle(session: Session, version_id: int, at: datetime | None = None) -> datetime | None:
     """The newest cycle a version was scored at (at or before `at`, if given)."""
     found: datetime | None = session.execute(

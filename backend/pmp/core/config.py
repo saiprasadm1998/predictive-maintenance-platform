@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted
     retention_months: int = Field(default=24, ge=1)
     alert_max_shelve_days: int = Field(default=7, ge=1)  # UCS §6.6: configurable maximum
+    # UCS §6.8 urgency bands: upper bounds in hours of the forecast's lower interval bound
+    forecast_immediate_h: float = Field(default=24, gt=0)
+    forecast_high_h: float = Field(default=24 * 7, gt=0)
+    forecast_medium_h: float = Field(default=24 * 30, gt=0)
     # sign-in (ARC §9.3): lockout after 5 failures for 15 min, 30-minute idle timeout
     login_max_failures: int = Field(default=5, ge=1)
     login_lockout_minutes: int = Field(default=15, ge=1)

@@ -52,6 +52,7 @@ from pmp.api.problems import ProblemError
 from pmp.core import user_names
 from pmp.dataquality import get_sensor_statuses
 from pmp.modelling import list_active_versions, model_assets, version_numbers
+from pmp.prognostics import latest_for_alerts
 from pmp.registry import AssetView, find_asset, get_tags, list_subtree, list_tags
 from pmp.scoring import get_runtime_statuses, health_tree
 
@@ -113,6 +114,11 @@ class AlertOut(BaseModel):
         default=None, description="of the rule's last m cycles, how many met the severity"
     )
     persistence_m: int | None = None
+    forecast_urgency: str | None = Field(
+        default=None, description="the newest forecast stored with the alert (FR-PRG-02)"
+    )
+    forecast_lower_h: float | None = Field(default=None, description="its 80 % interval")
+    forecast_upper_h: float | None = None
 
 
 class HistoryOut(BaseModel):
@@ -138,6 +144,7 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
     numbers = version_numbers(session, {v.version_id for v in views})
     runtimes = {r.model_id: r for r in get_runtime_statuses(session)} if views else {}
     persisted = persistence(session, [v.id for v in views])
+    forecasts = latest_for_alerts(session, [v.id for v in views])
     return [
         AlertOut(
             id=v.id,
@@ -164,6 +171,9 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
             health=runtimes[v.model_id].health if v.model_id in runtimes else None,
             persistence_n=persisted[v.id][0] if v.id in persisted else None,
             persistence_m=persisted[v.id][1] if v.id in persisted else None,
+            forecast_urgency=forecasts[v.id].urgency if v.id in forecasts else None,
+            forecast_lower_h=forecasts[v.id].lower_h if v.id in forecasts else None,
+            forecast_upper_h=forecasts[v.id].upper_h if v.id in forecasts else None,
         )
         for v in views
     ]
