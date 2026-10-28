@@ -47,6 +47,7 @@ import {
 } from "./alertsModel";
 import { FilterMenu } from "./FilterMenu";
 import { useRowKeys } from "../../components/tableKeys";
+import { urgencyText } from "../diagnostics/forecastModel";
 
 const ROW_HEIGHT = 40;
 const SORT_TEXT: Record<Sort, string> = {
@@ -583,7 +584,9 @@ function AlertRow({
           {age(raised)}
         </time>
       </td>
-      <td className="muted">—</td>
+      <td className={a.forecast_urgency ? undefined : "muted"}>
+        {urgencyText(a.forecast_urgency, a.forecast_lower_h, a.forecast_upper_h)}
+      </td>
       <td className="muted">—</td>
       <td>
         <button

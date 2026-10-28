@@ -186,6 +186,41 @@ export async function mockApi(
       });
     }
     if (path === "/models") return json(route, models);
+    if (path === "/forecasts") {
+      const at = Date.now();
+      return json(route, [
+        {
+          id: 1,
+          model_id: Number(url.searchParams.get("model_id")),
+          version_id: 1,
+          alert_id: null,
+          target: "di",
+          tag_id: null,
+          tag: null,
+          threshold_kind: "alert",
+          threshold: 25,
+          direction: "up",
+          window_days: 7,
+          at: new Date(at).toISOString(),
+          fit: { method: "linear", params: { a: 15, b: 2 }, r2: 0.9 },
+          points: 24,
+          valid: true,
+          reason: null,
+          median_h: 120,
+          lower_h: 100,
+          upper_h: 140,
+          crossing_at: new Date(at + 120 * 3_600_000).toISOString(),
+          urgency: "High",
+          summary: "Reaches 25 in 4.2 d\u20135.8 d (median 5.0 d) at the current trend",
+          series: Array.from({ length: 24 }, (_, i) => ({
+            ts: new Date(at - (23 - i) * 3_600_000).toISOString(),
+            value: 15 - (23 - i) / 12,
+          })),
+          created_at: new Date(at).toISOString(),
+          created_by: 1,
+        },
+      ]);
+    }
     const method = route.request().method();
     if (path === "/alerts") return json(route, { items: alerts, next_cursor: null });
     if (path === "/alerts/settings") return json(route, { max_shelve_days: 7 });

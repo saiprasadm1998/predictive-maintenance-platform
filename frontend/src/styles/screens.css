@@ -948,3 +948,33 @@ button.kpi-inner[aria-pressed="true"] {
 .control-narrow {
   width: 5em;
 }
+
+/* SCR-04 forecast (plan 8.3) */
+.forecast-line {
+  margin: 0 0 4px;
+}
+.urgency {
+  font-weight: 600;
+}
+.urgency-immediate,
+.urgency-high {
+  color: var(--alert);
+}
+.urgency-medium {
+  color: var(--watch-text);
+}
+.urgency-low,
+.urgency-none {
+  color: var(--text-muted);
+}
+.forecast-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 8px 16px;
+  margin-top: 12px;
+}
+.forecast-form p {
+  flex-basis: 100%;
+  margin: 0;
+}

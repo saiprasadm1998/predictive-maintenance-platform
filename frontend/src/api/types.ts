@@ -104,6 +104,10 @@ export interface Alert {
   health: number | null;
   persistence_n: number | null; // of the rule's last m cycles, how many met the severity
   persistence_m: number | null;
+  /** The newest forecast stored with the alert (FR-PRG-02). */
+  forecast_urgency?: "Immediate" | "High" | "Medium" | "Low" | "None" | null;
+  forecast_lower_h?: number | null;
+  forecast_upper_h?: number | null;
 }
 
 export interface AlertEvent {

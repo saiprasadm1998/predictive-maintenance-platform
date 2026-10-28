@@ -229,7 +229,12 @@ function alert(
 }
 
 export const ALERTS = [
-  alert(1, "K-101", "di", "P1", "2026-10-20T00:01:00Z"),
+  {
+    ...alert(1, "K-101", "di", "P1", "2026-10-20T00:01:00Z"),
+    forecast_urgency: "High",
+    forecast_lower_h: 100,
+    forecast_upper_h: 220,
+  },
   alert(7, "P-104A", "sensor", "P3", "2026-10-20T08:30:00Z", "P104A.TI1044.PV"),
 ];
 

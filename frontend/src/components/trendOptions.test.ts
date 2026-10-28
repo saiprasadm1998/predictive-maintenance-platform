@@ -93,6 +93,21 @@ describe("chart conventions (PDS §3.4)", () => {
     ]);
   });
 
+  it("draws markers as thin vertical lines (the forecast's median crossing)", () => {
+    const lines = (
+      seriesById({ actual: DATA.actual, markers: [{ t: T0 + MIN, name: "Median crossing" }] })
+        .actual?.markLine as { data: unknown[] }
+    ).data;
+    expect(lines).toEqual([
+      {
+        xAxis: T0 + MIN,
+        name: "Median crossing",
+        lineStyle: { color: "#muted", type: "solid", width: 1 },
+      },
+    ]);
+    expect(seriesById({ actual: DATA.actual }).actual?.markLine).toBeUndefined();
+  });
+
   it("shades excluded periods with their reason, and marks alert periods under the axis", () => {
     const s = seriesById();
     const excluded = (s.actual?.markArea as { data: [{ name: string }, unknown][] }).data;

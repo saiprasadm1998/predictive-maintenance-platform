@@ -4,18 +4,20 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 
 import { fetchAsset } from "../../api/assets";
 import { type ModeMatch, fetchDiagnosis } from "../../api/diagnostics";
+import { fetchLatest, fetchModel } from "../../api/models";
 import { fetchAssetTypes } from "../../api/registry";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { formatDateTime, formatIso } from "../../app/format";
 import { Skeleton } from "../fleet/FleetPage";
+import { ForecastPanel } from "./ForecastPanel";
 import { ARROW, NOT_PROBABILITY, scoreText, signed, sparkPaths } from "./diagnosticsModel";
 
 /**
  * SCR-04 Diagnostics and forecast (PDS §4.4, UC-09 step 4, wireframe 04): failure modes of
  * the asset's type ranked by match at the latest cycle (or `?at=`), each with a score bar
  * and a 7-day sparkline; the selected mode's symptoms (expected, observed z, result, "not
- * evaluated" where the sensor is excluded) and its recommended tasks. The forecast arrives
- * with plan 8.3, similar past cases in Release 3.
+ * evaluated" where the sensor is excluded) and its recommended tasks; the time-to-threshold
+ * forecast (plan 8.3). Similar past cases arrive in Release 3.
  */
 export function DiagnosticsPage() {
   const id = Number(useParams().assetId);
@@ -36,6 +38,16 @@ export function DiagnosticsPage() {
   const diagnosis = useQuery({
     queryKey: ["diagnostics", modelId, at],
     queryFn: ({ signal }) => fetchDiagnosis(modelId!, at, signal),
+    enabled: modelId !== null,
+  });
+  const model = useQuery({
+    queryKey: ["models", "detail", modelId],
+    queryFn: ({ signal }) => fetchModel(modelId!, signal),
+    enabled: modelId !== null,
+  });
+  const latest = useQuery({
+    queryKey: ["models", "latest", modelId, null, null],
+    queryFn: ({ signal }) => fetchLatest(modelId!, null, signal, null),
     enabled: modelId !== null,
   });
   useBreadcrumbs(
@@ -118,12 +130,11 @@ export function DiagnosticsPage() {
         )}
       </section>
 
-      <section className="panel" aria-labelledby="forecast-title">
-        <h2 id="forecast-title" className="panel-title">
-          Time-to-threshold forecast
-        </h2>
-        <p className="muted">The forecast arrives with prognostics (plan 8.3).</p>
-      </section>
+      <ForecastPanel
+        modelId={modelId}
+        sensors={latest.data?.sensors ?? []}
+        diRule={model.data?.alert_rules.find((r) => r.kind === "di")}
+      />
 
       {chosen && (
         <>

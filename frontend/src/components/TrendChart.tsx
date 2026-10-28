@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { formatDateTime, formatIso } from "../app/format";
 import { chartColors, echarts } from "./charting";
-import { type TrendData, type TrendSettings, trendOptions } from "./trendOptions";
+import { type Point, type TrendData, type TrendSettings, trendOptions } from "./trendOptions";
 
 const MAX_TABLE_ROWS = 2000;
 
@@ -193,8 +193,15 @@ export function TrendChart({
   const pointText = point
     ? `${formatDateTime(new Date(point[0]))}: ${point[1] === null ? "no value" : tableValue(point[1])} ${point[1] === null ? "" : settings.unit}`.trim()
     : "No point selected";
-  const rows = data.actual.slice(-MAX_TABLE_ROWS);
   const predicted = new Map(data.predicted?.map(([t, v]) => [t, v]));
+  // A projection beyond the data (the forecast) adds rows of its own.
+  const actualTimes = new Set(data.actual.map(([t]) => t));
+  const ahead = (data.predicted ?? []).filter(([t]) => !actualTimes.has(t));
+  const rows = (
+    ahead.length
+      ? [...data.actual, ...ahead.map(([t]): Point => [t, null])].sort((a, b) => a[0] - b[0])
+      : data.actual
+  ).slice(-MAX_TABLE_ROWS);
   return (
     <figure className="trend" aria-label={title} style={{ margin: 0 }}>
       <figcaption className="trend-head">
@@ -241,7 +248,7 @@ export function TrendChart({
                 </th>
                 {data.predicted?.length ? (
                   <th scope="col" className="num">
-                    Predicted ({settings.unit})
+                    {settings.predictedName ?? "Predicted"} ({settings.unit})
                   </th>
                 ) : null}
               </tr>

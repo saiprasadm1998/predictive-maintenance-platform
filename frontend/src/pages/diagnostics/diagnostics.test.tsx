@@ -1,11 +1,37 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { FailureMode, ModeMatch } from "../../api/diagnostics";
+import type { Forecast } from "../../api/forecasts";
 import { ADMIN, type Call, TREE, fakeApi, sessionRoutes } from "../../test/fakeApi";
 import { renderApp } from "../../test/renderApp";
 import { codeFrom, scoreText, signed, sparkPaths } from "./diagnosticsModel";
+import {
+  fitValue,
+  forecastBrief,
+  forecastChart,
+  intervalText,
+  medianText,
+  urgencyText,
+} from "./forecastModel";
+
+vi.mock("../../components/charting", () => ({
+  echarts: {
+    init: vi.fn(() => ({
+      setOption: vi.fn(),
+      dispatchAction: vi.fn(),
+      resize: vi.fn(),
+      dispose: vi.fn(),
+      on: vi.fn(),
+      off: vi.fn(),
+      isDisposed: () => false,
+      getZr: () => ({ on: vi.fn(), off: vi.fn() }),
+    })),
+    connect: vi.fn(),
+  },
+  chartColors: () => ({}),
+}));
 
 const K101 = (TREE[0]!.children as { children: object[] }[])[0]!.children[0]!;
 const TYPE = {
@@ -142,6 +168,35 @@ function routes() {
     },
   });
   r["GET /asset-types"] = () => ({ status: 200, body: [TYPE] });
+  r["GET /forecasts"] = () => ({ status: 200, body: [FORECAST] });
+  r["GET /models/1/latest"] = () => ({
+    status: 200,
+    body: {
+      version_id: 3,
+      version: 3,
+      ts: "2026-10-22T08:00:00Z",
+      sensors: [
+        {
+          tag_id: 2,
+          source_name: "K101.ZI1015.PV",
+          description: "",
+          unit: "µm",
+          required: true,
+          actual: 410,
+          predicted: 380,
+          residual: 30,
+          z: 2,
+          contribution: 40,
+          dq_status: "Good",
+          dq_rule: null,
+          used: true,
+          sigma: 15,
+          warning: 3,
+          alert: 5,
+        },
+      ],
+    },
+  });
   r["GET /models/1/diagnostics"] = () => ({
     status: 200,
     body: {
@@ -156,6 +211,76 @@ function routes() {
   });
   return r;
 }
+
+const FORECAST: Forecast = {
+  id: 9,
+  model_id: 1,
+  version_id: 3,
+  alert_id: 4,
+  target: "di",
+  tag_id: null,
+  tag: null,
+  threshold_kind: "alert",
+  threshold: 30,
+  direction: "up",
+  window_days: 7,
+  at: "2026-10-22T08:00:00Z",
+  fit: { method: "linear", params: { a: 20, b: 2 }, r2: 0.91 },
+  points: 3,
+  valid: true,
+  reason: null,
+  median_h: 120,
+  lower_h: 100,
+  upper_h: 140,
+  crossing_at: "2026-10-27T08:00:00Z",
+  urgency: "High",
+  summary: "Reaches 30 in 4.2 d–5.8 d (median 5.0 d) at the current trend",
+  series: [
+    { ts: "2026-10-21T08:00:00Z", value: 18 },
+    { ts: "2026-10-21T20:00:00Z", value: 19 },
+    { ts: "2026-10-22T08:00:00Z", value: 20 },
+  ],
+  created_at: "2026-10-22T08:05:00Z",
+  created_by: 1,
+};
+
+describe("forecast rules", () => {
+  it("words times, intervals and urgency as the wireframes do", () => {
+    expect([0.5, 18, 47.6, 156, 300].map(medianText)).toEqual([
+      "now",
+      "18 h",
+      "48 h",
+      "6.5 d",
+      "13 d",
+    ]);
+    expect(intervalText(100, 220)).toBe("4–10 d");
+    expect(intervalText(6, 30)).toBe("6–30 h");
+    expect(intervalText(1000, null)).toBe("more than 42 d");
+    expect(urgencyText("High", 100, 220)).toBe("High · 4–10 d");
+    expect(urgencyText("None", null, null)).toBe("None");
+    expect(urgencyText(null, null, null)).toBe("—");
+    expect(forecastBrief(FORECAST)).toBe("High · 4–6 d to DI alert limit 30");
+    expect(forecastBrief({ ...FORECAST, valid: false, lower_h: null })).toBe(
+      "None · no trend to threshold",
+    );
+  });
+
+  it("draws the projection, a cone through the interval and the median crossing", () => {
+    expect(fitValue({ method: "exponential", params: { c: 40, a: 5, b: 0.3 }, r2: 1 }, 0)).toBe(45);
+    const { data, from, to } = forecastChart(FORECAST);
+    const at = Date.parse(FORECAST.at);
+    expect(from).toBe(Date.parse("2026-10-21T08:00:00Z"));
+    expect(to).toBeGreaterThan(at + 120 * 3_600_000); // beyond the median crossing
+    expect(data.predicted![0]).toEqual([at, 20]);
+    expect(data.markers).toEqual([{ t: at + 120 * 3_600_000, name: "Median crossing" }]);
+    expect(data.limits).toEqual({ alert: [30] });
+    // at the median crossing the cone spans the threshold: fast above, slow below
+    const [, lo, hi] = data.band!.find(([t]) => t >= at + 120 * 3_600_000)!;
+    expect(lo).toBeLessThan(30);
+    expect(hi).toBeGreaterThan(30);
+    expect(forecastChart({ ...FORECAST, valid: false }).data.predicted).toBeUndefined();
+  });
+});
 
 describe("SCR-04 diagnostics", () => {
   it("ranks the modes and shows the chosen mode's symptoms and tasks", async () => {
@@ -189,6 +314,78 @@ describe("SCR-04 diagnostics", () => {
       await screen.findByText(/Insufficient evidence: only 1 of 4 weight/),
     ).toBeInTheDocument();
     expect(screen.getByText("No tasks are linked to this failure mode.")).toBeInTheDocument();
+  });
+
+  it("shows the newest forecast; only analysts and model engineers run one", async () => {
+    fakeApi(routes());
+    renderApp("/assets/6/diagnostics");
+    expect(
+      await screen.findByRole("heading", {
+        name: "Time-to-threshold forecast · DI → alert limit 30 %",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Urgency: HIGH")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /median 5\.0 d · 80 % interval 4–6 d · method: linear fit, 7-day window, R² 0\.91/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("figure", { name: "Forecast of DI" })).toBeInTheDocument();
+    expect(screen.getByText("Analysts and model engineers run forecasts.")).toBeInTheDocument();
+  });
+
+  it("runs a forecast on a sensor with a custom threshold", async () => {
+    const r = routes();
+    r["GET /auth/me"] = () => ({
+      status: 200,
+      body: {
+        user: { ...ADMIN, roles: [{ role: "analyst", scope_asset_id: null }] },
+        csrf_token: "c",
+      },
+    });
+    r["POST /forecasts"] = () => ({
+      status: 201,
+      body: {
+        ...FORECAST,
+        id: 10,
+        target: "actual",
+        tag_id: 2,
+        tag: "K101.ZI1015.PV",
+        threshold_kind: "custom",
+        threshold: 500,
+        valid: false,
+        reason: "No trend to threshold: fit quality R² 0.12 is below 0.5",
+        median_h: null,
+        lower_h: null,
+        upper_h: null,
+        urgency: "None",
+        summary: "No trend to threshold: fit quality R² 0.12 is below 0.5",
+      },
+    });
+    const { calls } = fakeApi(r);
+    const user = userEvent.setup();
+    renderApp("/assets/6/diagnostics");
+    const form = await screen.findByRole("form", { name: "Run a forecast" });
+    await within(form).findByRole("option", { name: "K101.ZI1015.PV actual" });
+    await user.selectOptions(within(form).getByLabelText("Target"), "actual:2");
+    expect(within(form).queryByLabelText("Value")).toBeNull();
+    await user.type(within(form).getByLabelText("Threshold"), "500");
+    await user.selectOptions(within(form).getByLabelText("Fit window"), "3");
+    await user.click(within(form).getByRole("button", { name: "Run forecast" }));
+    await waitFor(() =>
+      expect(calls.find((c: Call) => c.method === "POST")?.body).toEqual({
+        model_id: 1,
+        target: "actual",
+        tag_id: 2,
+        threshold_kind: "custom",
+        threshold: 500,
+        window_days: 3,
+      }),
+    );
+    expect(await screen.findByText("Urgency: NONE")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Time-to-threshold forecast · K101.ZI1015.PV → 500 µm" }),
+    ).toBeInTheDocument();
   });
 });
 

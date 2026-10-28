@@ -13,6 +13,7 @@ import type { ChartColors } from "./charting";
  * - excluded periods: grey columns with the reason on hover
  * - bad data: a gap in the line (null values) and magenta ticks on the time axis
  * - alert periods: a bar under the time axis, coloured by severity, with its shape at the start
+ * - markers: thin vertical lines in --text-muted (the forecast's median crossing)
  */
 
 export type Point = [number, number | null]; // epoch ms, value (null: no usable value)
@@ -30,6 +31,8 @@ export interface TrendData {
   excluded?: (Period & { reason: string })[];
   bad?: number[];
   alerts?: (Period & { severity: "Alert" | "Warning" })[];
+  /** Vertical lines at moments (the forecast's median crossing). */
+  markers?: { t: number; name: string }[];
 }
 
 export interface TrendSettings {
@@ -37,6 +40,8 @@ export interface TrendSettings {
   from: number;
   to: number;
   actualName?: string;
+  predictedName?: string;
+  bandName?: string;
   /** A fixed value axis (Health: 0 to 100 with a tick every 25). */
   axis?: { min: number; max: number; interval: number };
   /** Dragging selects a period (see TrendChart onSelect) instead of panning. */
@@ -94,7 +99,7 @@ export function trendOptions(
     // A stacked pair: the invisible lower edge, then the width filled with --band.
     series.push({
       id: "band-lower",
-      name: "Expected band",
+      name: settings.bandName ?? "Expected band",
       type: "line",
       data: data.band.map(([t, lo]) => [t, lo]),
       stack: "band",
@@ -105,7 +110,7 @@ export function trendOptions(
     });
     series.push({
       id: "band-width",
-      name: "Expected band",
+      name: settings.bandName ?? "Expected band",
       type: "line",
       data: data.band.map(([t, lo, hi]) => [t, hi - lo]),
       stack: "band",
@@ -119,7 +124,7 @@ export function trendOptions(
   if (data.predicted?.length) {
     series.push({
       id: "predicted",
-      name: "Predicted",
+      name: settings.predictedName ?? "Predicted",
       type: "line",
       data: data.predicted,
       symbol: "none",
@@ -137,18 +142,26 @@ export function trendOptions(
     connectNulls: false, // bad or excluded data shows as a break
     lineStyle: { color: colors.text, width: 2, type: "solid" },
     itemStyle: { color: colors.text },
-    markLine: limitLines.length
-      ? {
-          symbol: "none",
-          silent: true,
-          label: { show: false },
-          data: limitLines.map((l) => ({
-            yAxis: l.yAxis,
-            name: l.name,
-            lineStyle: { color: l.color, type: "dashed", width: 1.5 },
-          })),
-        }
-      : undefined,
+    markLine:
+      limitLines.length || data.markers?.length
+        ? {
+            symbol: "none",
+            silent: true,
+            label: { show: false },
+            data: [
+              ...limitLines.map((l) => ({
+                yAxis: l.yAxis,
+                name: l.name,
+                lineStyle: { color: l.color, type: "dashed", width: 1.5 },
+              })),
+              ...(data.markers ?? []).map((m) => ({
+                xAxis: m.t,
+                name: m.name,
+                lineStyle: { color: colors.textMuted, type: "solid", width: 1 },
+              })),
+            ],
+          }
+        : undefined,
     markArea: data.excluded?.length
       ? {
           silent: false,

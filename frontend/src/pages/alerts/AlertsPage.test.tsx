@@ -105,6 +105,7 @@ describe("SCR-02 alert list", () => {
     expect(rows[0]).toHaveTextContent("Site A / Ammonia unit / K-101");
     expect(rows[0]).toHaveTextContent("K-101 v1 · DI");
     expect(rows[0]).toHaveTextContent("5 of 5");
+    expect(rows[0]).toHaveTextContent("High · 4–10 d"); // forecast urgency (FR-PRG-02)
     expect(rows[1]).toHaveTextContent("P-104A v1 · TI1044");
     expect(
       within(rows[0]!).getByRole("link", { name: "Site A / Ammonia unit / K-101" }),

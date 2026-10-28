@@ -40,6 +40,8 @@ import {
 import { useMe } from "../../app/session";
 import { type ExclusionAction, ExclusionDialog } from "../sensors/ExclusionDialog";
 import { canExclude } from "../sensors/sensorsModel";
+import { type Forecast, fetchForecasts } from "../../api/forecasts";
+import { forecastBrief } from "../diagnostics/forecastModel";
 
 const CHART_PX = 800;
 const MAX_CHARTS = 6;
@@ -80,6 +82,11 @@ export function AssetPage() {
   const model = useQuery({
     queryKey: ["models", "detail", modelId],
     queryFn: ({ signal }) => fetchModel(modelId!, signal),
+    enabled: modelId !== null,
+  });
+  const forecasts = useQuery({
+    queryKey: ["forecasts", modelId],
+    queryFn: ({ signal }) => fetchForecasts(modelId!, 1, signal),
     enabled: modelId !== null,
   });
   const alerts = useQuery({
@@ -284,7 +291,6 @@ export function AssetPage() {
         >
           Acknowledge{openUnack.length ? ` (${openUnack.length})` : ""}
         </button>
-        <span className="muted later-note">Exclude sensor and Diagnose arrive in Release 2.</span>
       </div>
 
       <div className="asset-grid">
@@ -299,6 +305,7 @@ export function AssetPage() {
             alert={worstAlert(alerts.data?.items ?? [])}
             version={version}
             onVersion={chooseVersion}
+            forecast={forecasts.data?.[0]}
           />
         </section>
 
@@ -455,6 +462,7 @@ function Summary({
   version,
   onVersion,
   checkedAt,
+  forecast,
 }: {
   model: ModelDetail | undefined;
   latest: { ts: string | null; version: number; sensors: SensorNow[] } | undefined;
@@ -462,6 +470,8 @@ function Summary({
   alert: ReturnType<typeof worstAlert>;
   version: number | null;
   onVersion: (value: string) => void;
+  /** The model's newest forecast (FR-PRG-02: urgency in the asset view). */
+  forecast: Forecast | undefined;
 }) {
   if (!model) return <Skeleton rows={5} />;
   const runtime = model.runtime;
@@ -564,7 +574,9 @@ function Summary({
           </tr>
           <tr>
             <th scope="row">Forecast</th>
-            <td className="muted">Release 2 (prognostics)</td>
+            <td className={forecast ? undefined : "muted"}>
+              {forecast ? forecastBrief(forecast) : "None run yet"}
+            </td>
           </tr>
         </tbody>
       </table>

@@ -10,6 +10,7 @@ show its urgency.
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -284,19 +285,30 @@ def latest_for_alerts(session: Session, alert_ids: Iterable[int]) -> dict[int, F
 
 def describe(view: ForecastView, unit: str = "") -> str:
     """PDS §6 wording: "Reaches 90 °C in 4-9 days (median 6.5 d) at the current trend"."""
-    if not view.valid or view.median_h is None:
+    if not view.valid or view.median_h is None or view.lower_h is None:
         return view.reason or "No trend to threshold"
     level = f"{view.threshold:g}{(' ' + unit) if unit else ''}"
-    lower = _span(view.lower_h)
-    upper = "more" if view.upper_h is None else _span(view.upper_h)
-    median = _span(view.median_h)
-    dash = "\u2013"  # the PDS uses an en dash for ranges
-    return f"Reaches {level} in {lower}{dash}{upper} (median {median}) at the current trend"
+    return (
+        f"Reaches {level} in {interval_text(view.lower_h, view.upper_h)} "
+        f"(median {median_text(view.median_h)}) at the current trend"
+    )
 
 
-def _span(hours: float | None) -> str:
-    if hours is None:
-        return "?"
+def median_text(hours: float) -> str:
+    """ "18 h", "6.5 d", "13 d" (the SCR-04 panel words it the same way)."""
+    if hours < 1:
+        return "now"
     if hours < 48:
-        return f"{hours:.0f} h" if hours >= 1 else "now"
-    return f"{hours / 24:.1f} d"
+        return f"{round(hours)} h"
+    days = hours / 24
+    return f"{days:.1f} d" if days < 10 else f"{round(days)} d"
+
+
+def interval_text(lower: float, upper: float | None) -> str:
+    """ "4-9 days", "6-30 h", "more than 40 d" (wireframes 02 and 04)."""
+    dash = "\u2013"  # the PDS uses an en dash for ranges
+    if upper is None:
+        return f"more than {median_text(lower)}"
+    if upper < 48:
+        return f"{round(lower)}{dash}{round(upper)} h"
+    return f"{math.floor(lower / 24)}{dash}{math.ceil(upper / 24)} days"
