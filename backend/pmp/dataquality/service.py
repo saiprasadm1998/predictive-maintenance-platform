@@ -40,7 +40,9 @@ from pmp.dataquality.domain import (
     state_for,
     to_ns,
 )
-from pmp.dataquality.models import DqRule, SensorExclusion, SensorStatus
+from pmp.dataquality.exclusions import ExclusionKind
+from pmp.dataquality.exclusions import periods as exclusion_periods
+from pmp.dataquality.models import DqRule, SensorStatus
 from pmp.ingestion import read_last_samples, read_last_samples_many, read_samples
 from pmp.registry import (
     RegistryError,
@@ -272,34 +274,26 @@ def _config(tag: TagView, reference: Reference | None) -> SensorConfig:
 
 def _exclusions(
     session: Session, tag_ids: Iterable[int], start: datetime, end: datetime
-) -> dict[int, list[tuple[datetime, datetime]]]:
-    """Manual exclusion periods overlapping [start, end] per tag (UC-14)."""
-    ids = list(tag_ids)
-    periods: dict[int, list[tuple[datetime, datetime]]] = {}
-    if not ids:
-        return periods
-    rows = session.scalars(
-        select(SensorExclusion).where(
-            SensorExclusion.tag_id.in_(ids),
-            SensorExclusion.starts_at <= end,
-            SensorExclusion.expires_at > start,
-        )
-    ).all()
-    for row in rows:
-        stop = min(row.expires_at, row.cleared_at) if row.cleared_at else row.expires_at
-        if stop > row.starts_at:
-            periods.setdefault(row.tag_id, []).append((row.starts_at, stop))
-    return periods
+) -> dict[int, list[tuple[datetime, datetime, ExclusionKind]]]:
+    """Manual exclusion and override periods overlapping [start, end] per tag (UC-14)."""
+    return exclusion_periods(session, tag_ids, start, end)
 
 
-def _excluded_mask(
-    cycle_ns: npt.NDArray[np.int64], periods: Iterable[tuple[datetime, datetime]]
-) -> npt.NDArray[np.bool_]:
-    mask = np.zeros(len(cycle_ns), dtype=bool)
-    for begin, stop in periods:
+def _masks(
+    cycle_ns: npt.NDArray[np.int64],
+    found: Iterable[tuple[datetime, datetime, ExclusionKind]],
+) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
+    """Cycles inside an exclusion, and cycles inside an override."""
+    excluded = np.zeros(len(cycle_ns), dtype=bool)
+    overridden = np.zeros(len(cycle_ns), dtype=bool)
+    for begin, stop, kind in found:
         b, s = to_ns([begin, stop])
-        mask |= (cycle_ns >= b) & (cycle_ns < s)
-    return mask
+        inside = (cycle_ns >= b) & (cycle_ns < s)
+        if kind is ExclusionKind.OVERRIDE:
+            overridden |= inside
+        else:
+            excluded |= inside
+    return excluded, overridden
 
 
 def _tags(session: Session, tag_ids: Iterable[int] | None) -> list[TagView]:
@@ -365,8 +359,15 @@ def read_sensors(
         params = params_by_tag[tag.id]
         rows_for_tag = recent[tag.id][-params.flatline_window :]
         samples = Samples.from_rows(rows_for_tag)
-        excluded = bool(_excluded_mask(to_ns(at), excl.get(tag.id, [])).any())
-        state = evaluate_sensor(samples, _config(tag, refs.get(tag.id)), params, at, excluded)
+        excluded, overridden = _masks(to_ns(at), excl.get(tag.id, []))
+        state = evaluate_sensor(
+            samples,
+            _config(tag, refs.get(tag.id)),
+            params,
+            at,
+            bool(excluded.any()),
+            bool(overridden.any()),
+        )
         value = float(samples.value[-1]) if len(samples.value) else None
         sample_ts = rows_for_tag[-1][0] if rows_for_tag else None
         readings[tag.id] = SensorReading(value, state, sample_ts)
@@ -568,11 +569,7 @@ def preview_rules(
         # without a deployed model has none (plan 6.7; training itself uses the period's).
         config = _config(tag, refs.get(tag.id))
         codes = evaluate_rules(
-            samples,
-            config,
-            params,
-            cycle_ns,
-            _excluded_mask(cycle_ns, excl.get(tag.id, [])),
+            samples, config, params, cycle_ns, *_masks(cycle_ns, excl.get(tag.id, []))
         )
         counts = np.bincount(codes, minlength=len(RULE_ORDER))
         by_rule = {rule: int(counts[i]) for i, rule in enumerate(RULE_ORDER)}
@@ -638,11 +635,7 @@ def assess_series(
         if tag.id not in refs:  # training: the period's own spread (decision 6.0)
             config = replace(config, training_std=_period_std(samples))
         codes = evaluate_rules(
-            samples,
-            config,
-            params,
-            cycle_ns,
-            _excluded_mask(cycle_ns, excl.get(tag.id, [])),
+            samples, config, params, cycle_ns, *_masks(cycle_ns, excl.get(tag.id, []))
         )
         idx = np.searchsorted(samples.ts, cycle_ns, side="right") - 1
         values = np.where(idx >= 0, samples.value[np.maximum(idx, 0)], np.nan)

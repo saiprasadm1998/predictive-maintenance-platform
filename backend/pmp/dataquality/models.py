@@ -46,6 +46,7 @@ class SensorExclusion(Base):
 
     id: Mapped[int] = mapped_column(Integer, Identity(), primary_key=True)
     tag_id: Mapped[int] = mapped_column(ForeignKey("tag.id", ondelete="CASCADE"))
+    kind: Mapped[str] = mapped_column(String(10), default="exclude")  # or "override"
     reason: Mapped[str] = mapped_column(Text)
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

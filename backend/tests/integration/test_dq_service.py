@@ -16,15 +16,19 @@ from sqlalchemy import func, select, text
 from pmp.core import Actor, AuditLog, Database, EventBus
 from pmp.dataquality import (
     DataQualityError,
+    ExclusionKind,
     Ne107,
     Reference,
     Rule,
     RuleScope,
     SensorStatusChanged,
+    add_exclusion,
     effective_params,
+    end_exclusion,
     evaluate_sensors,
     get_rule_set,
     get_sensor_statuses,
+    list_exclusions,
     list_rule_versions,
     preview_rules,
     save_rule_set,
@@ -271,3 +275,122 @@ def test_preview_covers_only_the_scope(clean_dq: Database) -> None:
         report = preview_rules(s, RuleScope.role("pump", "flow"), days=1, end=T0)
     assert [t.source_name for t in report.tags] == ["FLOW"]
     assert report.tags[0].by_rule[Rule.STALE] == report.tags[0].cycles == 1440
+
+
+# ------------------------------------------------------------------ exclusions (8.1, UC-14)
+
+
+def _audit_after(db: Database, after: int) -> list[str]:
+    with db.session() as s:
+        return list(
+            s.scalars(
+                select(AuditLog.action)
+                .where(AuditLog.entity == "sensor_exclusion", AuditLog.id > after)
+                .order_by(AuditLog.id)
+            ).all()
+        )
+
+
+def _audit_mark(db: Database) -> int:
+    with db.session() as s:
+        return int(s.scalar(select(func.coalesce(func.max(AuditLog.id), 0))) or 0)
+
+
+def _flat(start: datetime, minutes: int) -> list[tuple[datetime, float, Quality]]:
+    return [(start + timedelta(minutes=i), 50.0, Quality.GOOD) for i in range(minutes)]
+
+
+def test_an_exclusion_applies_from_the_next_cycle_and_expires(clean_dq: Database) -> None:
+    flow, temp = _plant(clean_dq)
+    _write(clean_dq, flow, _healthy(T0, 120))
+    _write(clean_dq, temp, _healthy(T0, 120))
+    mark = _audit_mark(clean_dq)
+    now = T0 + timedelta(minutes=40, seconds=10)
+    with clean_dq.session() as s:
+        made = add_exclusion(
+            s, ACTOR, flow, ExclusionKind.EXCLUDE, " calibration ", now + timedelta(minutes=30), now
+        )
+    assert (made.reason, made.source_name, made.asset_code) == ("calibration", "FLOW", "EQ-1")
+
+    def state_at(minute: int) -> tuple[Ne107, Rule]:
+        with clean_dq.session() as s:
+            found = evaluate_sensors(s, T0 + timedelta(minutes=minute), [flow])[flow]
+        return found.status, found.rule
+
+    assert state_at(40) == (Ne107.GOOD, Rule.NONE)  # the cycle before it was made
+    assert state_at(41) == (Ne107.FUNCTION_CHECK, Rule.MANUAL_EXCLUSION)
+    assert state_at(71) == (Ne107.GOOD, Rule.NONE)  # expired on its own
+    with clean_dq.session() as s:
+        assert [e.id for e in list_exclusions(s, active_at=now + timedelta(minutes=1))] == [made.id]
+        assert list_exclusions(s, active_at=now + timedelta(hours=1)) == []
+    assert _audit_after(clean_dq, mark) == ["exclude"]
+
+
+def test_an_override_forces_good_but_not_over_bad_quality(clean_dq: Database) -> None:
+    flow, _ = _plant(clean_dq)
+    _write(clean_dq, flow, _flat(T0, 60))  # genuinely constant: flatline
+    now = T0 + timedelta(minutes=59, seconds=10)
+    with clean_dq.session() as s:
+        before = evaluate_sensors(s, T0 + timedelta(minutes=59), [flow], store=False)[flow]
+        add_exclusion(
+            s,
+            ACTOR,
+            flow,
+            ExclusionKind.OVERRIDE,
+            "constant by design",
+            now + timedelta(hours=1),
+            now,
+        )
+    assert before.rule is Rule.FLATLINE
+    with clean_dq.session() as s:
+        after = evaluate_sensors(s, T0 + timedelta(minutes=60), [flow], store=False)[flow]
+    assert (after.status, after.rule, after.usable) == (Ne107.GOOD, Rule.OVERRIDE, True)
+
+    _write(clean_dq, flow, [(T0 + timedelta(minutes=61), 50.0, Quality.BAD)])
+    with clean_dq.session() as s:
+        bad = evaluate_sensors(s, T0 + timedelta(minutes=61, seconds=30), [flow], store=False)[flow]
+    assert (bad.status, bad.rule) == (Ne107.FAILURE, Rule.BAD_QUALITY)  # FR-ING-05
+
+
+def test_a_new_entry_ends_the_previous_and_ending_is_audited(clean_dq: Database) -> None:
+    flow, _ = _plant(clean_dq)
+    mark = _audit_mark(clean_dq)
+    with clean_dq.session() as s:
+        first = add_exclusion(
+            s, ACTOR, flow, ExclusionKind.EXCLUDE, "a", T0 + timedelta(hours=8), T0
+        )
+        second = add_exclusion(
+            s,
+            ACTOR,
+            flow,
+            ExclusionKind.OVERRIDE,
+            "b",
+            T0 + timedelta(hours=8),
+            T0 + timedelta(hours=1),
+        )
+    later = T0 + timedelta(hours=2)
+    with clean_dq.session() as s:
+        active = list_exclusions(s, active_at=later)
+        assert [e.id for e in active] == [second.id]
+        assert {e.id: e.ended_at for e in list_exclusions(s)}[first.id] == T0 + timedelta(hours=1)
+        ended = end_exclusion(s, ACTOR, second.id, later)
+        assert ended.ended_at == later
+        with pytest.raises(DataQualityError, match="already ended"):
+            end_exclusion(s, ACTOR, second.id, later)
+    assert _audit_after(clean_dq, mark) == ["exclude", "end", "override", "end"]
+
+
+@pytest.mark.parametrize(
+    ("reason", "until", "message"),
+    [
+        ("", timedelta(hours=1), "Give a reason"),
+        ("x", timedelta(hours=-1), "must be in the future"),
+        ("x", timedelta(days=91), "at most 90 days"),
+    ],
+)
+def test_an_exclusion_needs_a_reason_and_a_bounded_expiry(
+    clean_dq: Database, reason: str, until: timedelta, message: str
+) -> None:
+    flow, _ = _plant(clean_dq)
+    with clean_dq.session() as s, pytest.raises(DataQualityError, match=message):
+        add_exclusion(s, ACTOR, flow, ExclusionKind.EXCLUDE, reason, T0 + until, T0)

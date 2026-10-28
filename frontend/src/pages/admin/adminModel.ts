@@ -102,6 +102,7 @@ export const RULE_LABELS: Record<string, string> = {
   flatline: "Flatline",
   spike: "Spike",
   uncertain_quality: "Uncertain quality",
+  override: "Overridden to Good",
   none: "—",
 };
 

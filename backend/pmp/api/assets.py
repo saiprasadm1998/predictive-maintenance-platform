@@ -4,8 +4,8 @@ UC-08, FR-HLT-01, FR-REG-01, FR-DQ-02)."""
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
@@ -14,7 +14,16 @@ from sqlalchemy.orm import Session
 from pmp.alerting import open_alerts_by_model
 from pmp.api.common import MAX_LIMIT, Page, can_see, not_found, page
 from pmp.api.deps import SignedIn, database_of, signed_in
-from pmp.dataquality import get_sensor_statuses
+from pmp.api.problems import ProblemError
+from pmp.dataquality import (
+    DataQualityError,
+    ExclusionKind,
+    ExclusionView,
+    add_exclusion,
+    end_exclusion,
+    get_sensor_statuses,
+    list_exclusions,
+)
 from pmp.modelling import VersionStatus, list_models, model_assets
 from pmp.registry import (
     AssetView,
@@ -312,6 +321,48 @@ class SensorHealthOut(BaseModel):
     models: list[str] = Field(
         default_factory=list, description="models whose version in service scores this sensor"
     )
+    exclusion: ExclusionOut | None = Field(
+        default=None, description="the active manual exclusion or override (UC-14)"
+    )
+
+
+class ExclusionIn(BaseModel):
+    kind: Literal["exclude", "override"] = Field(
+        description="exclude: Function check, left out of every model; override: force Good"
+    )
+    reason: str = Field(min_length=1, max_length=500)
+    until: datetime = Field(description="expiry, ISO 8601 with a time zone (at most 90 days)")
+
+
+class ExclusionOut(BaseModel):
+    id: int
+    tag_id: int
+    source_name: str
+    asset_code: str
+    kind: str
+    reason: str
+    starts_at: datetime
+    expires_at: datetime
+    ended_at: datetime | None
+    created_by: int | None
+
+
+SensorHealthOut.model_rebuild()  # ExclusionOut is defined after it
+
+
+def _exclusion_out(v: ExclusionView) -> ExclusionOut:
+    return ExclusionOut(
+        id=v.id,
+        tag_id=v.tag_id,
+        source_name=v.source_name,
+        asset_code=v.asset_code,
+        kind=v.kind.value,
+        reason=v.reason,
+        starts_at=v.starts_at,
+        expires_at=v.expires_at,
+        ended_at=v.ended_at,
+        created_by=v.created_by,
+    )
 
 
 def _models_using(session: Session) -> dict[int, list[str]]:
@@ -337,6 +388,9 @@ def get_sensor_health(
     request: Request,
     user: User,
     asset: Annotated[str | None, Query(description="asset code: this asset's tags")] = None,
+    scope: Annotated[
+        str | None, Query(description="asset code: tags anywhere beneath it, e.g. a site")
+    ] = None,
     status: Annotated[str | None, Query(description="only this NE 107 status")] = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 500,
@@ -344,10 +398,22 @@ def get_sensor_health(
     with database_of(request).session() as session:
         if asset is not None and find_asset(session, asset) is None:
             raise not_found("Asset")
+        within = find_asset(session, scope) if scope is not None else None
+        if scope is not None and within is None:
+            raise not_found("Asset")
         paths = {a.id: a.path for a in list_subtree(session)}
-        tags = [t for t in list_tags(session, asset) if can_see(user, paths.get(t.asset_id))]
+        tags = [
+            t
+            for t in list_tags(session, asset)
+            if can_see(user, paths.get(t.asset_id))
+            and (within is None or str(within.id) in (paths.get(t.asset_id) or "").split("."))
+        ]
         statuses = get_sensor_statuses(session, [t.id for t in tags]) if tags else []
         users = _models_using(session)
+        manual = {
+            e.tag_id: e
+            for e in list_exclusions(session, [t.id for t in tags], active_at=datetime.now(UTC))
+        }
     statuses = sorted(
         (v for v in statuses if status is None or v.status.value == status), key=lambda v: v.tag_id
     )
@@ -365,8 +431,71 @@ def get_sensor_health(
                 since=v.since,
                 evaluated_at=v.evaluated_at,
                 models=users.get(v.tag_id, []),
+                exclusion=_exclusion_out(manual[v.tag_id]) if v.tag_id in manual else None,
             )
             for v in items
         ],
         next_cursor=next_cursor,
     )
+
+
+# ------------------------------------------------------------------ exclusions (UC-14)
+
+
+@router.post(
+    "/sensors/{tag_id}/exclusions",
+    status_code=201,
+    response_model=ExclusionOut,
+    summary="Exclude a sensor, or override its status to Good, until an expiry (UC-14)",
+)
+def post_exclusion(request: Request, user: User, tag_id: int, body: ExclusionIn) -> ExclusionOut:
+    try:
+        with database_of(request).session() as session:
+            view = add_exclusion(
+                session,
+                user.actor,
+                tag_id,
+                ExclusionKind(body.kind),
+                body.reason,
+                body.until,
+                datetime.now(UTC),
+            )
+    except DataQualityError as error:
+        raise _dq_problem(error) from None
+    return _exclusion_out(view)
+
+
+@router.post(
+    "/sensor-exclusions/{exclusion_id}/end",
+    response_model=ExclusionOut,
+    summary="End an exclusion or override now; the normal rules apply from the next cycle",
+)
+def post_end_exclusion(request: Request, user: User, exclusion_id: int) -> ExclusionOut:
+    try:
+        with database_of(request).session() as session:
+            view = end_exclusion(session, user.actor, exclusion_id, datetime.now(UTC))
+    except DataQualityError as error:
+        raise _dq_problem(error) from None
+    return _exclusion_out(view)
+
+
+@router.get(
+    "/sensor-exclusions",
+    response_model=list[ExclusionOut],
+    summary="Exclusions and overrides, newest first (active only by default)",
+)
+def get_exclusions(request: Request, user: User, include_ended: bool = False) -> list[ExclusionOut]:
+    with database_of(request).session() as session:
+        paths = {a.id: a.path for a in list_subtree(session)}
+        visible = [t.id for t in list_tags(session) if can_see(user, paths.get(t.asset_id))]
+        views = list_exclusions(
+            session, visible, active_at=None if include_ended else datetime.now(UTC)
+        )
+    return [_exclusion_out(v) for v in views]
+
+
+def _dq_problem(error: DataQualityError) -> ProblemError:
+    message = str(error)
+    if "does not exist" in message:
+        return not_found("Sensor or exclusion")
+    return ProblemError(400, "exclusion_refused", message)

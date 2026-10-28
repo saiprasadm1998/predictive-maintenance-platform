@@ -67,6 +67,7 @@ class Rule(StrEnum):
     FLATLINE = "flatline"
     SPIKE = "spike"
     UNCERTAIN_QUALITY = "uncertain_quality"
+    OVERRIDE = "override"  # an engineer forced Good, with reason and expiry (UC-14 1a)
     NONE = "none"
 
 
@@ -93,8 +94,15 @@ STATUS_OF: Mapping[Rule, Ne107] = {
     Rule.FLATLINE: Ne107.MAINTENANCE_REQUIRED,
     Rule.SPIKE: Ne107.MAINTENANCE_REQUIRED,
     Rule.UNCERTAIN_QUALITY: Ne107.MAINTENANCE_REQUIRED,
+    Rule.OVERRIDE: Ne107.GOOD,
     Rule.NONE: Ne107.GOOD,
 }
+
+# An override forces Good over these rules only: bad samples are always excluded (FR-ING-05),
+# a sensor without data cannot be Good, and a manual exclusion is ended, not overridden.
+OVERRIDABLE: frozenset[Rule] = frozenset(
+    {Rule.OUT_OF_RANGE, Rule.FLATLINE, Rule.SPIKE, Rule.UNCERTAIN_QUALITY, Rule.NONE}
+)
 
 
 # ------------------------------------------------------------------ parameters
@@ -231,7 +239,7 @@ def state_for(rule: Rule, params: RuleParams) -> SensorState:
         effect = Effect.SAMPLE_EXCLUDED
     elif rule is Rule.UNCERTAIN_QUALITY:
         effect = Effect.USED_FLAGGED
-    elif rule is Rule.NONE:
+    elif rule in (Rule.NONE, Rule.OVERRIDE):
         effect = Effect.USED
     else:
         effect = Effect.EXCLUDED
@@ -292,12 +300,30 @@ def evaluate_rules(
     params: RuleParams,
     cycle_ns: npt.NDArray[np.int64],
     excluded: npt.NDArray[np.bool_] | None = None,
+    overridden: npt.NDArray[np.bool_] | None = None,
 ) -> npt.NDArray[np.int8]:
     """The rule that sets the status at each cycle time, as an index into RULE_ORDER.
 
     Each cycle uses the latest sample at or before the cycle time (sample-and-hold, UCS
-    §6.2). `excluded` marks cycles with an active manual exclusion.
+    §6.2). `excluded` marks cycles with an active manual exclusion, `overridden` cycles
+    with an active override to Good (UC-14 1a; see OVERRIDABLE).
     """
+    codes = _evaluate(samples, config, params, cycle_ns, excluded)
+    if overridden is not None and overridden.any():
+        allowed = np.array([rule in OVERRIDABLE for rule in RULE_ORDER])
+        codes = np.where(
+            overridden & allowed[codes], RULE_ORDER.index(Rule.OVERRIDE), codes
+        ).astype(np.int8)
+    return codes
+
+
+def _evaluate(
+    samples: Samples,
+    config: SensorConfig,
+    params: RuleParams,
+    cycle_ns: npt.NDArray[np.int64],
+    excluded: npt.NDArray[np.bool_] | None,
+) -> npt.NDArray[np.int8]:
     n = len(cycle_ns)
     if excluded is None:
         excluded = np.zeros(n, dtype=bool)
@@ -352,9 +378,12 @@ def evaluate_sensor(
     params: RuleParams,
     at: datetime,
     excluded: bool = False,
+    overridden: bool = False,
 ) -> SensorState:
     """The sensor's status at one cycle time (the live scoring cycle)."""
-    code = evaluate_rules(samples, config, params, to_ns(at), np.array([excluded]))[0]
+    code = evaluate_rules(
+        samples, config, params, to_ns(at), np.array([excluded]), np.array([overridden])
+    )[0]
     return state_for(RULE_ORDER[int(code)], params)
 
 

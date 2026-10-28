@@ -84,6 +84,9 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("GET", "/api/v1/unmapped-tags"): V,
     ("POST", "/api/v1/unmapped-tags/promote"): Permission.REGISTRY,
     ("GET", "/api/v1/sensors/health"): V,
+    ("POST", "/api/v1/sensors/{tag_id}/exclusions"): Permission.SENSOR_EXCLUSION,
+    ("POST", "/api/v1/sensor-exclusions/{exclusion_id}/end"): Permission.SENSOR_EXCLUSION,
+    ("GET", "/api/v1/sensor-exclusions"): V,
     ("GET", "/api/v1/alerts/settings"): V,
     ("GET", "/api/v1/models/{model_id}/versions"): V,
     ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
@@ -329,7 +332,16 @@ def test_every_operation_is_exercised_and_matches_its_schema(
             "interval_s": 60,
         },
     )
-    call("GET", f"{v1}/sensors/health", 200)
+    call("GET", f"{v1}/sensors/health", 200, params={"scope": "EQ-1"})
+    until = (datetime.now(UTC) + timedelta(hours=8)).isoformat()
+    excluded = call(
+        "POST",
+        f"{v1}/sensors/{tag['id']}/exclusions",
+        201,
+        json={"kind": "exclude", "reason": "calibration", "until": until},
+    ).json()
+    call("GET", f"{v1}/sensor-exclusions", 200)
+    call("POST", f"{v1}/sensor-exclusions/{excluded['id']}/end", 200)
 
     # models
     (model,) = call("GET", f"{v1}/models", 200).json()

@@ -242,6 +242,7 @@ def test_rule_order_matches_ucs_table() -> None:
         "flatline",
         "spike",
         "uncertain_quality",
+        "override",  # not a UCS rule: an engineer's override to Good (UC-14 1a, plan 8.1)
         "none",
     ]
 
