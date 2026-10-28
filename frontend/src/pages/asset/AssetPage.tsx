@@ -246,6 +246,12 @@ export function AssetPage() {
   return (
     <div className="asset">
       <div className="asset-actions">
+        <Link
+          className="button"
+          to={`/assets/${asset.id}/diagnostics${modelId ? `?model=${modelId}` : ""}`}
+        >
+          Diagnose →
+        </Link>
         {models.length > 1 && (
           <label className="field-inline">
             <span>Model</span>

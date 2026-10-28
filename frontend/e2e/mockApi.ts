@@ -305,6 +305,54 @@ export async function mockApi(
           return json(route, trend(["di", "health"]));
         case "/status-periods":
           return json(route, []);
+        case "/diagnostics": {
+          const mode = {
+            id: 1,
+            asset_type: "pump",
+            code: "seal_leak",
+            version: 1,
+            name: "Seal leak",
+            iso_code: "ELP",
+            description: "",
+            symptoms: [{ role: "temp", direction: "up", weight: 1 }],
+            tasks: ["Inspect the mechanical seal"],
+            comment: "",
+            updated_at: new Date(now).toISOString(),
+            updated_by: null,
+            retired_at: null,
+          };
+          return json(route, {
+            model_id: model.id,
+            asset_code: "x",
+            asset_type: "pump",
+            version_id: model.id,
+            at: new Date(now).toISOString(),
+            note: "",
+            modes: [
+              {
+                mode,
+                score: 82,
+                insufficient_evidence: false,
+                evaluated_weight: 1,
+                total_weight: 1,
+                symptoms: [
+                  {
+                    role: "temp",
+                    direction: "up",
+                    weight: 1,
+                    tag_id: 1,
+                    source_name: "TI1",
+                    z: 2.5,
+                    z_ref: 3,
+                    g: 0.83,
+                    result: "match",
+                  },
+                ],
+                trend: [{ ts: new Date(now).toISOString(), score: 82 }],
+              },
+            ],
+          });
+        }
         case "/outputs": {
           const tags = (url.searchParams.get("tags") ?? "").split(",").filter(Boolean);
           return json(

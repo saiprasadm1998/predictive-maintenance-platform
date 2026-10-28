@@ -40,12 +40,20 @@ const AdminPage = lazy(() =>
   import("../pages/admin/AdminPage").then((m) => ({ default: m.AdminPage })),
 );
 
+const DiagnosticsPage = lazy(() =>
+  import("../pages/diagnostics/DiagnosticsPage").then((m) => ({ default: m.DiagnosticsPage })),
+);
+const LibraryPage = lazy(() =>
+  import("../pages/library/LibraryPage").then((m) => ({ default: m.LibraryPage })),
+);
 const SensorHealthPage = lazy(() =>
   import("../pages/sensors/SensorHealthPage").then((m) => ({ default: m.SensorHealthPage })),
 );
 
 const BUILT: Record<string, ReactNode> = {
   "SCR-07": <SensorHealthPage />,
+  "SCR-04": <DiagnosticsPage />,
+  "SCR-12": <LibraryPage />,
   "SCR-13": <RegistryPage />,
   "SCR-14": <AdminPage />,
   "SCR-06": <BuilderPage />,

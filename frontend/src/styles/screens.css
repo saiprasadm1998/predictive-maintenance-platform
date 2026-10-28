@@ -873,3 +873,78 @@ button.kpi-inner[aria-pressed="true"] {
   font-weight: 600;
   color: var(--text);
 }
+
+/* ---- SCR-04 diagnostics and SCR-12 library (plan 8.2) ---- */
+
+.diagnostics {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--gutter);
+}
+
+@media (max-width: 900px) {
+  .diagnostics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.mode-list,
+.library-list,
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(60px, 1fr) 7.5em 80px;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  background: none;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.mode-row[aria-pressed="true"] {
+  background: var(--band);
+  font-weight: 600;
+}
+
+.mode-row .num {
+  text-align: right;
+}
+
+.sparkline {
+  color: var(--text-muted);
+}
+
+.task-list li {
+  padding: 3px 0;
+}
+
+.symptom-match {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.symptom-not-evaluated,
+.symptom-no-match {
+  color: var(--text-muted);
+}
+
+.library-list > li + li {
+  margin-top: var(--gutter);
+  padding-top: var(--gutter);
+  border-top: 1px solid var(--line);
+}
+
+.control-narrow {
+  width: 5em;
+}

@@ -23,6 +23,12 @@ test.describe("SCR-03 asset analysis", () => {
     await expect(page.getByRole("heading", { name: /Top contributors at / })).toBeVisible();
     await page.getByRole("button", { name: "Back to the latest cycle" }).click();
     await expect(page.getByRole("heading", { name: "Top contributors now" })).toBeVisible();
+
+    // Diagnostics (plan 8.2): failure modes ranked by match, symptoms and tasks.
+    await page.getByRole("link", { name: /Diagnose/ }).click();
+    const modes = page.getByRole("list", { name: "Failure modes ranked by match" });
+    await expect(modes.getByRole("button", { name: /Seal leak: 82/ })).toBeVisible();
+    await expect(page.getByText("Inspect the mechanical seal")).toBeVisible();
   });
 
   test("journey: from an alert to its asset with the alert's window selected", async ({ page }) => {
