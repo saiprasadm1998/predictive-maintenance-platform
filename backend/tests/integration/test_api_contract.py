@@ -87,6 +87,11 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/sensors/{tag_id}/exclusions"): Permission.SENSOR_EXCLUSION,
     ("POST", "/api/v1/sensor-exclusions/{exclusion_id}/end"): Permission.SENSOR_EXCLUSION,
     ("GET", "/api/v1/sensor-exclusions"): V,
+    ("GET", "/api/v1/library"): V,
+    ("GET", "/api/v1/library/{mode_id}/versions"): V,
+    ("PUT", "/api/v1/library"): Permission.FAILURE_MODES,
+    ("POST", "/api/v1/library/{mode_id}/retire"): Permission.FAILURE_MODES,
+    ("GET", "/api/v1/models/{model_id}/diagnostics"): V,
     ("GET", "/api/v1/alerts/settings"): V,
     ("GET", "/api/v1/models/{model_id}/versions"): V,
     ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
@@ -281,6 +286,22 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("POST", f"{v1}/asset-types/{pump['id']}/roles", 201, json={"code": "flow", "name": "Flow"})
     roles = call("GET", f"{v1}/asset-types/{pump['id']}/roles", 200).json()
     assert [r["code"] for r in roles] == ["flow"]
+    mode = call(
+        "PUT",
+        f"{v1}/library",
+        200,
+        json={
+            "asset_type": "pump",
+            "code": "blockage",
+            "name": "Blockage",
+            "iso_code": "PLU",
+            "symptoms": [{"role": "flow", "direction": "down", "weight": 1}],
+            "tasks": ["Check the strainer"],
+        },
+    ).json()
+    call("GET", f"{v1}/library", 200, params={"asset_type": "pump"})
+    call("GET", f"{v1}/library/{mode['id']}/versions", 200)
+    call("POST", f"{v1}/library/{mode['id']}/retire", 200)
     site = call(
         "POST", f"{v1}/assets", 201, json={"code": "SITE-C", "name": "Site C", "level": "site"}
     ).json()
@@ -351,6 +372,7 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/models/{model['id']}/outputs", 200, params=period)
     call("GET", f"{v1}/models/{model['id']}/status-periods", 200, params=period)
     call("GET", f"{v1}/models/{model['id']}/latest", 200)
+    call("GET", f"{v1}/models/{model['id']}/diagnostics", 200)
     assert call("GET", f"{v1}/models/{model['id']}/versions", 200).json() == detail["versions"]
     call("GET", f"{v1}/alerts/settings", 200)
     rules = {"di": {"warning": 15, "alert": 25}, "sensors": [{"tag": "EQ1.T1"}]}

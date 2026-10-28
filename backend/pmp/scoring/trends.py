@@ -257,6 +257,25 @@ def cycle_outputs(session: Session, version_id: int, ts: datetime) -> list[Senso
     return [SensorReadingOut(**dict(r)) for r in rows]
 
 
+def z_history(
+    session: Session, version_id: int, start: datetime, end: datetime, step_s: int = 3600
+) -> dict[datetime, dict[int, tuple[float | None, bool]]]:
+    """z and whether it was used, per sensor, at cycles on a `step_s` grid in [start, end]
+    (the diagnostics match trend, plan 8.2)."""
+    rows = session.execute(
+        text(
+            "SELECT ts, tag_id, z, used FROM sensor_output WHERE version_id = :v "
+            "AND ts >= :start AND ts <= :end "
+            "AND CAST(extract(epoch FROM ts) AS bigint) % :step = 0 ORDER BY ts"
+        ),
+        {"v": version_id, "start": start, "end": end, "step": step_s},
+    ).all()
+    out: dict[datetime, dict[int, tuple[float | None, bool]]] = {}
+    for ts, tag_id, z, used in rows:
+        out.setdefault(ts, {})[tag_id] = (z, bool(used))
+    return out
+
+
 def latest_cycle(session: Session, version_id: int, at: datetime | None = None) -> datetime | None:
     """The newest cycle a version was scored at (at or before `at`, if given)."""
     found: datetime | None = session.execute(

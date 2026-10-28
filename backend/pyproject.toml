@@ -108,9 +108,10 @@ layers = [
 # ARC §4 / ADR-01: feature modules depend downward only, so there are no cycles. scoring
 # calls alerting directly (not only through ScoreComputed) because ARC §5.1 needs the
 # score and its alert changes in one transaction (decision 6.7).
-name = "Feature modules depend downward only: scoring, alerting, modelling, dataquality, ingestion, registry"
+name = "Feature modules depend downward only: diagnostics, scoring, alerting, modelling, dataquality, ingestion, registry"
 type = "layers"
 layers = [
+    "pmp.diagnostics",
     "pmp.scoring",
     "pmp.alerting",
     "pmp.modelling",

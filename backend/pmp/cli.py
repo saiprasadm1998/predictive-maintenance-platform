@@ -97,6 +97,7 @@ from pmp.dataquality import (
 )
 from pmp.demo import DEFAULT_SEED, PlantSimulator, demo_tags, load_history, replay
 from pmp.demo_story import back_score, latest_sample_time, setup_models
+from pmp.diagnostics import diagnose, import_library, list_modes
 from pmp.evaluation import EvaluationError, evaluate, format_report, read_events
 from pmp.ingestion import (
     BACKFILL_JOB,
@@ -119,6 +120,7 @@ from pmp.modelling import (
     available_detectors,
     change_status,
     definition_from_dict,
+    find_model,
     get_model,
     list_active_versions,
     list_models,
@@ -367,6 +369,22 @@ def build_parser() -> argparse.ArgumentParser:
         "tree", help="band, Health and counts for every asset (or one asset's subtree)"
     )
     health_tree_cmd.add_argument("asset", nargs="?", help="only this asset and below")
+
+    library = commands.add_parser("library", help="the failure-mode library (UC-16)")
+    library_commands = library.add_subparsers(dest="library_command", required=True)
+    library_import = library_commands.add_parser(
+        "import", help="save the modes of a library file (JSON); unchanged modes are skipped"
+    )
+    library_import.add_argument("file", type=Path)
+    library_import.add_argument("--comment", default="imported", help="kept with each version")
+    library_list = library_commands.add_parser("list", help="current failure modes")
+    library_list.add_argument("--type", dest="asset_type", help="only this asset type")
+
+    diagnose_cmd = commands.add_parser(
+        "diagnose", help="failure-mode match scores for a model's latest cycle (UC-09 step 4)"
+    )
+    diagnose_cmd.add_argument("asset")
+    diagnose_cmd.add_argument("--name", default="main", help="model name (main)")
 
     demo = commands.add_parser("demo", help="synthetic demo plant data (development and demos)")
     demo_commands = demo.add_subparsers(dest="demo_command", required=True)
@@ -1162,6 +1180,56 @@ def _run_score(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_library(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            if args.library_command == "import":
+                try:
+                    data = json.loads(args.file.read_text(encoding="utf-8"))
+                    modes = import_library(session, Actor.system(), data, args.comment)
+                except (OSError, ValueError) as error:  # LibraryError is a ValueError
+                    print(f"Error: {error}", file=sys.stderr)
+                    return 1
+                print(f"{len(modes)} failure modes in the library:")
+            else:
+                modes = list_modes(session, args.asset_type)
+            for m in modes:
+                symptoms = ", ".join(
+                    f"{s.role} {s.direction.value} x{s.weight:g}" for s in m.spec.symptoms
+                )
+                print(f"  {m.asset_type:<26} {m.spec.name:<32} v{m.version}  {symptoms}")
+        return 0
+    finally:
+        database.dispose()
+
+
+def _run_diagnose(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        with database.session() as session:
+            model = find_model(session, args.asset, args.name)
+            if model is None:
+                print(f"Error: no model {args.asset} / {args.name}", file=sys.stderr)
+                return 1
+            result = diagnose(session, model.id)
+        if result.at is None:
+            print("Not scored yet.")
+            return 0
+        print(f"{result.asset_code} ({result.asset_type}) at {result.at:%Y-%m-%d %H:%M} UTC")
+        print("Relative match, not probability (UCS §6.7.2):")
+        for d in result.modes:
+            score = (
+                "insufficient evidence"
+                if d.match.insufficient or d.match.score is None
+                else f"{d.match.score:5.1f} %"
+            )
+            print(f"  {d.mode.spec.name:<34} {score}")
+        return 0
+    finally:
+        database.dispose()
+
+
 def _run_evaluate(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -1313,6 +1381,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_demo(settings, args))
     elif args.command == "retention":
         sys.exit(_run_retention(settings, args))
+    elif args.command == "library":
+        sys.exit(_run_library(settings, args))
+    elif args.command == "diagnose":
+        sys.exit(_run_diagnose(settings, args))
     elif args.command == "evaluate":
         sys.exit(_run_evaluate(settings, args))
     elif args.command == "audit":

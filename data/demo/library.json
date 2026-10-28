@@ -1,0 +1,385 @@
+{
+  "modes": [
+    {
+      "asset_type": "centrifugal_compressor",
+      "code": "thrust_bearing_degradation",
+      "name": "Thrust bearing degradation",
+      "iso_code": "BRD",
+      "description": "Wear of the thrust bearing pads: the rotor moves axially and the pads run hot.",
+      "symptoms": [
+        {
+          "role": "thrust_pad_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "axial_displacement",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "de_bearing_temp",
+          "direction": "up",
+          "weight": 2
+        },
+        {
+          "role": "lube_oil_supply_temp",
+          "direction": "any",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check thrust bearing pad temperatures against vendor limits",
+        "Review axial position trend after last start-up",
+        "Sample lube oil: particle count, water, viscosity",
+        "Verify lube oil cooler outlet temperature and fouling"
+      ]
+    },
+    {
+      "asset_type": "centrifugal_compressor",
+      "code": "lube_oil_cooler_fouling",
+      "name": "Lube oil cooler fouling",
+      "iso_code": "OHE",
+      "description": "Fouled lube oil cooler: oil supply temperature rises and every bearing runs warmer.",
+      "symptoms": [
+        {
+          "role": "lube_oil_supply_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "de_bearing_temp",
+          "direction": "up",
+          "weight": 1
+        },
+        {
+          "role": "nde_bearing_temp",
+          "direction": "up",
+          "weight": 1
+        },
+        {
+          "role": "thrust_pad_temp",
+          "direction": "up",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check cooler water inlet and outlet temperatures",
+        "Inspect and clean the cooler tube side",
+        "Verify the oil temperature control valve"
+      ]
+    },
+    {
+      "asset_type": "centrifugal_compressor",
+      "code": "misalignment",
+      "name": "Misalignment",
+      "iso_code": "VIB",
+      "description": "Shaft misalignment: drive-end vibration rises on both axes, with some bearing heating.",
+      "symptoms": [
+        {
+          "role": "de_vibration_x",
+          "direction": "any",
+          "weight": 2
+        },
+        {
+          "role": "de_vibration_y",
+          "direction": "any",
+          "weight": 2
+        },
+        {
+          "role": "nde_vibration_x",
+          "direction": "any",
+          "weight": 1
+        },
+        {
+          "role": "nde_vibration_y",
+          "direction": "any",
+          "weight": 1
+        },
+        {
+          "role": "de_bearing_temp",
+          "direction": "up",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Review vibration spectra for 2x running-speed components",
+        "Check coupling alignment at the next stop",
+        "Inspect foundation bolts and soft foot"
+      ]
+    },
+    {
+      "asset_type": "centrifugal_compressor",
+      "code": "seal_gas_system_fault",
+      "name": "Seal gas system fault",
+      "iso_code": "ELU",
+      "description": "Dry gas seal supply problem: seal gas differential pressure falls.",
+      "symptoms": [
+        {
+          "role": "seal_gas_dp",
+          "direction": "down",
+          "weight": 3
+        },
+        {
+          "role": "discharge_temp",
+          "direction": "any",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check seal gas filter differential pressure",
+        "Verify primary vent flow",
+        "Inspect the seal gas supply regulator"
+      ]
+    },
+    {
+      "asset_type": "reciprocating_compressor",
+      "code": "rider_band_wear",
+      "name": "Rider band wear",
+      "iso_code": "BRD",
+      "description": "Rider bands wear and the piston rod drops.",
+      "symptoms": [
+        {
+          "role": "rod_drop",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "crosshead_vibration",
+          "direction": "any",
+          "weight": 1
+        },
+        {
+          "role": "discharge_temp",
+          "direction": "up",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Trend rod drop against the alarm limit",
+        "Plan rider band replacement at the next opportunity",
+        "Check cylinder lubrication rate"
+      ]
+    },
+    {
+      "asset_type": "reciprocating_compressor",
+      "code": "valve_failure",
+      "name": "Compressor valve failure",
+      "iso_code": "INL",
+      "description": "A leaking suction or discharge valve recycles hot gas.",
+      "symptoms": [
+        {
+          "role": "discharge_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "suction_flow",
+          "direction": "down",
+          "weight": 2
+        }
+      ],
+      "tasks": [
+        "Measure valve cover temperatures",
+        "Inspect suspect valves for broken plates or springs"
+      ]
+    },
+    {
+      "asset_type": "reciprocating_compressor",
+      "code": "main_bearing_wear",
+      "name": "Main bearing wear",
+      "iso_code": "BRD",
+      "description": "Crankshaft main bearing wear.",
+      "symptoms": [
+        {
+          "role": "main_bearing_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "crosshead_vibration",
+          "direction": "any",
+          "weight": 2
+        }
+      ],
+      "tasks": [
+        "Sample crankcase oil for wear metals",
+        "Check main bearing clearances at the next stop"
+      ]
+    },
+    {
+      "asset_type": "centrifugal_pump",
+      "code": "de_bearing_wear",
+      "name": "Drive-end bearing wear",
+      "iso_code": "BRD",
+      "description": "Rolling-element bearing wear at the drive end.",
+      "symptoms": [
+        {
+          "role": "de_bearing_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "de_vibration",
+          "direction": "any",
+          "weight": 2
+        },
+        {
+          "role": "nde_bearing_temp",
+          "direction": "up",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check bearing lubrication (grease quantity and condition)",
+        "Take vibration spectra for bearing defect frequencies",
+        "Plan bearing replacement"
+      ]
+    },
+    {
+      "asset_type": "centrifugal_pump",
+      "code": "cavitation",
+      "name": "Cavitation",
+      "iso_code": "VIB",
+      "description": "Low suction pressure lets vapour bubbles form and collapse.",
+      "symptoms": [
+        {
+          "role": "suction_pressure",
+          "direction": "down",
+          "weight": 2
+        },
+        {
+          "role": "de_vibration",
+          "direction": "any",
+          "weight": 2
+        },
+        {
+          "role": "flow",
+          "direction": "down",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check suction strainer differential pressure",
+        "Verify NPSH available against required",
+        "Check suction valve position"
+      ]
+    },
+    {
+      "asset_type": "plunger_pump",
+      "code": "pump_valve_wear",
+      "name": "Pump valve wear",
+      "iso_code": "INL",
+      "description": "Worn suction or discharge valves reduce delivered flow.",
+      "symptoms": [
+        {
+          "role": "flow",
+          "direction": "down",
+          "weight": 3
+        },
+        {
+          "role": "discharge_pressure",
+          "direction": "down",
+          "weight": 2
+        }
+      ],
+      "tasks": [
+        "Inspect valve seats and springs",
+        "Check for flow pulsation"
+      ]
+    },
+    {
+      "asset_type": "plunger_pump",
+      "code": "crankcase_overheating",
+      "name": "Crankcase overheating",
+      "iso_code": "OHE",
+      "description": "Crankcase oil running hot.",
+      "symptoms": [
+        {
+          "role": "crankcase_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "frame_vibration",
+          "direction": "any",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Check crankcase oil level and condition",
+        "Check oil cooler"
+      ]
+    },
+    {
+      "asset_type": "waste_heat_boiler",
+      "code": "tube_fouling",
+      "name": "Gas-side tube fouling",
+      "iso_code": "PLU",
+      "description": "Deposits on the tubes reduce heat transfer.",
+      "symptoms": [
+        {
+          "role": "gas_outlet_temp",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "steam_flow",
+          "direction": "down",
+          "weight": 2
+        }
+      ],
+      "tasks": [
+        "Review soot-blowing records",
+        "Inspect tubes at the next shutdown"
+      ]
+    },
+    {
+      "asset_type": "fan",
+      "code": "gearbox_wear",
+      "name": "Gearbox wear",
+      "iso_code": "VIB",
+      "description": "Gear or bearing wear in the fan gearbox.",
+      "symptoms": [
+        {
+          "role": "gearbox_vibration",
+          "direction": "up",
+          "weight": 3
+        },
+        {
+          "role": "motor_current",
+          "direction": "any",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Take gearbox vibration spectra for gear-mesh frequencies",
+        "Sample gearbox oil for wear metals",
+        "Inspect gear teeth through the inspection cover"
+      ]
+    },
+    {
+      "asset_type": "fan",
+      "code": "fan_imbalance",
+      "name": "Fan imbalance",
+      "iso_code": "VIB",
+      "description": "Imbalance from blade fouling or damage.",
+      "symptoms": [
+        {
+          "role": "gearbox_vibration",
+          "direction": "any",
+          "weight": 2
+        },
+        {
+          "role": "speed",
+          "direction": "any",
+          "weight": 1
+        }
+      ],
+      "tasks": [
+        "Inspect and clean the blades",
+        "Balance the rotor"
+      ]
+    }
+  ]
+}

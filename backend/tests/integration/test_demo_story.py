@@ -110,6 +110,15 @@ def test_models_then_back_scoring(
     assert "not detectable (reported apart)" in report
     assert "Detectable events alerted: 100%" in report
 
+    # Plan 8.2: the library loads from its file, and diagnostics run from the command line.
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["library", "import", str(DATA / "library.json")])
+    assert exit_info.value.code == 0
+    assert "14 failure modes in the library" in capsys.readouterr().out
+    with pytest.raises(SystemExit) as exit_info:
+        cli.main(["diagnose", "K-101"])
+    assert "Relative match, not probability" in capsys.readouterr().out
+
 
 def test_nothing_to_score_without_models(
     models_folder: Path, capsys: pytest.CaptureFixture[str]

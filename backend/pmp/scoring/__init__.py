@@ -62,6 +62,7 @@ from pmp.scoring.trends import (
     score_trend,
     status_periods,
     unused_periods,
+    z_history,
 )
 
 __all__ = [
@@ -115,4 +116,5 @@ __all__ = [
     "status_periods",
     "unused_periods",
     "worst_band",
+    "z_history",
 ]
