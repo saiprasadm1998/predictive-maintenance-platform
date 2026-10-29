@@ -24,7 +24,7 @@ class EventKind(StrEnum):
     CASE_ASSIGNED = "case_assigned"
     CASE_OVERDUE = "case_overdue"
     MODEL_REVIEW = "model_review"  # a case closed as a false alert (UC-13 2a)
-    SOURCE_STALE = "source_stale"  # administrators (detection arrives with plan 8.7)
+    SOURCE_STALE = "source_stale"  # administrators (detected from ingestion health, 8.7)
     SUMMARY = "summary"  # not subscribable: the hourly cap's summary
 
     @property

@@ -20,6 +20,7 @@ from pmp.notifications.service import (
     collect_alerts,
     collect_cases,
     collect_overdue,
+    collect_stale_sources,
     deliver,
     summarise,
 )
@@ -60,6 +61,8 @@ class Notifier:
             result.queued += collect_cases(session, now, self.public_url)
         with self.database.session() as session:
             result.queued += collect_overdue(session, now, self.public_url, now.date())
+        with self.database.session() as session:
+            result.queued += collect_stale_sources(session, now, self.public_url)
         with self.database.session() as session:
             result.summaries = summarise(session, now, self.public_url)
         with self.database.session() as session:

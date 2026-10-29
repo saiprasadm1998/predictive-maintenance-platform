@@ -46,6 +46,7 @@ from pmp.core import (
     audit_change,
     authorize,
 )
+from pmp.ingestion import MAX_SKEW_S, source_health
 from pmp.modelling import ModelError, get_model_by_id, model_asset_code
 from pmp.notifications.domain import (
     PER_HOUR,
@@ -531,6 +532,57 @@ def collect_overdue(session: Session, now: datetime, public_url: str, today: dat
             ]
         )
         queued += _queue(session, people, kind, subject, body, now, case_id=c.id)
+    return queued
+
+
+def _stale_subject(source: str) -> str:
+    return f"[PMP] Data source stale · {source}"
+
+
+def collect_stale_sources(session: Session, now: datetime, public_url: str) -> int:
+    """FR-ING-07: a source that stops sending warns subscribed administrators once per
+    stop: nothing more until it has sent data again and stopped again. A source that
+    never sent anything is shown on the screen but not e-mailed."""
+    queued = 0
+    for source in source_health(session, now):
+        if not source.stale or source.last_received_at is None:
+            continue
+        subject = _stale_subject(source.source)
+        already = session.scalar(
+            select(func.count())
+            .select_from(NotificationRow)
+            .where(
+                NotificationRow.event == EventKind.SOURCE_STALE.value,
+                NotificationRow.subject == subject,
+                NotificationRow.created_at > source.last_received_at,
+            )
+        )
+        if already:
+            continue
+        people = recipients(session, EventKind.SOURCE_STALE, None, None)
+        if not people:
+            continue
+        quiet = int((now - source.last_received_at).total_seconds())
+        skew = (
+            f"{source.skew_s:+.0f} s (above {MAX_SKEW_S} s: check the gateway clock)"
+            if source.skewed and source.skew_s is not None
+            else "within limits"
+        )
+        body = "\n".join(
+            [
+                f"Source {source.source} has sent nothing for {quiet} s "
+                f"(scan interval {source.interval_s} s).",
+                "Models scoring its sensors will show Insufficient data.",
+                "",
+                f"Last received:  {source.last_received_at.isoformat()}",
+                "Newest sample:  "
+                + (source.last_sample_ts.isoformat() if source.last_sample_ts else "—"),
+                f"Clock skew:     {skew}",
+                "",
+                f"Ingestion health: {public_url.rstrip('/')}/admin?tab=ingestion",
+            ]
+        )
+        queued += _queue(session, people, EventKind.SOURCE_STALE, subject, body, now)
     return queued
 
 

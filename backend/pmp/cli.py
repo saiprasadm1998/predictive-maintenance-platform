@@ -115,6 +115,7 @@ from pmp.ingestion import (
 from pmp.modelling import (
     TRAIN_JOB,
     Action,
+    ActiveVersion,
     ModelCache,
     ModelError,
     ModelView,
@@ -158,16 +159,21 @@ from pmp.registry import (
     list_tags,
 )
 from pmp.scoring import (
+    RESCORE_JOB,
     RETAINED_TABLES,
     Band,
     CycleResult,
     NodeHealth,
+    RescoreError,
+    RescoreRequest,
     Scheduler,
     deployed_references,
     get_runtime_statuses,
     health_tree,
     latest_due_cycle,
+    make_rescore_handler,
     make_retention_handler,
+    rescore_period,
     score_models,
 )
 
@@ -349,6 +355,14 @@ def build_parser() -> argparse.ArgumentParser:
     score_once.add_argument("name")
     score_once.add_argument("--at", type=_when, help="cycle time: e.g. -5m or ISO 8601")
     score_commands.add_parser("status", help="each model's runtime status and latest score")
+    score_rescore = score_commands.add_parser(
+        "rescore", help="replace a past period's scores (no alerts, no e-mails; FR-RUN-05)"
+    )
+    score_rescore.add_argument("asset")
+    score_rescore.add_argument("name")
+    score_rescore.add_argument("--days", type=float, default=30.0, help="period length (30)")
+    score_rescore.add_argument("--end", type=_when, help="period end (default: now)")
+    score_rescore.add_argument("--version", type=int, help="version number (default: in service)")
 
     alert = commands.add_parser("alert", help="alerts: list, acknowledge, shelve; priority matrix")
     alert_commands = alert.add_subparsers(dest="alert_command", required=True)
@@ -568,6 +582,7 @@ def _run_worker(settings: Settings) -> None:
     uploads = Path(settings.artefact_dir) / "uploads"
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
     registry.register(RETENTION_JOB, make_retention_handler(database))
+    registry.register(RESCORE_JOB, make_rescore_handler(database))
     registry.register(
         TRAIN_JOB,
         make_training_handler(database, Path(settings.artefact_dir)),
@@ -1230,6 +1245,8 @@ def _run_score(settings: Settings, args: argparse.Namespace) -> int:
                 return 0
             model = get_model(session, args.asset, args.name)
             active = [a for a in list_active_versions(session) if a.model_id == model.id]
+        if args.score_command == "rescore":
+            return _rescore(database, model, active, args)
         if not active:
             print(f"Error: {args.asset} / {args.name} has no version in service", file=sys.stderr)
             return 1
@@ -1245,6 +1262,35 @@ def _run_score(settings: Settings, args: argparse.Namespace) -> int:
         return 1
     finally:
         database.dispose()
+
+
+def _rescore(
+    database: Database, model: ModelView, active: list[ActiveVersion], args: argparse.Namespace
+) -> int:
+    if args.version is not None:
+        found = [v.id for v in model.versions if v.version == args.version]
+    else:
+        found = [a.version_id for a in active]
+    if not found:
+        print("Error: no such version (give --version)", file=sys.stderr)
+        return 1
+    end = args.end or datetime.now(UTC)
+    request = RescoreRequest(found[0], end - timedelta(days=args.days), end)
+    try:
+        request.check(datetime.now(UTC))
+        result = rescore_period(
+            database,
+            request,
+            progress=lambda percent, **_: print(f"  {percent:5.1f} %", end="\r", flush=True),
+        )
+    except RescoreError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Re-scored {result.cycles} cycles from {result.start:%Y-%m-%d %H:%M} to "
+        f"{result.end:%Y-%m-%d %H:%M} UTC; {result.replaced} replaced"
+    )
+    return 0
 
 
 def _run_library(settings: Settings, args: argparse.Namespace) -> int:

@@ -137,6 +137,7 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("PUT", "/api/v1/models/{model_id}/alert-rules"): Permission.MODELS,
     ("POST", "/api/v1/models/{model_id}/versions"): Permission.MODELS,
     ("POST", "/api/v1/versions/{version_id}/{action}"): Permission.MODELS,
+    ("POST", "/api/v1/versions/{version_id}/rescore"): Permission.MODELS,
     ("GET", "/api/v1/alerts"): V,
     ("GET", "/api/v1/alerts/{alert_id}"): V,
     ("POST", "/api/v1/alerts/ack"): A,
@@ -159,6 +160,8 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/ingest/backfill"): Permission.REGISTRY,  # or an ingest key
     ("POST", "/api/v1/ingest/backfill/{upload_id}/load"): Permission.REGISTRY,
     ("GET", "/api/v1/jobs/{job_id}"): V,
+    ("GET", "/api/v1/ingest/health"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/results/health"): "key",  # results-read
 }
 
 
@@ -310,6 +313,12 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         pass
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200, headers=key)
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200)  # as a user
+    health = call("GET", f"{v1}/ingest/health", 200).json()
+    assert [x["source"] for x in health["sources"]] == ["gw-1"]
+    reader = call("POST", f"{v1}/api-keys", 201, json={"name": "dcs", "scope": "results-read"})
+    results_key = {"Authorization": f"ApiKey {reader.json()['key']}"}
+    call("GET", f"{v1}/results/health", 403, headers=key)  # an ingest key reads no results
+    call("GET", f"{v1}/results/health", 404, headers=results_key, params={"scope": "NOPE"})
 
     # registry
     call("GET", f"{v1}/asset-types", 200)
@@ -433,6 +442,14 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("POST", f"{v1}/versions/{deployed_version}/pause", 200)
     call("POST", f"{v1}/versions/{deployed_version}/pause", 409)
     call("POST", f"{v1}/versions/{deployed_version}/resume", 200)
+    period = {"start": LIVE.isoformat(), "end": (LIVE + timedelta(minutes=10)).isoformat()}
+    call("POST", f"{v1}/versions/{deployed_version}/rescore", 202, json=period)
+    late = {"start": LIVE.isoformat(), "end": (datetime.now(UTC) + timedelta(days=1)).isoformat()}
+    call("POST", f"{v1}/versions/{deployed_version}/rescore", 400, json=late)
+    results = call(
+        "GET", f"{v1}/results/health", 200, headers=results_key, params={"scope": "EQ-1"}
+    )
+    assert [m["asset"] for m in results.json()["models"]] == ["EQ-1"]
     definition = {
         "asset": "EQ-1",
         "name": "second",

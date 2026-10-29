@@ -46,6 +46,8 @@ from pmp.modelling import (
 from pmp.registry import get_tags, list_subtree
 from pmp.scoring import (
     MAX_PX,
+    RescoreError,
+    RescoreRequest,
     RuntimeStatusView,
     Trend,
     TrendError,
@@ -53,6 +55,7 @@ from pmp.scoring import (
     get_runtime_statuses,
     latest_cycle,
     output_trends,
+    queue_rescore,
     score_trend,
     status_periods,
     unused_periods,
@@ -728,6 +731,37 @@ def post_training(request: Request, user: User, model_id: int) -> QueuedTraining
 
 
 versions = APIRouter(prefix="/api/v1/versions", tags=["models"])
+
+
+class RescoreIn(BaseModel):
+    start: datetime
+    end: datetime = Field(description="exclusive; never past the latest live cycle")
+
+
+class QueuedRescore(BaseModel):
+    job_id: int
+
+
+@versions.post(
+    "/{version_id}/rescore",
+    status_code=202,
+    response_model=QueuedRescore,
+    summary="Re-score a past period as a background job (FR-RUN-05)",
+)
+def post_rescore(request: Request, user: User, version_id: int, body: RescoreIn) -> QueuedRescore:
+    try:
+        with database_of(request).session() as session:
+            job_id = queue_rescore(
+                session,
+                user.actor,
+                RescoreRequest(version_id, body.start, body.end),
+                datetime.now(UTC),
+            )
+    except RescoreError as error:
+        if "does not exist" in str(error):
+            raise not_found("Model version") from None
+        raise ProblemError(400, "rescore_refused", "Cannot re-score", str(error)) from None
+    return QueuedRescore(job_id=job_id)
 
 
 @versions.post(

@@ -295,8 +295,12 @@ def write_result(
     model: LoadedModel | None,
     result: CycleResult,
     readings: Mapping[int, SensorReading] | None = None,
+    *,
+    live: bool = True,
 ) -> bool:
     """Write one model's cycle in the caller's transaction. False if already written.
+
+    `live` False (a re-score, 8.7): the runtime status and the live stream are left alone.
 
     Sensor outputs are written for every cycle that reached the data-quality step, so an
     Insufficient-data cycle still shows which sensors were unusable and why (PDS SCR-03).
@@ -338,6 +342,8 @@ def write_result(
             for s in output.sensors
         ]
         session.execute(insert(SensorOutputRow).values(rows).on_conflict_do_nothing())
+    if not live:
+        return True
     _set_runtime_status(
         session, result.model_id, result.version_id, result.status, result.reason, result.ts
     )

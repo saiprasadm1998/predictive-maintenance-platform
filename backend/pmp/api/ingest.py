@@ -1,4 +1,5 @@
 """POST /api/v1/ingest/samples: the OT gateway's REST batch interface (ARC-001 §7.1.1).
+GET /api/v1/ingest/health: ingestion health for administrators (FR-ING-07, plan 8.7).
 
 Order of checks: authentication and scope (nothing is read before the key is valid),
 rate limit, body size, gzip, JSON and schema, sample count. Only then is the batch
@@ -10,22 +11,31 @@ from __future__ import annotations
 import gzip
 import json
 import zlib
-from datetime import timedelta
-from typing import Any
+from dataclasses import asdict
+from datetime import datetime, timedelta
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, Field, ValidationError
 from sqlalchemy.exc import OperationalError
 
-from pmp.api.deps import authenticate_api_key, database_of, settings_of
+from pmp.api.deps import SignedIn, authenticate_api_key, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.api.ratelimit import RateLimiter, retry_after_header
 from pmp.core import ApiKeyScope
-from pmp.ingestion import MAX_BODY_BYTES, MAX_SAMPLES, BatchIn, ingest_batch, server_now
+from pmp.ingestion import (
+    MAX_BODY_BYTES,
+    MAX_SAMPLES,
+    BatchIn,
+    ingest_batch,
+    ingestion_health,
+    server_now,
+)
 
 router = APIRouter(prefix="/api/v1/ingest", tags=["ingestion"])
 
+User = Annotated[SignedIn, Depends(signed_in)]
 MAX_DECOMPRESSED_BYTES = 10 * MAX_BODY_BYTES  # guard against compression bombs
 
 
@@ -152,4 +162,56 @@ def _unavailable() -> ProblemError:
         "Database unavailable",
         "Nothing was stored. Retry later.",
         headers={"Retry-After": "10"},
+    )
+
+
+class SourceHealthOut(BaseModel):
+    source: str
+    last_received_at: datetime | None
+    last_sample_ts: datetime | None
+    accepted_total: int
+    rejected_total: int
+    per_minute: float = Field(description="samples stored per minute, last 5 minutes")
+    interval_s: int = Field(description="the shortest scan interval of its tags")
+    tags: int
+    stale: bool = Field(description="nothing received for more than 2 scan intervals")
+    stale_after_s: int
+    skew_s: float | None = Field(description="receive time minus the newest sample time")
+    skewed: bool = Field(description="clock skew above 60 s (ARC T-02)")
+
+
+class TagHealthOut(BaseModel):
+    tag_id: int
+    source: str
+    source_name: str
+    asset_code: str
+    interval_s: int
+    last_sample_ts: datetime | None
+    stale: bool
+
+
+class IngestionHealthOut(BaseModel):
+    checked_at: datetime
+    sources: list[SourceHealthOut]
+    tags: list[TagHealthOut]
+
+
+@router.get(
+    "/health",
+    response_model=IngestionHealthOut,
+    summary="Ingestion health per source and tag (administrators, FR-ING-07)",
+)
+def get_ingestion_health(request: Request, user: User) -> IngestionHealthOut:
+    with database_of(request).session() as session:
+        health = ingestion_health(session, user.actor, server_now(session))
+    return IngestionHealthOut(
+        checked_at=health.checked_at,
+        sources=[
+            SourceHealthOut(
+                **asdict(s),
+                stale_after_s=int(s.stale_after.total_seconds()),
+            )
+            for s in health.sources
+        ],
+        tags=[TagHealthOut(**asdict(t)) for t in health.tags],
     )
