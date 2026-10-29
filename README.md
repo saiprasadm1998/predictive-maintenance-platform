@@ -239,6 +239,27 @@ uv run pmp health tree            # the whole hierarchy
 uv run pmp health tree K-101      # one asset and everything beneath it
 ```
 
+## Notifications
+
+Users subscribe to e-mail notifications (UC-15): a scope in the asset hierarchy, a minimum
+priority and the events they want: alert raised, alert escalated to Alert, a case assigned
+to them, their case overdue, and, for model engineers, a case closed as a false alert. The
+worker matches each event to the subscriptions of users who may see the asset and e-mails
+them within one 15-second pass (UCS §6.10): at most one e-mail per alert per 30 minutes and
+20 per user per hour, after which a summary; nothing for shelved alerts, models out of
+service or re-scored history; failures are retried with back-off for an hour. Every
+notification is in the delivery log (`GET /api/v1/notifications/log`, administrators).
+
+In development `make db-up` also starts Mailpit, a local mail catcher, and `backend/.env`
+points the worker at it (see `.env.example`); read the e-mails at http://localhost:8025.
+
+```
+uv run pmp notify test you@example.com   # one test e-mail through the relay
+uv run pmp notify run                    # one notification pass now (the worker runs them)
+```
+
+Without `PMP_SMTP_HOST` the worker sends nothing and says so at start.
+
 ## Users and sign-in
 
 Five roles from PMP-ARC-001 §9.2: Viewer, Analyst, Maintenance, Model Engineer and
