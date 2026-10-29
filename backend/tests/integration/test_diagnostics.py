@@ -1,7 +1,8 @@
 """The failure-mode library and diagnostics on the demo plant (plan 8.2, UC-09, UC-16).
 
 "Done when": K-101's seeded thrust-bearing degradation (from 21 days before the anchor)
-ranks thrust-bearing degradation first, for a model trained on healthy data before it.
+ranks thrust-bearing degradation first, for a model trained on healthy data before it; and
+(plan 8.4c, AC-06 rehearsal) its alert is worked through a case to a true finding.
 """
 
 from __future__ import annotations
@@ -13,8 +14,17 @@ from pathlib import Path
 import pytest
 from sqlalchemy import func, select, text
 
-from pmp.alerting import AlertRuleSpec, RuleKind, set_alert_rules
-from pmp.core import Actor, AuditLog, Database
+from pmp.alerting import AlertRuleSpec, RuleKind, list_alerts, set_alert_rules
+from pmp.cases import (
+    CaseStatus,
+    Outcome,
+    add_action,
+    close_case,
+    complete_action,
+    create_case,
+    update_case,
+)
+from pmp.core import Actor, AuditLog, Database, Role, RoleAssignment, create_user
 from pmp.demo import PlantSimulator, demo_tags, load_history
 from pmp.diagnostics import (
     Direction,
@@ -137,7 +147,9 @@ def test_the_seeded_thrust_bearing_drift_ranks_its_failure_mode_first(
     )
     with library.session() as s:
         model = save_draft(s, ACTOR, definition)
-        set_alert_rules(s, ACTOR, model.id, [AlertRuleSpec(RuleKind.DI, 15, 25)])
+        # low DI limits raised at once, so the drift raises an alert for the case below
+        rules = [AlertRuleSpec(RuleKind.DI, 1, 2, persistence_n=1, persistence_m=1)]
+        set_alert_rules(s, ACTOR, model.id, rules)
         view, _ = start_training(s, ACTOR, "K-101", "main", queue=False)
     assert run_training(library, view.id, tmp_path)["status"] == "Validated"
     with library.session() as s:
@@ -157,3 +169,36 @@ def test_the_seeded_thrust_bearing_drift_ranks_its_failure_mode_first(
         "match"
     )
     assert len(top.trend) == 3  # the hourly cycles scored
+
+    # AC-06 rehearsal (plan 8.4c): the alert becomes a case, which is worked and closed
+    # as a true finding with the failure mode diagnostics ranked first.
+    with library.session() as s:
+        s.execute(text("TRUNCATE app_user RESTART IDENTITY CASCADE"))
+        create_user(
+            s,
+            ACTOR,
+            username="rel",
+            display_name="Reliability engineer",
+            password="correct horse battery",
+            assignments=[RoleAssignment(Role.ANALYST)],
+        )
+        engineer = s.execute(text("SELECT id FROM app_user WHERE username = 'rel'")).scalar_one()
+        (alert, *_) = list_alerts(s, open_only=True, model_id=model.id)
+        case = create_case(s, ACTOR, [alert.id], "K-101 thrust bearing", ANCHOR)
+    (snapshot,) = case.snapshot["models"]
+    assert snapshot["diagnosis"][0]["code"] == "thrust_bearing_degradation"
+    with library.session() as s:
+        update_case(s, ACTOR, case.id, assignee_id=engineer, now=ANCHOR)
+        acting = add_action(s, ACTOR, case.id, "Inspect the thrust bearing", now=ANCHOR)
+        complete_action(s, ACTOR, case.id, acting.actions[0].id, now=ANCHOR)
+        closed = close_case(
+            s, ACTOR, case.id, Outcome.TRUE_FINDING, top.mode.id, lessons="Axial drift", now=ANCHOR
+        )
+    assert closed.status is CaseStatus.CLOSED
+    assert closed.confirmed_mode_id == top.mode.id
+    assert [a.data.get("to") for a in closed.activities if a.type.value == "state_change"] == [
+        "Investigating",
+        "Action required",
+        "Monitoring",
+        "Closed",
+    ]

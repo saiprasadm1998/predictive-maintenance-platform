@@ -276,7 +276,7 @@ export async function mockApi(
         level: node!.level,
         parent_id: null,
         criticality: null,
-        asset_type: null,
+        asset_type: leaf ? "pump" : null,
         description: "",
         ancestors: [],
         health: node,
