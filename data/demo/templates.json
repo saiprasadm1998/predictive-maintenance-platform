@@ -1,0 +1,29 @@
+{
+  "templates": [
+    {
+      "asset_type": "centrifugal_pump",
+      "name": "standard",
+      "model_name": "template",
+      "description": "Centrifugal pump: motor, process and bearing condition",
+      "algorithm": "aakr",
+      "params": { "seed": 42 },
+      "sensors": [
+        { "role": "motor_current", "required": true },
+        { "role": "discharge_pressure" },
+        { "role": "suction_pressure" },
+        { "role": "flow" },
+        { "role": "de_bearing_temp", "required": true },
+        { "role": "nde_bearing_temp" },
+        { "role": "de_vibration" },
+        { "role": "nde_vibration" }
+      ],
+      "training_periods": [{ "start": "-170d", "end": "-60d" }],
+      "validation_period": { "start": "-60d", "end": "-30d" },
+      "mode_filters": ["{motor_current} > 90"],
+      "alert_rules": {
+        "di": { "warning": 20, "alert": 35 },
+        "sensors": [{ "role": "de_bearing_temp" }]
+      }
+    }
+  ]
+}

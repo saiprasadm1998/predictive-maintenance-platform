@@ -31,6 +31,7 @@ from pmp.api import (
     models,
     notifications,
     registry,
+    templates,
     users,
 )
 from pmp.api.deps import database_of
@@ -222,6 +223,7 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     app.include_router(forecasts.router)
     app.include_router(cases.router)
     app.include_router(notifications.router)
+    app.include_router(templates.router)
     app.include_router(alerts.router)
     app.include_router(registry.router)
     app.include_router(dq.router)

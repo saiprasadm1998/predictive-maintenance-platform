@@ -108,6 +108,10 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/cases/{case_id}/attachments"): Permission.WORK_ON_CASES,
     ("GET", "/api/v1/cases/{case_id}/attachments/{attachment_id}"): V,
     ("POST", "/api/v1/cases/{case_id}/close"): Permission.WORK_ON_CASES,
+    ("GET", "/api/v1/model-templates"): V,
+    ("GET", "/api/v1/model-templates/{template_id}"): V,
+    ("PUT", "/api/v1/model-templates"): Permission.MODELS,
+    ("POST", "/api/v1/model-templates/{template_id}/apply"): Permission.MODELS,
     ("GET", "/api/v1/notifications/events"): V,
     ("GET", "/api/v1/notifications/subscriptions"): Permission.OWN_SUBSCRIPTIONS,
     ("POST", "/api/v1/notifications/subscriptions"): Permission.OWN_SUBSCRIPTIONS,
@@ -327,6 +331,27 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         },
     ).json()
     call("GET", f"{v1}/library", 200, params={"asset_type": "pump"})
+    template = call(
+        "PUT",
+        f"{v1}/model-templates",
+        200,
+        json={
+            "asset_type": "pump",
+            "name": "standard",
+            "definition": {
+                "sensors": [{"role": "flow", "required": True}],
+                "training_periods": [{"start": "-90d", "end": "-30d"}],
+                "validation_period": {"start": "-30d", "end": "-10d"},
+            },
+        },
+    ).json()
+    call("PUT", f"{v1}/model-templates", 400, json={**template, "definition": {"sensors": []}})
+    call("GET", f"{v1}/model-templates", 200, params={"asset_type": "pump"})
+    call("GET", f"{v1}/model-templates/{template['id']}", 200)
+    report = call(
+        "POST", f"{v1}/model-templates/{template['id']}/apply", 200, json={"preview": True}
+    ).json()
+    assert report == []  # no pump in the registry yet
     call("GET", f"{v1}/library/{mode['id']}/versions", 200)
     call("POST", f"{v1}/library/{mode['id']}/retire", 200)
     site = call(

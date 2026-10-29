@@ -46,6 +46,7 @@ from pmp.alerting import (
     set_alert_rules,
     set_priority,
     shelve,
+    template_rules_setter,
     unshelve,
 )
 from pmp.api import create_app
@@ -117,6 +118,7 @@ from pmp.modelling import (
     ModelCache,
     ModelError,
     ModelView,
+    apply_template,
     available_detectors,
     change_status,
     definition_from_dict,
@@ -124,11 +126,14 @@ from pmp.modelling import (
     get_model,
     list_active_versions,
     list_models,
+    list_templates,
     make_training_failure_handler,
     make_training_handler,
     run_training,
     save_draft,
+    save_template,
     start_training,
+    template_from_dict,
 )
 from pmp.notifications import NotificationError, Notifier, SmtpSender, send_test
 from pmp.prognostics import (
@@ -396,6 +401,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     diagnose_cmd.add_argument("asset")
     diagnose_cmd.add_argument("--name", default="main", help="model name (main)")
+
+    template_cmd = commands.add_parser("template", help="asset-type model templates (UC-07)")
+    template_commands = template_cmd.add_subparsers(dest="template_command", required=True)
+    template_import = template_commands.add_parser(
+        "import", help='save the templates of a file (JSON: {"templates": [...]})'
+    )
+    template_import.add_argument("file", type=Path)
+    template_apply = template_commands.add_parser(
+        "apply", help="create and train a model per asset of the type; gaps are reported"
+    )
+    template_apply.add_argument("asset_type")
+    template_apply.add_argument("name", help="the template's name")
+    template_apply.add_argument("assets", nargs="*", help="asset codes (default: every one)")
+    template_apply.add_argument("--preview", action="store_true", help="report only")
 
     notify_cmd = commands.add_parser("notify", help="notifications (UC-15)")
     notify_commands = notify_cmd.add_subparsers(dest="notify_command", required=True)
@@ -1278,6 +1297,52 @@ def _run_diagnose(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_template(settings: Settings, args: argparse.Namespace) -> int:
+    database = Database(settings.database_url.get_secret_value())
+    actor = Actor.system()
+    try:
+        with database.session() as session:
+            if args.template_command == "import":
+                data = json.loads(args.file.read_text(encoding="utf-8"))
+                for raw in data.get("templates", []) if isinstance(data, dict) else []:
+                    t = template_from_dict(raw)
+                    view = save_template(
+                        session,
+                        actor,
+                        str(t["asset_type"]),
+                        str(t["name"]),
+                        t,
+                        model_name=str(t.get("model_name", "main")),
+                        description=str(t.get("description", "")),
+                    )
+                    print(f"{view.asset_type} / {view.name}: saved (model {view.model_name})")
+                return 0
+            found = [t for t in list_templates(session, args.asset_type) if t.name == args.name]
+            if not found:
+                print(f"Error: no template {args.asset_type} / {args.name}", file=sys.stderr)
+                return 1
+            results = apply_template(
+                session,
+                actor,
+                found[0].id,
+                args.assets or None,
+                now=datetime.now(UTC),
+                preview=args.preview,
+                on_created=template_rules_setter(actor),
+            )
+        for r in results:
+            gaps = f"; gaps: {', '.join(r.missing_optional)}" if r.missing_optional else ""
+            print(f"  {r.asset_code:<12} {r.outcome.value:<8} {r.reason or ''}{gaps}")
+        made = sum(r.outcome.value == "created" for r in results)
+        print(f"{made} created, {len(results) - made} not" if not args.preview else "Preview only")
+        return 0
+    except (ModelError, OSError, ValueError) as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+
+
 def _run_notify(settings: Settings, args: argparse.Namespace) -> int:
     try:
         sender = SmtpSender(settings)
@@ -1513,6 +1578,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_library(settings, args))
     elif args.command == "diagnose":
         sys.exit(_run_diagnose(settings, args))
+    elif args.command == "template":
+        sys.exit(_run_template(settings, args))
     elif args.command == "notify":
         sys.exit(_run_notify(settings, args))
     elif args.command == "forecast":

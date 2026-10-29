@@ -68,6 +68,16 @@ from pmp.modelling.service import (
     start_training,
     version_numbers,
 )
+from pmp.modelling.templates import (
+    AssetResult,
+    TemplateView,
+    apply_template,
+    get_template,
+    list_templates,
+    save_template,
+    template_from_dict,
+)
+from pmp.modelling.templates import Outcome as TemplateOutcome
 
 __all__ = [
     "DEFAULT_DETECTOR",
@@ -78,6 +88,7 @@ __all__ = [
     "Action",
     "ActiveVersion",
     "ArtefactError",
+    "AssetResult",
     "ContractReport",
     "DeployCheck",
     "Detector",
@@ -99,9 +110,12 @@ __all__ = [
     "SensorChoice",
     "SensorScale",
     "SensorUse",
+    "TemplateOutcome",
+    "TemplateView",
     "TrainingDataPreview",
     "VersionStatus",
     "VersionView",
+    "apply_template",
     "asset_path",
     "available_detectors",
     "change_status",
@@ -112,8 +126,10 @@ __all__ = [
     "get_detector",
     "get_model",
     "get_model_by_id",
+    "get_template",
     "list_active_versions",
     "list_models",
+    "list_templates",
     "load_version",
     "make_training_failure_handler",
     "make_training_handler",
@@ -124,7 +140,9 @@ __all__ = [
     "preview_training_data",
     "run_training",
     "save_draft",
+    "save_template",
     "scale_with_floors",
     "start_training",
+    "template_from_dict",
     "version_numbers",
 ]

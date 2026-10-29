@@ -50,6 +50,7 @@ from pmp.alerting.service import (
     require_di_rule,
     rules_from_dict,
     set_alert_rules,
+    template_rules_setter,
 )
 
 __all__ = [
@@ -94,5 +95,6 @@ __all__ = [
     "set_priority",
     "shelve",
     "sync_out_of_service",
+    "template_rules_setter",
     "unshelve",
 ]

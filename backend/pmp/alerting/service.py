@@ -7,7 +7,7 @@ changed or removed rule is audited.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -200,3 +200,20 @@ def rules_from_dict(raw: object, sensor_ids: Mapping[str, int]) -> list[AlertRul
             raise
         raise AlertRuleError(f"alert_rules is malformed: {error}") from None
     return rules
+
+
+def template_rules_setter(
+    actor: Actor,
+) -> Callable[[Session, int, Mapping[str, Any], Mapping[str, int]], None]:
+    """Sets a model template's alert rules on each model it creates (UC-07 step 3); a
+    refused rule is reported as a model error, so the asset is skipped."""
+
+    def set_rules(
+        session: Session, model_id: int, rules: Mapping[str, Any], tag_ids: Mapping[str, int]
+    ) -> None:
+        try:
+            set_alert_rules(session, actor, model_id, rules_from_dict(dict(rules), tag_ids))
+        except AlertRuleError as error:
+            raise ModelError(f"alert rules: {error}") from None
+
+    return set_rules
