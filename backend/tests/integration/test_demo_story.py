@@ -38,6 +38,9 @@ def models_folder(
     get_settings.cache_clear()
     with clean_models.session() as s:
         s.execute(text("TRUNCATE sample, alert, alert_event, alert_rule_state CASCADE"))
+        # Score rows have no foreign key to their model, so the registry and model clean-ups
+        # leave them: the previous test file's last cycle would be counted below.
+        s.execute(text("TRUNCATE score, sensor_output, runtime_status"))
         import_files(s, Actor.system(), [DATA / "registry" / "registry.xlsx"])
     with clean_models.session() as s:
         tags = [t for t in demo_tags(s) if t.asset_code in {"K-101", "P-205"}]
