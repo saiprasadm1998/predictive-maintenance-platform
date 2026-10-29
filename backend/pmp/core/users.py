@@ -482,6 +482,7 @@ class Person:
 
     principal: Principal
     display_name: str
+    email: str | None = None
 
 
 def active_people(session: Session, user_ids: Iterable[int] | None = None) -> list[Person]:
@@ -492,7 +493,7 @@ def active_people(session: Session, user_ids: Iterable[int] | None = None) -> li
         query = query.where(AppUser.id.in_(sorted(set(user_ids))))
     users = session.scalars(query.order_by(func.lower(AppUser.display_name))).all()
     return [
-        Person(Principal(u.id, u.username, _assignments(session, u.id)), u.display_name)
+        Person(Principal(u.id, u.username, _assignments(session, u.id)), u.display_name, u.email)
         for u in users
     ]
 

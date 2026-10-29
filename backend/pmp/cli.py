@@ -130,6 +130,7 @@ from pmp.modelling import (
     save_draft,
     start_training,
 )
+from pmp.notifications import NotificationError, Notifier, SmtpSender, send_test
 from pmp.prognostics import (
     DEFAULT_WINDOW_DAYS,
     ForecastError,
@@ -396,6 +397,12 @@ def build_parser() -> argparse.ArgumentParser:
     diagnose_cmd.add_argument("asset")
     diagnose_cmd.add_argument("--name", default="main", help="model name (main)")
 
+    notify_cmd = commands.add_parser("notify", help="notifications (UC-15)")
+    notify_commands = notify_cmd.add_subparsers(dest="notify_command", required=True)
+    notify_test = notify_commands.add_parser("test", help="send a test e-mail through the relay")
+    notify_test.add_argument("to", help="an e-mail address")
+    notify_commands.add_parser("run", help="one notification pass now (the worker runs them)")
+
     forecast_cmd = commands.add_parser(
         "forecast", help="time to threshold for a model's DI or a sensor (UC-11, UCS §6.8)"
     )
@@ -548,6 +555,16 @@ def _run_worker(settings: Settings) -> None:
         on_failed=make_training_failure_handler(database),
     )
     stop = threading.Event()
+    threads = []
+    if settings.smtp_host:
+        notifier = Notifier(database, SmtpSender(settings), settings.public_url)
+        threads.append(
+            threading.Thread(
+                target=notifier.run_forever, args=(stop,), name="notifier", daemon=True
+            )
+        )
+    else:
+        logger.info("Notifications are off: no SMTP host (PMP_SMTP_HOST)")
     scheduler = Scheduler(
         database, grace_s=settings.scoring_grace_s, retention_months=settings.retention_months
     )
@@ -562,11 +579,15 @@ def _run_worker(settings: Settings) -> None:
     signal.signal(signal.SIGTERM, _request_stop)
     signal.signal(signal.SIGINT, _request_stop)
     scheduler_thread.start()
+    for thread in threads:
+        thread.start()
     try:
         Worker(database, registry).run_forever(stop)
     finally:
         stop.set()
         scheduler_thread.join(timeout=30)
+        for thread in threads:
+            thread.join(timeout=30)
         database.dispose()
 
 
@@ -1257,6 +1278,32 @@ def _run_diagnose(settings: Settings, args: argparse.Namespace) -> int:
         database.dispose()
 
 
+def _run_notify(settings: Settings, args: argparse.Namespace) -> int:
+    try:
+        sender = SmtpSender(settings)
+    except NotificationError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    if args.notify_command == "test":
+        try:
+            send_test(sender, args.to, settings.public_url)
+        except OSError as error:
+            print(f"Error: the relay refused: {error}", file=sys.stderr)
+            return 1
+        print(f"Sent a test e-mail to {args.to} through {settings.smtp_host}:{settings.smtp_port}")
+        return 0
+    database = Database(settings.database_url.get_secret_value())
+    try:
+        result = Notifier(database, sender, settings.public_url).run_once()
+    finally:
+        database.dispose()
+    print(
+        f"Queued {result.queued}, summaries {result.summaries}, "
+        f"sent {result.sent}, failed {result.failed}"
+    )
+    return 0
+
+
 def _run_forecast(settings: Settings, args: argparse.Namespace) -> int:
     database = Database(settings.database_url.get_secret_value())
     try:
@@ -1466,6 +1513,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         sys.exit(_run_library(settings, args))
     elif args.command == "diagnose":
         sys.exit(_run_diagnose(settings, args))
+    elif args.command == "notify":
+        sys.exit(_run_notify(settings, args))
     elif args.command == "forecast":
         sys.exit(_run_forecast(settings, args))
     elif args.command == "evaluate":

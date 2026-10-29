@@ -760,6 +760,39 @@ def alert_history(session: Session, alert_id: int) -> list[AlertEvent]:
     )
 
 
+@dataclass(frozen=True)
+class AlertEventView:
+    """One entry of the alert event log (ISA-18.2), for readers that follow it."""
+
+    id: int
+    alert_id: int
+    ts: datetime  # the cycle (raise, escalate) or the moment of the action
+    action: str
+    to_state: str
+    severity: str
+    priority: str
+
+
+def alert_events_since(
+    session: Session, after_id: int, actions: Iterable[str], limit: int = 1000
+) -> list[AlertEventView]:
+    """Events after `after_id`, oldest first (the notifier's cursor, plan 8.5)."""
+    rows = session.scalars(
+        select(AlertEvent)
+        .where(AlertEvent.id > after_id, AlertEvent.action.in_(list(actions)))
+        .order_by(AlertEvent.id)
+        .limit(limit)
+    ).all()
+    return [
+        AlertEventView(r.id, r.alert_id, r.ts, r.action, r.to_state, r.severity, r.priority)
+        for r in rows
+    ]
+
+
+def last_alert_event_id(session: Session) -> int:
+    return int(session.scalar(select(func.max(AlertEvent.id))) or 0)
+
+
 def active_sensor_alerts(session: Session, model_id: int) -> dict[int, Severity]:
     """Sensor alerts whose condition is active, by tag: they set the band (UCS §6.5,
     decision for 2.3)."""

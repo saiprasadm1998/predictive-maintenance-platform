@@ -30,6 +30,7 @@ class LockKey(IntEnum):
     MIGRATIONS = 7_410_001
     SCHEDULER = 7_410_002
     SCORE_CYCLE = 7_410_003  # with a model version ID: one writer per version and cycle
+    NOTIFIER = 7_410_004  # one notifier leads (plan 8.5)
 
 
 class Database:

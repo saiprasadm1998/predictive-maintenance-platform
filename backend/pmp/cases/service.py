@@ -1040,3 +1040,39 @@ def assignable_people(session: Session, asset_path: str) -> list[Person]:
         for p in active_people(session)
         if p.principal.grant(Permission.WORK_ON_CASES, asset_path, assigned=True)
     ]
+
+
+@dataclass(frozen=True)
+class CaseEvent:
+    """An activity of any case, for readers that follow the log (the notifier, 8.5)."""
+
+    id: int
+    case_id: int
+    ts: datetime
+    type: ActivityType
+    author_id: int | None
+    data: dict[str, Any]
+
+
+def case_events_since(
+    session: Session, after_id: int, types: Iterable[ActivityType], limit: int = 1000
+) -> list[CaseEvent]:
+    rows = session.scalars(
+        select(ActivityRow)
+        .where(ActivityRow.id > after_id, ActivityRow.type.in_([t.value for t in types]))
+        .order_by(ActivityRow.id)
+        .limit(limit)
+    ).all()
+    return [
+        CaseEvent(r.id, r.case_id, r.ts, ActivityType(r.type), r.author_id, dict(r.data))
+        for r in rows
+    ]
+
+
+def last_case_event_id(session: Session) -> int:
+    return int(session.scalar(select(func.max(ActivityRow.id))) or 0)
+
+
+def overdue_cases(session: Session, today: date) -> list[CaseSummary]:
+    """Open cases whose due date has passed (the overdue notification, UCS §6.10)."""
+    return list_cases(session, CaseQuery(overdue_on=today, limit=10_000))

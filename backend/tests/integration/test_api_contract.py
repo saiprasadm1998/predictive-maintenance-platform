@@ -108,6 +108,17 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/cases/{case_id}/attachments"): Permission.WORK_ON_CASES,
     ("GET", "/api/v1/cases/{case_id}/attachments/{attachment_id}"): V,
     ("POST", "/api/v1/cases/{case_id}/close"): Permission.WORK_ON_CASES,
+    ("GET", "/api/v1/notifications/events"): V,
+    ("GET", "/api/v1/notifications/subscriptions"): Permission.OWN_SUBSCRIPTIONS,
+    ("POST", "/api/v1/notifications/subscriptions"): Permission.OWN_SUBSCRIPTIONS,
+    ("PUT", "/api/v1/notifications/subscriptions/{subscription_id}"): (
+        Permission.OWN_SUBSCRIPTIONS
+    ),
+    ("DELETE", "/api/v1/notifications/subscriptions/{subscription_id}"): (
+        Permission.OWN_SUBSCRIPTIONS
+    ),
+    ("GET", "/api/v1/notifications/log"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/notifications/test"): Permission.ADMINISTRATION,
     ("GET", "/api/v1/alerts/settings"): V,
     ("GET", "/api/v1/models/{model_id}/versions"): V,
     ("GET", "/api/v1/asset-types/{type_id}/roles"): V,
@@ -465,6 +476,22 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     assert closed["review_requested"]
     assert call("GET", case_url, 200).json()["snapshot"] == case["snapshot"]
     assert call("GET", f"{v1}/fleet/kpis", 200).json()["open_cases"] == 0
+
+    # notifications (8.5)
+    call("GET", f"{v1}/notifications/events", 200)
+    sub = call(
+        "POST",
+        f"{v1}/notifications/subscriptions",
+        201,
+        json={"min_priority": "P1", "events": ["alert_raised"]},
+    ).json()
+    call("GET", f"{v1}/notifications/subscriptions", 200)
+    changed = {"min_priority": "P2", "events": ["alert_raised", "case_assigned"]}
+    call("PUT", f"{v1}/notifications/subscriptions/{sub['id']}", 200, json=changed)
+    call("POST", f"{v1}/notifications/subscriptions", 400, json={"events": []})
+    call("GET", f"{v1}/notifications/log", 200)
+    call("POST", f"{v1}/notifications/test", 409, json={"to": "root@plant.test"})  # no relay
+    call("DELETE", f"{v1}/notifications/subscriptions/{sub['id']}", 204)
     call("POST", f"{v1}/alerts/{alert_id}/ack", 200, json={"comment": "seen"})
     call("POST", f"{v1}/alerts/{alert_id}/shelve", 200, json={"reason": "work", "minutes": 30})
     call("POST", f"{v1}/alerts/{alert_id}/unshelve", 200)

@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     retention_months: int = Field(default=24, ge=1)
     alert_max_shelve_days: int = Field(default=7, ge=1)  # UCS §6.6: configurable maximum
     # UCS §6.8 urgency bands: upper bounds in hours of the forecast's lower interval bound
+    # Notifications (UCS §6.10, ARC §10): the SMTP relay; no host means none are sent
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_user: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_from: str = "pmp@localhost"
+    smtp_starttls: bool = True  # port 587 STARTTLS (ARC §9.1 C3); off for a local catcher
+    public_url: str = "http://localhost:8000"  # the base of deep links in notifications
     forecast_immediate_h: float = Field(default=24, gt=0)
     forecast_high_h: float = Field(default=24 * 7, gt=0)
     forecast_medium_h: float = Field(default=24 * 30, gt=0)

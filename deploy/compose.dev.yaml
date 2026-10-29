@@ -1,5 +1,5 @@
-# Development database only: PostgreSQL 16 with TimescaleDB (ARC-001 §10.1).
-# Start with `make db-up`. Application services are added in sub-phase 0.3.
+# Development services: PostgreSQL 16 with TimescaleDB (ARC-001 §10.1) and a local mail
+# catcher standing in for the SMTP relay (plan 8.5). Start with `make db-up`.
 name: pmp-dev
 
 services:
@@ -19,6 +19,14 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  mail:
+    # Mailpit: accepts any e-mail on port 1025 and shows it at http://localhost:8025.
+    # Pinned by version; pin the digest too after the first `docker pull` (as for db).
+    image: axllent/mailpit:v1.21.8
+    ports:
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 
 volumes:
   pgdata:
