@@ -367,6 +367,8 @@ uv run pmp library import ../data/demo/library.json   # failure modes per asset 
 uv run pmp demo models                        # create, train and deploy data/demo/models/*.json
 uv run pmp demo score                         # score the last 24 h of data, oldest cycle first
 uv run pmp health tree                        # K-101, K-201 Alert; P-104A, F-3 Watch; P-202 Unknown
+uv run pmp template import ../data/demo/templates.json         # asset-type model templates (8.6)
+uv run pmp template apply centrifugal_pump standard --preview   # roles resolved, gaps per pump
 uv run pmp diagnose K-101                     # failure modes ranked by match (8.2)
 uv run pmp forecast K-101 --threshold alert   # time to the DI alert limit (8.3; needs 24 h scored)
 ```
