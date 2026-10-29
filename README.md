@@ -367,6 +367,23 @@ uv run pmp evaluate ../data/demo/events.csv   # share of events alerted, lead ti
 The report lists every alert raised, each counted every time it is raised, for a
 reliability engineer to classify.
 
+### Detect › Diagnose › Act › Close (AC-06 rehearsal)
+
+With the demo plant scored and the worker running (above), sign in as a user with the
+analyst role (create one under Administration) and:
+
+1. **Detect:** open Alerts; K-101's DI alert is listed. Open its asset.
+2. **Diagnose:** choose Diagnose →. Thrust-bearing degradation ranks first; run a forecast to
+   the DI alert limit.
+3. **Act:** choose Create case… and give it a title. On the case, assign it (an analyst, model
+   engineer or maintenance engineer), add an action with an owner, and mark it done when the
+   work is complete. The status follows: Investigating, Action required, Monitoring.
+4. **Close:** choose the outcome True finding with the confirmed mode Thrust bearing
+   degradation, add lessons learned and close. The case list shows it closed.
+
+The same flow runs automatically in `tests/integration/test_diagnostics.py` (on the replayed
+K-101 drift) and in the browser journey `frontend/e2e/case.spec.ts`.
+
 ## Front end
 
 The screens are a React app in `frontend/` (Node 22 or later). It talks to the web role
