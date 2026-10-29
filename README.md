@@ -371,6 +371,7 @@ uv run pmp template import ../data/demo/templates.json         # asset-type mode
 uv run pmp template apply centrifugal_pump standard --preview   # roles resolved, gaps per pump
 uv run pmp diagnose K-101                     # failure modes ranked by match (8.2)
 uv run pmp forecast K-101 --threshold alert   # time to the DI alert limit (8.3; needs 24 h scored)
+uv run pmp score rescore K-101 main --days 1  # replace a day of scores; no alerts or e-mails (8.7)
 ```
 
 Both are safe to run again: models in service are left alone and scored cycles are skipped.
