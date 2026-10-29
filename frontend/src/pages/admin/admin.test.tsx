@@ -20,7 +20,7 @@ const ENGINEER = {
   roles: [{ role: "model_engineer", scope_asset_id: null }],
 };
 
-function asUser(user: typeof ADMIN) {
+function asUser(user: Omit<typeof ADMIN, "email"> & { email: string | null }) {
   const routes = sessionRoutes(true);
   routes["GET /auth/me"] = () => ({ status: 200, body: { user, csrf_token: "c" } });
   return routes;
@@ -204,5 +204,109 @@ describe("SCR-14 administration", () => {
         confirm: true,
       }),
     );
+  });
+});
+
+describe("notifications", () => {
+  const EVENTS = [
+    { value: "alert_raised", label: "Alert raised" },
+    { value: "alert_escalated", label: "Alert escalated to Alert" },
+    { value: "case_assigned", label: "Case assigned to me" },
+    { value: "case_overdue", label: "My case overdue" },
+    { value: "model_review", label: "False alert to review (model engineers)" },
+    { value: "source_stale", label: "Data source stale (administrators)" },
+  ];
+
+  it("lets any user subscribe to their own e-mail notifications", async () => {
+    const analyst = {
+      ...ADMIN,
+      email: "ana@plant.test",
+      roles: [{ role: "analyst", scope_asset_id: null }],
+    };
+    const routes = asUser(analyst);
+    let subs: object[] = [];
+    routes["GET /notifications/events"] = () => ({ status: 200, body: EVENTS });
+    routes["GET /notifications/subscriptions"] = () => ({ status: 200, body: subs });
+    routes["GET /assets"] = () => ({ status: 200, body: { items: ASSETS, next_cursor: null } });
+    routes["POST /notifications/subscriptions"] = (call) => {
+      subs = [
+        {
+          id: 1,
+          scope_code: "K-101",
+          channel: "email",
+          created_at: "2026-10-28T00:00:00Z",
+          updated_at: "2026-10-28T00:00:00Z",
+          ...(call.body as object),
+        },
+      ];
+      return { status: 201, body: subs[0] };
+    };
+    const { calls } = fakeApi(routes);
+    const user = userEvent.setup();
+    renderApp("/admin?tab=notifications");
+
+    expect(await screen.findByText(/You have no subscriptions/)).toBeInTheDocument();
+    expect(screen.getByText(/E-mails go to ana@plant.test/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add a subscription" }));
+    const form = screen.getByRole("form", { name: "New subscription" });
+    // model engineers' and administrators' events are not offered to an analyst
+    expect(within(form).queryByLabelText(/False alert to review/)).toBeNull();
+    expect(within(form).queryByLabelText(/Data source stale/)).toBeNull();
+    await user.selectOptions(within(form).getByLabelText("Minimum priority"), "P1");
+    await user.click(within(form).getByLabelText("Case assigned to me"));
+    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await waitFor(() =>
+      expect(calls.find((c: Call) => c.method === "POST")?.body).toEqual({
+        scope_asset_id: null,
+        min_priority: "P1",
+        events: ["alert_raised", "alert_escalated", "case_assigned"],
+        enabled: true,
+      }),
+    );
+    expect(
+      await screen.findByText(
+        "P1 only · K-101 · Alert raised, Alert escalated to Alert, Case assigned to me",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Notification log" })).toBeNull();
+  });
+
+  it("shows administrators the delivery log and sends a test e-mail", async () => {
+    const routes = asUser(ADMIN);
+    routes["GET /notifications/log"] = () => ({
+      status: 200,
+      body: [
+        {
+          id: 3,
+          user_id: 2,
+          event: "alert_raised",
+          alert_id: 1,
+          case_id: null,
+          recipient: "ana@plant.test",
+          subject: "[PMP] P1 Alert raised · K-101 · DI",
+          status: "failed",
+          attempts: 6,
+          next_attempt_at: null,
+          last_error: "ConnectionRefusedError: relay down",
+          summary_id: null,
+          created_at: "2026-10-28T08:00:00Z",
+          sent_at: null,
+        },
+      ],
+    });
+    routes["POST /notifications/test"] = () => ({ status: 204, body: null });
+    const { calls } = fakeApi(routes);
+    const user = userEvent.setup();
+    renderApp("/admin?tab=notification-log");
+
+    const table = await screen.findByRole("table", { name: "Notifications, newest first" });
+    expect(within(table).getByText("ConnectionRefusedError: relay down")).toBeInTheDocument();
+    expect(within(table).getByText("failed")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("To"), "ops@plant.test");
+    await user.click(screen.getByRole("button", { name: "Send test e-mail" }));
+    expect(await screen.findByText("Sent to ops@plant.test.")).toBeInTheDocument();
+    expect(calls.find((c: Call) => c.path === "/notifications/test")?.body).toEqual({
+      to: "ops@plant.test",
+    });
   });
 });

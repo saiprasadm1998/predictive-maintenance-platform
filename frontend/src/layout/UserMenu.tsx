@@ -44,6 +44,12 @@ export function UserMenu() {
           </DropdownMenu.CheckboxItem>
           <DropdownMenu.Item
             className="menu-item"
+            onSelect={() => void navigate("/admin?tab=notifications")}
+          >
+            My notifications
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            className="menu-item"
             onSelect={() => {
               void signOut().finally(() => navigate("/sign-in", { replace: true }));
             }}
