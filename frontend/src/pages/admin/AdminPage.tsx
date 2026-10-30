@@ -4,6 +4,7 @@ import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { useMe } from "../../app/session";
 import { AuditTab } from "./AuditTab";
 import { isAdministrator } from "./adminModel";
+import { IngestionTab } from "./IngestionTab";
 import { KeysTab } from "./KeysTab";
 import { NotificationLogTab } from "./NotificationLogTab";
 import { NotificationsTab } from "./NotificationsTab";
@@ -16,6 +17,7 @@ const TABS = [
   { key: "keys", label: "API keys", admin: true },
   { key: "rules", label: "Data-quality rules", admin: false },
   { key: "retention", label: "Retention", admin: true },
+  { key: "ingestion", label: "Ingestion health", admin: true },
   { key: "audit", label: "Audit log", admin: true },
   { key: "notifications", label: "My notifications", admin: false },
   { key: "notification-log", label: "Notification log", admin: true },
@@ -23,7 +25,7 @@ const TABS = [
 
 /**
  * SCR-14 Administration (PDS §4; UC-17, UC-19, UC-04, UC-15, FR-SEC, FR-AUD-01): users and
- * roles, API keys, data-quality rules, data retention, the audit log, each user's own
+ * roles, API keys, data-quality rules, data retention, ingestion health (FR-ING-07), the audit log, each user's own
  * notification subscriptions and the notification log. The registry has its own
  * screen (SCR-13). Administrators manage users, keys, retention and the audit log; Model
  * Engineers change the data-quality rules (ARC §9.2).
@@ -60,8 +62,8 @@ export function AdminPage() {
       </nav>
       {!admin && (
         <p className="muted small">
-          Users, API keys, retention, the audit log and the notification log are managed by
-          Administrators.
+          Users, API keys, retention, ingestion health, the audit log and the notification log are
+          managed by Administrators.
         </p>
       )}
       {tab === "users" ? (
@@ -72,6 +74,8 @@ export function AdminPage() {
         <RulesTab />
       ) : tab === "retention" ? (
         <RetentionTab />
+      ) : tab === "ingestion" ? (
+        <IngestionTab />
       ) : tab === "notifications" ? (
         <NotificationsTab />
       ) : tab === "notification-log" ? (

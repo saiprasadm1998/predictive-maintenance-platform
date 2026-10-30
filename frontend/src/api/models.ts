@@ -128,3 +128,16 @@ export function previewTrainingData(
 export function fetchJob(id: number, signal?: AbortSignal): Promise<Job> {
   return api<Job>(`/jobs/${id}`, { signal });
 }
+
+/** Re-score a past period of a version as a background job (FR-RUN-05): scores and
+ * sensor outputs are replaced; alerts, e-mails and the live status are not touched. */
+export function rescoreVersion(
+  versionId: number,
+  start: Date,
+  end: Date,
+): Promise<{ job_id: number }> {
+  return api(`/versions/${versionId}/rescore`, {
+    method: "POST",
+    body: { start: start.toISOString(), end: end.toISOString() },
+  });
+}

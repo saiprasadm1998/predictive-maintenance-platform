@@ -76,3 +76,14 @@ export function lifecycleChoices(model: ModelSummary): Choice[] {
 export function alertRate(alertsIn30Days: number): string {
   return `${((alertsIn30Days * 7) / 30).toFixed(1)} / week`;
 }
+
+/** "2026-10-21T14:05" for a datetime-local input, in the browser's time zone. */
+export function toLocalInput(date: Date): string {
+  const shifted = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return shifted.toISOString().slice(0, 16);
+}
+
+/** Versions with a trained model can be re-scored; the server makes the final check. */
+export function canRescore(version: VersionSummary): boolean {
+  return !["Draft", "Training", "Failed"].includes(version.status);
+}

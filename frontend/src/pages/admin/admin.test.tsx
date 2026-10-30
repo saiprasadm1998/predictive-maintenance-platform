@@ -12,6 +12,7 @@ import {
   ruleForm,
   ruleProblems,
 } from "./adminModel";
+import { ageText } from "./ingestionModel";
 
 const ENGINEER = {
   ...ADMIN,
@@ -308,5 +309,91 @@ describe("notifications", () => {
     expect(calls.find((c: Call) => c.path === "/notifications/test")?.body).toEqual({
       to: "ops@plant.test",
     });
+  });
+});
+
+describe("ingestion health (FR-ING-07)", () => {
+  it("says how long ago, from the server clock", () => {
+    const now = "2026-10-29T12:00:00Z";
+    expect(ageText(null, now)).toBe("never");
+    expect(ageText("2026-10-29T11:59:15Z", now)).toBe("45 s ago");
+    expect(ageText("2026-10-29T11:57:00Z", now)).toBe("3 min ago");
+    expect(ageText("2026-10-29T09:55:00Z", now)).toBe("2 h 5 min ago");
+  });
+
+  it("warns administrators of a stale source and clock skew, tag by tag", async () => {
+    const routes = asUser(ADMIN);
+    const source = {
+      accepted_total: 1200,
+      rejected_total: 3,
+      per_minute: 4,
+      interval_s: 60,
+      tags: 2,
+      stale_after_s: 120,
+    };
+    routes["GET /ingest/health"] = () => ({
+      status: 200,
+      body: {
+        checked_at: "2026-10-29T12:00:00Z",
+        sources: [
+          {
+            ...source,
+            source: "gw-1",
+            last_received_at: "2026-10-29T11:57:00Z",
+            last_sample_ts: "2026-10-29T11:57:00Z",
+            stale: true,
+            skew_s: 0,
+            skewed: false,
+          },
+          {
+            ...source,
+            source: "gw-2",
+            last_received_at: "2026-10-29T11:59:50Z",
+            last_sample_ts: "2026-10-29T11:58:20Z",
+            stale: false,
+            skew_s: 90,
+            skewed: true,
+          },
+        ],
+        tags: [
+          {
+            tag_id: 1,
+            source: "gw-1",
+            source_name: "K101.TT01",
+            asset_code: "K-101",
+            interval_s: 60,
+            last_sample_ts: "2026-10-29T11:57:00Z",
+            stale: true,
+          },
+          {
+            tag_id: 2,
+            source: "gw-2",
+            source_name: "P104.FT01",
+            asset_code: "P-104A",
+            interval_s: 60,
+            last_sample_ts: "2026-10-29T11:58:20Z",
+            stale: false,
+          },
+        ],
+      },
+    });
+    fakeApi(routes);
+    const user = userEvent.setup();
+    renderApp("/admin?tab=ingestion");
+
+    const sources = await screen.findByRole("table", { name: "Gateway sources" });
+    expect(screen.getByText("2 sources need attention.", { exact: false })).toBeInTheDocument();
+    const gw1 = within(sources).getByRole("row", { name: /gw-1/ });
+    expect(within(gw1).getByText("Stale: nothing for over 120 s")).toBeInTheDocument();
+    expect(within(gw1).getAllByText("3 min ago")).toHaveLength(2);
+    const gw2 = within(sources).getByRole("row", { name: /gw-2/ });
+    expect(within(gw2).getByText("Receiving · clock skew")).toBeInTheDocument();
+    expect(within(gw2).getByText("+90 s")).toBeInTheDocument();
+
+    const tags = screen.getByRole("table", { name: "Tags and their newest sample" });
+    expect(within(tags).getAllByRole("row")).toHaveLength(3);
+    await user.click(screen.getByLabelText("Stale only"));
+    expect(within(tags).getAllByRole("row")).toHaveLength(2);
+    expect(within(tags).getByText("K101.TT01")).toBeInTheDocument();
   });
 });

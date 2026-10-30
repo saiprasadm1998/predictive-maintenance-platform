@@ -6,23 +6,28 @@ import { fetchAudit, fetchModel, fetchScores, fetchStatusPeriods } from "../../a
 import type { AuditEntry, ModelDetail, VersionDetail } from "../../api/types";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { formatDateTime, formatIso } from "../../app/format";
+import { useMe } from "../../app/session";
 import { useTimeRange } from "../../app/timeRange";
 import { TrendChart } from "../../components/TrendChart";
 import { excludedPeriods, linePoints, sensorLabel } from "../asset/assetModel";
 import { Skeleton } from "../fleet/FleetPage";
+import { isModelEngineer } from "../admin/adminModel";
 import { LifecycleActions } from "./LifecycleActions";
+import { canRescore } from "./modelsModel";
+import { RescorePanel } from "./RescorePanel";
 import { validationReport } from "./builderModel";
 import { ValidationReportTable } from "./ValidationReport";
 
 /**
  * SCR-11 Model version detail (PDS §4.8, FR-MOD-06, FR-AUD-01): configuration, training
  * definition, validation metrics, playback of what this version scored, its alert limits,
- * and its audit history.
+ * and its audit history; model engineers can re-score a past period (FR-RUN-05).
  */
 export function VersionPage() {
   const modelId = Number(useParams().modelId);
   const number = Number(useParams().version);
   const { range } = useTimeRange();
+  const me = useMe();
   const model = useQuery({
     queryKey: ["models", "detail", modelId],
     queryFn: ({ signal }) => fetchModel(modelId, signal),
@@ -113,6 +118,9 @@ export function VersionPage() {
           </Link>
         </div>
       </section>
+      {isModelEngineer(me.data) && canRescore(version) && (
+        <RescorePanel key={version.id} model={m} version={version} />
+      )}
 
       <div className="version-grid">
         <section className="panel" aria-labelledby="config-title">
