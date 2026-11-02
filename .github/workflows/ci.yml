@@ -125,10 +125,15 @@ jobs:
       - name: Smoke test the front end (a deep link returns the app)
         run: curl --fail --silent --show-error --insecure https://localhost/fleet | grep -q '<div id="root">'
 
-      - name: The proxy refuses a gateway batch over 5 MB
+      - name: A gateway batch over 5 MB is refused
         run: |
+          key=$(docker compose -f deploy/compose.yaml exec -T web \
+            pmp apikey create --name ci --scope ingest | grep -oE '^pmp_[A-Za-z0-9_-]+$')
           code=$(head -c 6000000 /dev/zero | curl --silent --insecure --output /dev/null \
-            --write-out '%{http_code}' --data-binary @- https://localhost/api/v1/ingest/samples)
+            --write-out '%{http_code}' -H "Authorization: ApiKey $key" \
+            -H 'Content-Type: application/json' --data-binary @- \
+            https://localhost/api/v1/ingest/samples)
+          echo "HTTP $code"
           test "$code" = 413
 
       - name: A backup from the running stack

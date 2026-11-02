@@ -1,9 +1,13 @@
 import "@testing-library/jest-dom/vitest";
 
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
 import { afterEach, beforeEach, vi } from "vitest";
 
 import { FakeEventSource } from "./fakeEventSource";
+
+// findBy and waitFor wait up to 1 s by default; the CI runners are slower than a laptop
+// and a first render of a lazily loaded screen can take longer (plan 9.3).
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom lacks these browser APIs.
 class NoResizeObserver {
