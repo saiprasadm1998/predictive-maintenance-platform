@@ -5,7 +5,7 @@ Builds a separate `pmp_perf` database next to the development one (dropped first
 samples. The models' artefacts are written directly from synthetic training data, so the
 check measures scoring, not training. Then one scheduler tick scores the latest cycle.
 
-    make perf-scoring
+    make perf-scoring            (AAKR, the default detector; `median` as an argument)
 """
 
 from __future__ import annotations
@@ -35,6 +35,7 @@ from pmp.modelling import (
     change_status,
     save_draft,
 )
+from pmp.modelling.algorithms.aakr import AakrDetector
 from pmp.modelling.artefacts import artefact_dir, write_artefact
 from pmp.registry import AssetLevel, AssetSpec, Criticality, TagSpec, upsert_asset, upsert_tag
 from pmp.scoring import Scheduler
@@ -57,7 +58,7 @@ def _database() -> Database:
     return Database(url)
 
 
-def _setup(db: Database, artefacts: Path, now: datetime) -> None:
+def _setup(db: Database, artefacts: Path, now: datetime, algorithm: str) -> None:
     names = [f"T{j:02d}" for j in range(TAGS_PER_MODEL)]
     with db.session() as s:
         upsert_asset(s, ACTOR, AssetSpec("SITE", "Site", AssetLevel.SITE))
@@ -103,8 +104,11 @@ def _setup(db: Database, artefacts: Path, now: datetime) -> None:
                 ),
             )
             set_alert_rules(s, ACTOR, model.id, [AlertRuleSpec(RuleKind.DI, 15, 25)])
-            detector = MedianDetector()
-            detector.fit(pd.DataFrame(rng.normal(0, 0.1, (50, len(tags))), columns=tags), {})
+            detector: MedianDetector | AakrDetector = (
+                AakrDetector() if algorithm == "aakr" else MedianDetector()
+            )
+            training = pd.DataFrame(rng.normal(0, 0.1, (500, len(tags))), columns=tags)
+            detector.fit(training, {"seed": 0})
             target = artefact_dir(artefacts, model.id, 1)
             sensors = {
                 t: {
@@ -124,7 +128,7 @@ def _setup(db: Database, artefacts: Path, now: datetime) -> None:
                 target,
                 detector,
                 scaling={"sensor_order": tags, "sensors": sensors},
-                manifest={"algorithm": "median"},
+                manifest={"algorithm": algorithm},
                 validation={},
             )
             s.execute(
@@ -139,11 +143,12 @@ def _setup(db: Database, artefacts: Path, now: datetime) -> None:
 
 
 def main() -> int:
+    algorithm = sys.argv[1] if len(sys.argv) > 1 else "aakr"  # the default detector (7.4)
     now = datetime.now(UTC).replace(second=0, microsecond=0)
     db = _database()
     with tempfile.TemporaryDirectory() as tmp:
-        print(f"Setting up {MODELS} models x {TAGS_PER_MODEL} tags ...", flush=True)
-        _setup(db, Path(tmp), now)
+        print(f"Setting up {MODELS} {algorithm} models x {TAGS_PER_MODEL} tags ...", flush=True)
+        _setup(db, Path(tmp), now, algorithm)
         scheduler = Scheduler(db, grace_s=0, clock=lambda: now + timedelta(seconds=1))
         started = time.perf_counter()
         results = scheduler.tick()

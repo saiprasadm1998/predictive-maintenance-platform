@@ -378,7 +378,7 @@ def test_sensors_no_deployed_model_scores_still_get_a_current_status(deployed: D
 
 
 def test_a_model_waits_for_the_longest_grace_of_its_sources(deployed: Database) -> None:
-    """Plan 6.7 (audit, ARC §5.1, AC-05): 5 s by default; a late source gets its own."""
+    """Plan 6.7 and 9.2 (ARC §5.1, AC-05): 3 s by default; a late source gets its own."""
     from pmp.ingestion import set_source_grace
 
     clock = Clock(LIVE + timedelta(minutes=10, seconds=25))

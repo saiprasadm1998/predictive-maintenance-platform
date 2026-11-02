@@ -50,3 +50,17 @@ test.describe("SCR-03 asset analysis", () => {
     await expect(page.getByText("P1 · active · unack")).toBeVisible();
   });
 });
+
+test.describe("NFR-PERF-03 trend rendering", () => {
+  test("a 30-day trend of 20 sensors renders in under 3 seconds", async ({ page }) => {
+    const { leaves } = await mockApi(page, { sites: 1, units: 1, perUnit: 3 }, 800);
+    const sensors = Array.from({ length: 20 }, (_, i) => `S${String(i + 1).padStart(2, "0")}`);
+    const started = Date.now();
+    await page.goto(`/assets/${leaves[0]!.id}?range=30d&sensors=${sensors.join(",")}`);
+    await expect(page.getByRole("figure", { name: /S20.*actual/ })).toBeVisible();
+    await expect(page.getByRole("figure", { name: /actual/ })).toHaveCount(20);
+    const elapsed = Date.now() - started;
+    console.log(`30-day trend of 20 sensors (800 points each) rendered in ${elapsed} ms`);
+    expect(elapsed).toBeLessThan(3000);
+  });
+});

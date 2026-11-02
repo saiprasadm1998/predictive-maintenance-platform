@@ -12,7 +12,7 @@ TRIVY := docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 	-v pmp-trivy-cache:/root/.cache -v "$(CURDIR)/reports:/reports" aquasec/trivy:0.58.1
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image sbom scan up down logs perf-backfill perf-scoring perf-api \
+        sync db-up db-down db-reset migrate web worker image sbom scan up down logs perf-backfill perf-scoring perf-api perf-ingest perf-latency \
         fe-install fe-dev fe-check fe-lint fe-format fe-test fe-build fe-audit fe-e2e
 
 check: lint format-check types contracts test fe-check
@@ -135,3 +135,12 @@ perf-scoring:
 
 perf-api:
 	$(UV) python tools/perf_api.py
+
+# NFR-PERF-04: 10,000 samples/s through the REST batch endpoint (about 1 minute).
+perf-ingest:
+	$(UV) python tools/perf_ingest.py
+
+# NFR-PERF-02, AC-05: sample to browser within one cycle plus 5 s, on the wall clock
+# (about 5 minutes).
+perf-latency:
+	$(UV) python tools/perf_latency.py

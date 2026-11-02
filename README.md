@@ -196,8 +196,11 @@ uv run pmp score status                       # each model's status, band, DI an
 uv run pmp score once K-101 main              # score the latest cycle by hand
 ```
 
-`make perf-scoring` runs the NFR-PERF-01 check (100 models, 5,000 tags, within 30 s) in a
-separate `pmp_perf` database.
+`make perf-scoring` runs the NFR-PERF-01 check (100 AAKR models, 5,000 tags, within 30 s;
+`median` as an argument for the baseline) in a separate `pmp_perf` database.
+`make perf-ingest` checks NFR-PERF-04 (10,000 samples/s through the REST endpoint, about a
+minute) and `make perf-latency` NFR-PERF-02 and AC-05 (sample to browser within one cycle
+plus 5 s, on the wall clock, about 5 minutes); each uses its own database.
 
 ## Alerts
 
@@ -322,7 +325,8 @@ worker scores.
 
 In `/api/v1/docs`, get a token from `POST /auth/token` and paste it into **Authorize**.
 `make perf-api` checks the NFR-PERF-03 budgets (30-day trend of 20 sensors, 1,000 alerts) and
-the fleet overview's reads for 500 assets (1 s, so the screen loads in under 2 s).
+the fleet overview's reads for 500 assets (1 s, so the screen loads in under 2 s). The
+browser half, rendering 20 sensors over 30 days in under 3 s, is a Playwright journey.
 
 ## Storage and retention
 

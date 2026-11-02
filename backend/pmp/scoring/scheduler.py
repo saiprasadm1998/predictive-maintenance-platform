@@ -5,9 +5,11 @@ own connection, and if it dies PostgreSQL releases the lock so another worker ta
 
 Each model's cycle times are whole multiples of its cycle (default 60 s, minimum 10 s).
 Cycle T is scored once T + grace has passed, so late gateway samples are still included.
-The grace is 5 s by default (PMP_SCORING_GRACE_S), so a new score reaches the screens
-within one cycle plus 5 s (NFR-PERF-02, AC-05); a source that sends late can have its own
-(`pmp ingest grace`), and a model waits for the longest grace among its sensors' sources.
+The grace is 3 s by default (PMP_SCORING_GRACE_S), which leaves 2 s for the 1 s poll,
+scoring and delivery, so a new score reaches the screens within one cycle plus 5 s
+(NFR-PERF-02, AC-05; measured in 9.2 with `make perf-latency`). A source that sends late
+can have its own (`pmp ingest grace`), and a model waits for the longest grace among its
+sensors' sources.
 Only the latest due cycle is scored: cycles missed while no scheduler was
 running are not back-filled (ARC §5.1); re-scoring history is a separate job (8.7).
 """
@@ -73,7 +75,7 @@ class Scheduler:
         self,
         database: Database,
         *,
-        grace_s: int = 5,
+        grace_s: int = 3,
         bus: EventBus | None = None,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
         poll_s: float = 1.0,

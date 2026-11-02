@@ -347,16 +347,31 @@ def unused_periods(
     versions = sorted(set(version_ids))
     if not tags or not versions:
         return out
+    # Only the unused rows are read and ordered (few, normally); a run breaks where the
+    # status or rule changes, or where a used cycle lies between two unused ones (plan 9.2:
+    # numbering every cycle took 2.7 s for 30 days of 20 sensors).
     rows = session.execute(
         text(
-            "SELECT tag_id, min(ts) AS first, max(ts) AS last, dq_status, dq_rule FROM ("
-            "  SELECT tag_id, ts, dq_status, dq_rule, used,"
-            "    row_number() OVER (PARTITION BY tag_id ORDER BY ts)"
-            "    - row_number() OVER (PARTITION BY tag_id, used, dq_status, dq_rule ORDER BY ts)"
-            "    AS run"
+            "WITH u AS ("
+            "  SELECT tag_id, ts, dq_status, dq_rule,"
+            "    lag(ts) OVER w AS prev_ts, lag(dq_status) OVER w AS prev_status,"
+            "    lag(dq_rule) OVER w AS prev_rule"
             "  FROM sensor_output WHERE version_id = ANY(:versions) AND tag_id = ANY(:tags)"
-            "  AND ts >= :start AND ts < :end) s "
-            "WHERE used IS NOT TRUE "
+            "  AND ts >= :start AND ts < :end AND used IS NOT TRUE"
+            "  WINDOW w AS (PARTITION BY tag_id ORDER BY ts)"
+            "), marked AS ("
+            "  SELECT tag_id, ts, dq_status, dq_rule,"
+            "    CASE WHEN prev_ts IS NULL OR prev_status IS DISTINCT FROM dq_status"
+            "      OR prev_rule IS DISTINCT FROM dq_rule OR EXISTS ("
+            "        SELECT 1 FROM sensor_output o WHERE o.version_id = ANY(:versions)"
+            "        AND o.tag_id = u.tag_id AND o.ts > u.prev_ts AND o.ts < u.ts"
+            "        AND o.used IS TRUE)"
+            "    THEN 1 ELSE 0 END AS starts"
+            "  FROM u"
+            "), runs AS ("
+            "  SELECT *, sum(starts) OVER (PARTITION BY tag_id ORDER BY ts) AS run FROM marked"
+            ") "
+            "SELECT tag_id, min(ts) AS first, max(ts) AS last, dq_status, dq_rule FROM runs "
             "GROUP BY tag_id, run, dq_status, dq_rule ORDER BY tag_id, first"
         ),
         {"versions": versions, "tags": tags, "start": start, "end": end},

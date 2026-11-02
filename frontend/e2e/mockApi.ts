@@ -90,6 +90,7 @@ function json(route: Route, body: unknown, status = 200) {
 export async function mockApi(
   page: Page,
   size: { sites?: number; units?: number; perUnit?: number } = {},
+  points = 24, // per trend: 24 hourly points, or e.g. 800 for a 30-day trend (NFR-PERF-03)
 ) {
   const { roots, leaves } = fleet(size.sites, size.units, size.perUnit);
   const flat = leaves.map((l) => ({
@@ -287,20 +288,23 @@ export async function mockApi(
       const model = models[Number(modelMatch[1]) - 1];
       if (!model) return json(route, { title: "Not found", status: 404 }, 404);
       const now = Date.now();
+      const span = points * 3_600_000 * (points > 24 ? 720 / points : 1);
+      const step = span / points;
+      const wave = (i: number) => 20 + 10 * Math.sin(i / 25);
       const trend = (series: string[]) => ({
-        start: new Date(now - 86_400_000).toISOString(),
+        start: new Date(now - span).toISOString(),
         end: new Date(now).toISOString(),
         raw: false,
-        bucket_s: 3600,
+        bucket_s: Math.round(step / 1000),
         source: "raw",
-        ts: Array.from({ length: 24 }, (_, i) =>
-          new Date(now - (24 - i) * 3_600_000).toISOString(),
+        ts: Array.from({ length: points }, (_, i) =>
+          new Date(now - (points - i) * step).toISOString(),
         ),
         min: Object.fromEntries(
-          series.map((n) => [n, Array.from({ length: 24 }, (_, i) => 20 + i)]),
+          series.map((n) => [n, Array.from({ length: points }, (_, i) => wave(i))]),
         ),
         max: Object.fromEntries(
-          series.map((n) => [n, Array.from({ length: 24 }, (_, i) => 22 + i)]),
+          series.map((n) => [n, Array.from({ length: points }, (_, i) => wave(i) + 2)]),
         ),
       });
       switch (modelMatch[2]) {

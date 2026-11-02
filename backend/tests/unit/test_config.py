@@ -29,7 +29,7 @@ def _settings() -> Settings:
 
 def test_defaults_match_the_architecture(env: pytest.MonkeyPatch) -> None:
     settings = _settings()
-    assert settings.scoring_grace_s == 5  # AC-05: one cycle plus 5 s (plan 6.7)
+    assert settings.scoring_grace_s == 3  # AC-05: one cycle plus 5 s (plan 6.7, 9.2)
     assert settings.late_data_days == 7
     assert settings.retention_months == 24
     assert settings.artefact_dir == Path("/data/artefacts")
