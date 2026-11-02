@@ -397,3 +397,38 @@ describe("ingestion health (FR-ING-07)", () => {
     expect(within(tags).getByText("K101.TT01")).toBeInTheDocument();
   });
 });
+
+describe("operational alerts (ARC §10.3)", () => {
+  it("shows administrators what needs attention, linked where it can be seen", async () => {
+    const routes = asUser(ADMIN);
+    routes["GET /ops/alerts"] = () => ({
+      status: 200,
+      body: [
+        {
+          kind: "source_stale",
+          severity: "critical",
+          text: "Source gw-1 has sent nothing for 12 min.",
+          since: "2026-11-02T10:00:00Z",
+          link: "/admin?tab=ingestion",
+        },
+        {
+          kind: "job_queue",
+          severity: "warning",
+          text: "2 jobs waiting, the oldest for 14 min: is the worker running?",
+          since: "2026-11-02T10:00:00Z",
+          link: null,
+        },
+      ],
+    });
+    fakeApi(routes);
+    renderApp("/admin?tab=retention");
+
+    const panel = await screen.findByRole("region", { name: "Operational alerts" });
+    expect(within(panel).getByText(/Source gw-1 has sent nothing/)).toBeInTheDocument();
+    expect(within(panel).getByText(/2 jobs waiting/)).toBeInTheDocument();
+    expect(within(panel).getByRole("link", { name: "Open" })).toHaveAttribute(
+      "href",
+      "/admin?tab=ingestion",
+    );
+  });
+});

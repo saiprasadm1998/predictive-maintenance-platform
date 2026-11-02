@@ -30,6 +30,7 @@ from pmp.api import (
     ingest,
     models,
     notifications,
+    ops,
     registry,
     results,
     templates,
@@ -242,6 +243,7 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     app.include_router(events.router)
     app.include_router(ingest.router)
     app.include_router(results.router)
+    app.include_router(ops.router)
     app.include_router(backfill.router)
     # Last, so the API and operations endpoints always win over the app's catch-all route.
     if settings is not None and settings.frontend_dir is not None:

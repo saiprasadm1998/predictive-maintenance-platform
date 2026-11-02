@@ -38,6 +38,32 @@ PoC fleet (ARC §6).
 6. Check: `https://<hostname>/healthz` answers `ok`; sign in; issue the gateway's `ingest`
    API key under Administration → API keys.
 
+The database password is set only when the `pgdata` volume is first created. A volume
+left from an earlier stack keeps its old password: set `POSTGRES_PASSWORD` to that one,
+or, on a test machine only, start clean with `make down` and `docker volume rm pmp_pgdata`.
+
+## Monitoring (ARC §10.3)
+
+Administrators see the built-in operational alerts at the top of Administration: a source
+that has stopped sending, a scoring pass over half its cycle, no scoring for 10 minutes
+(worker down), a job waiting over 10 minutes, and a failed backup or none for 26 hours.
+
+Prometheus metrics are at `http://web:8000/metrics` on the stack's network (the proxy
+answers 404 for `/metrics`, so they are not public). Add a Prometheus service to the
+compose network and scrape `web:8000`. With several web processes each scrape reaches one
+of them; only `pmp_sse_clients` differs between processes.
+
+| Metric | Meaning |
+| ------ | ------- |
+| `pmp_ingest_samples_accepted_total`, `_rejected_total` `{source}` | samples per source (use `rate()` for samples/s) |
+| `pmp_ingest_source_stale{source}` | 1 while a source is stale |
+| `pmp_scoring_cycle_duration_seconds`, `pmp_scoring_last_cycle_timestamp_seconds` | the scheduler's last pass |
+| `pmp_models{status}` | models by runtime status |
+| `pmp_jobs_queued`, `pmp_job_queue_oldest_seconds` | the job queue |
+| `pmp_sse_clients` | open live-event streams (this process) |
+| `pmp_notifications_failed_total` | e-mails given up after retries |
+| `pmp_backup_last_success_timestamp_seconds`, `pmp_backup_last_failed` | backups |
+
 ## Backups (NFR-REL-03: RPO 24 h, RTO 4 h)
 
 Every day at `PMP_BACKUP_AT` (UTC) the `backup` service writes into the `backups` volume a

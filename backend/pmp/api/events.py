@@ -66,6 +66,11 @@ class EventHub:
         with self._lock:
             self._subscribers = {s for s in self._subscribers if s[1] is not queue}
 
+    def clients(self) -> int:
+        """Open streams in this process (a metric, ARC §10.3)."""
+        with self._lock:
+            return len(self._subscribers)
+
     def stop(self) -> None:
         self._stop.set()
 

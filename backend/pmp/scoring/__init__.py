@@ -54,6 +54,7 @@ from pmp.scoring.runtime import (
     score_models,
 )
 from pmp.scoring.scheduler import (
+    OVERRUN_SHARE,
     RETAINED_TABLES,
     Scheduler,
     latest_due_cycle,
@@ -80,6 +81,7 @@ __all__ = [
     "EVENT_CHANNEL",
     "MAX_PX",
     "MAX_RESCORE_DAYS",
+    "OVERRUN_SHARE",
     "RANGE_FLOOR",
     "RESCORE_JOB",
     "RETAINED_TABLES",

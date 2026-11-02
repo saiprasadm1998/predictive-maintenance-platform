@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections import defaultdict
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime, timedelta
@@ -24,6 +25,7 @@ from typing import Any
 from pmp.alerting import expire_shelves, sync_out_of_service
 from pmp.core import (
     RETENTION_JOB,
+    SCORING_STATE,
     Database,
     EventBus,
     LockKey,
@@ -31,6 +33,7 @@ from pmp.core import (
     apply_retention,
     enqueue,
     holds_advisory_lock,
+    record_state,
     retention_due,
     try_advisory_lock,
 )
@@ -54,6 +57,7 @@ RETAINED_TABLES = (
     RetainedTable("score", "score_1h"),
     RetainedTable("sensor_output", "sensor_output_1h"),
 )
+OVERRUN_SHARE = 0.5  # ARC §10.3: a cycle overruns past half its length
 STATUS_CYCLE_S = 60  # sensors no deployed model scores are checked on this cycle
 
 
@@ -109,13 +113,31 @@ class Scheduler:
             if previous is None or cycle > previous:
                 due[cycle].append(version)
         results: list[CycleResult] = []
+        started = time.monotonic()
         for cycle in sorted(due):
             batch = score_models(self.database, cycle, due[cycle], self.cache, bus=self.bus)
             for version in due[cycle]:
                 last[version.version_id] = cycle
             results += batch
+        if results:
+            self._record_duration(now, time.monotonic() - started, active, len(results))
         self._sweep_statuses(now, active)
         return results
+
+    def _record_duration(
+        self, now: datetime, seconds: float, active: list[ActiveVersion], scored: int
+    ) -> None:
+        """ARC §10.3: the web role shows a cycle overrun (over half the shortest cycle) and
+        serves the duration as a metric; only the scheduler can measure it."""
+        cycle_s = min(v.cycle_s for v in active)
+        try:
+            with self.database.session() as session:
+                data = {"duration_s": round(seconds, 3), "cycle_s": cycle_s, "models": scored}
+                record_state(session, SCORING_STATE, data, now)
+        except Exception:
+            logger.exception("Recording the scoring duration failed")
+        if seconds > OVERRUN_SHARE * cycle_s:
+            logger.warning("Scoring took %.1f s, over half of the %s s cycle", seconds, cycle_s)
 
     def _graces(self, active: list[ActiveVersion]) -> dict[int, int]:
         """Each version's grace: the longest of its sensors' sources (ARC §5.1)."""

@@ -8,6 +8,7 @@ import { IngestionTab } from "./IngestionTab";
 import { KeysTab } from "./KeysTab";
 import { NotificationLogTab } from "./NotificationLogTab";
 import { NotificationsTab } from "./NotificationsTab";
+import { OpsAlerts } from "./OpsAlerts";
 import { RetentionTab } from "./RetentionTab";
 import { RulesTab } from "./RulesTab";
 import { UsersTab } from "./UsersTab";
@@ -40,6 +41,7 @@ export function AdminPage() {
 
   return (
     <div className="registry">
+      {admin && <OpsAlerts />}
       <nav aria-label="Administration sections">
         <ul className="tabs">
           {tabs.map((t) => (

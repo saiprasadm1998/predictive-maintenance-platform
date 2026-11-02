@@ -79,6 +79,7 @@ from pmp.core.jobs import (
 )
 from pmp.core.logging import configure_logging, log_context, request_id_var, user_id_var
 from pmp.core.migrate import run_migrations
+from pmp.core.opsstate import SCORING_STATE, OpsState, read_state, record_state
 from pmp.core.retention import (
     RETENTION_JOB,
     RetainedTable,
@@ -120,6 +121,7 @@ __all__ = [
     "EVENT_CHANNEL",
     "MATRIX",
     "RETENTION_JOB",
+    "SCORING_STATE",
     "AccessDeniedError",
     "ActiveSession",
     "Actor",
@@ -147,6 +149,7 @@ __all__ = [
     "LockKey",
     "LogFormat",
     "NewSession",
+    "OpsState",
     "Permission",
     "Person",
     "Principal",
@@ -194,7 +197,9 @@ __all__ = [
     "notify",
     "query_audit",
     "queue_depth",
+    "read_state",
     "record_audit",
+    "record_state",
     "refresh_hourly",
     "report_progress",
     "request_id_var",

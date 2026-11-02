@@ -58,6 +58,7 @@ V, A = Permission.VIEW, Permission.ALERT_ACTIONS
 PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("GET", "/healthz"): None,
     ("GET", "/readyz"): None,
+    ("GET", "/metrics"): None,  # internal network only (the proxy blocks it)
     ("POST", "/api/v1/auth/login"): None,
     ("POST", "/api/v1/auth/token"): None,
     ("POST", "/api/v1/auth/logout"): None,
@@ -161,6 +162,7 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/ingest/backfill/{upload_id}/load"): Permission.REGISTRY,
     ("GET", "/api/v1/jobs/{job_id}"): V,
     ("GET", "/api/v1/ingest/health"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/ops/alerts"): Permission.ADMINISTRATION,
     ("GET", "/api/v1/results/health"): "key",  # results-read
 }
 
@@ -314,6 +316,9 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200, headers=key)
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200)  # as a user
     health = call("GET", f"{v1}/ingest/health", 200).json()
+    call("GET", f"{v1}/ops/alerts", 200)
+    metrics = call("GET", "/metrics", 200)
+    assert 'pmp_ingest_samples_accepted_total{source="gw-1"} 1' in metrics.text
     assert [x["source"] for x in health["sources"]] == ["gw-1"]
     reader = call("POST", f"{v1}/api-keys", 201, json={"name": "dcs", "scope": "results-read"})
     results_key = {"Authorization": f"ApiKey {reader.json()['key']}"}
