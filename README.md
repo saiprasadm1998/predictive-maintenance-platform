@@ -9,7 +9,7 @@ Architecture: a modular monolith (Python back end, React front end, PostgreSQL w
 ```
 backend/    Python 3.12 package `pmp` (13 modules + api), tests
 frontend/   React, TypeScript and Vite app (from phase 6)
-deploy/     Dockerfile, compose files, proxy configuration (from phase 0.3)
+deploy/     Dockerfile, compose files, Caddy proxy configuration, deployment guide
 docs/       implementation plan and project documents
 ```
 
@@ -425,29 +425,33 @@ shows every shared component with sample data. `make check` runs the front-end c
 (`make fe-check`: ESLint with accessibility rules, Prettier, Vitest, type check and build).
 Browser journeys run with `make fe-e2e` against the production build with the API mocked
 (once per machine first: `cd frontend && npx playwright install chromium`).
-The container image builds the app and the web role serves it on the same port as the API
-(`make up`, then http://127.0.0.1:8000).
+The container image builds the app and the web role serves it with the API, behind the
+reverse proxy (`make up`, then https://localhost).
 
 ## Running the full stack in containers
 
-One image runs both roles (`pmp web`, `pmp worker`). To run database, web and worker together:
+One image runs every role (`pmp web`, `pmp worker`, `pmp backup`) behind a Caddy reverse
+proxy with TLS. To run proxy, database, web, worker and the nightly backup together:
 
 ```
-cp deploy/.env.example deploy/.env   # once
+cp deploy/.env.example deploy/.env   # once; change every change-me
 make up                              # builds the image and starts everything
-curl http://127.0.0.1:8000/healthz
+curl -k https://localhost/healthz    # -k: the trial certificate is Caddy's own
 make logs                            # follow the logs; Ctrl+C to stop following
 make down
 ```
 
-`make image` builds the image on its own (`pmp:local`).
+Installing at a plant (hostname, corporate certificate, sizing), backups and restoring
+them are in [deploy/README.md](deploy/README.md). `make image` builds the image on its own
+(`pmp:local`).
 
 ## Continuous integration
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 lint, format check, type check, import contracts, unit and integration tests against a
 TimescaleDB service container, the 80% coverage gate on the analytics modules, a
-dependency audit (`make audit`), then builds the image and smoke-tests `/healthz`.
+dependency audit (`make audit`), then builds the image, starts the stack and smoke-tests it
+through the proxy (`/healthz`, a deep link, the 5 MB batch limit, one backup).
 
 ## Module boundaries
 
