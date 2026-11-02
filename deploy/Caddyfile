@@ -15,6 +15,9 @@
 		max_size 5MB
 	}
 
+	# Prometheus reads web:8000/metrics on the internal network; not through the proxy.
+	respond /metrics 404
+
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		-Server
