@@ -72,8 +72,11 @@ fe-test:
 fe-build:
 	$(NPM) run build
 
+# What ships (the app's runtime packages) must have no moderate or worse advisory; the
+# build and lint tools, which never reach the image, fail only on high or critical.
 fe-audit:
-	$(NPM) audit --audit-level=moderate
+	$(NPM) audit --omit=dev --audit-level=moderate
+	$(NPM) audit --audit-level=high
 
 # Browser journeys against the production build, with the API mocked (no database needed).
 # Once per machine first: cd frontend && npx playwright install chromium
