@@ -655,7 +655,7 @@ function SensorTable({
                   type="button"
                   className="link-button"
                   aria-pressed={on}
-                  aria-label={`${on ? "Remove" : "Chart"} ${sensorLabel(s)}`}
+                  aria-label={`${on ? "Charted" : "Chart"} ${sensorLabel(s)}`}
                   onClick={() => onToggle(s.source_name)}
                 >
                   {on ? "Charted" : "Chart"}

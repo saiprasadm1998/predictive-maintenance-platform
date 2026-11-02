@@ -14,11 +14,11 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field
 
 from pmp.api.deps import (
-    SESSION_COOKIE,
     SignedIn,
     client_ip,
     database_of,
     policy_of,
+    session_cookie,
     settings_of,
     signed_in,
 )
@@ -107,7 +107,7 @@ def _user_out(new: NewSession) -> UserOut:
 def login(request: Request, response: Response, body: Credentials) -> SessionOut:
     new = _start(request, body)
     response.set_cookie(
-        SESSION_COOKIE,
+        session_cookie(request),
         new.token,
         httponly=True,
         secure=settings_of(request).session_cookie_secure,
@@ -131,7 +131,13 @@ def logout(
     with database_of(request).session() as session:
         sign_out(session, user.token)
     response.status_code = 204
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(
+        session_cookie(request),
+        path="/",
+        secure=settings_of(request).session_cookie_secure,
+        httponly=True,
+        samesite="lax",
+    )
     return response
 
 

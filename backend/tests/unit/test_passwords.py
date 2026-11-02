@@ -10,7 +10,12 @@ from pmp.core.users import _verify, hash_password
 
 @pytest.mark.parametrize(
     ("password", "problem"),
-    [("short-pw", "at least 12"), ("xx-alice-pass-xx", "username"), ("XXALICEXXXXXXX", "username")],
+    [
+        ("short-pw", "at least 12"),
+        ("x" * 129, "at most 128"),  # ASVS 2.1.2
+        ("xx-alice-pass-xx", "username"),
+        ("XXALICEXXXXXXX", "username"),
+    ],
 )
 def test_weak_passwords_are_refused(password: str, problem: str) -> None:
     with pytest.raises(UserError, match=problem):
@@ -19,6 +24,7 @@ def test_weak_passwords_are_refused(password: str, problem: str) -> None:
 
 def test_a_long_passphrase_is_fine() -> None:
     check_password("alice", "correct horse battery")
+    check_password("alice", "x" * 128)
 
 
 def test_hashes_are_argon2id_and_salted() -> None:

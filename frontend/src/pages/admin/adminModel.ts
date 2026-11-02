@@ -26,12 +26,15 @@ export function grantText(grant: RoleGrant, assets: readonly Asset[]): string {
 }
 
 export const MIN_PASSWORD = 12;
+export const MAX_PASSWORD = 128;
 
 /** The server's password rules (decision 5.1), checked before sending. */
 export function passwordProblems(username: string, password: string): string[] {
   const problems: string[] = [];
   if (password.length < MIN_PASSWORD)
     problems.push(`The password needs at least ${MIN_PASSWORD} characters`);
+  if (password.length > MAX_PASSWORD)
+    problems.push(`The password may have at most ${MAX_PASSWORD} characters`);
   if (username.trim() && password.toLowerCase().includes(username.trim().toLowerCase()))
     problems.push("The password may not contain the username");
   return problems;

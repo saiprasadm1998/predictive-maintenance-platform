@@ -163,6 +163,8 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
         headers.setdefault("X-Content-Type-Options", "nosniff")
         headers.setdefault("Referrer-Policy", "same-origin")
         headers.setdefault("X-Frame-Options", "DENY")
+        if request.url.path.startswith("/api/"):  # ASVS 8.2.1: no API data in caches
+            headers.setdefault("Cache-Control", "no-store")
         if not request.url.path.startswith(DOCS_PATH):  # Swagger UI loads its own assets
             headers.setdefault("Content-Security-Policy", CONTENT_SECURITY_POLICY)
         if secure:

@@ -255,7 +255,10 @@ def test_browser_sign_in_sets_a_safe_cookie_and_needs_csrf_for_changes(client: T
     assert "httponly" in cookie
     assert "secure" in cookie
     assert "samesite=lax" in cookie
-    assert client.get("/api/v1/auth/me").status_code == 200
+    assert cookie.startswith("__host-pmp_session=")  # host-only, secure, whole site (ASVS)
+    me = client.get("/api/v1/auth/me")
+    assert me.status_code == 200
+    assert me.headers["cache-control"] == "no-store"  # API data never cached (ASVS 8.2.1)
 
     change = {"current_password": PASSWORD, "new_password": "a different passphrase"}
     refused = client.post("/api/v1/auth/password", json=change)

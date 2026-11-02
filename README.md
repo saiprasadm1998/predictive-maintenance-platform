@@ -450,6 +450,12 @@ them are in [deploy/README.md](deploy/README.md), with the upgrade sequence. `ma
 builds the image on its own (`pmp:local` and `pmp:<version>`); `make sbom` and `make scan`
 write its software bill of materials and vulnerability report to `reports/`.
 
+## Acceptance, security and accessibility records
+
+`docs/acceptance.md` records each acceptance criterion (PRD AC-01 to AC-08) with its result
+and evidence, and the measured performance targets; `docs/security-asvs-l1.md` the OWASP
+ASVS level 1 review; `docs/accessibility.md` the WCAG 2.1 AA check.
+
 ## Continuous integration
 
 GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:

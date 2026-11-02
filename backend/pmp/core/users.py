@@ -1,7 +1,7 @@
 """Users, sign-in and sessions (FR-SEC-01, UC-17, ARC §9.3).
 
-- Passwords are hashed with Argon2id (argon2-cffi defaults). Rules: at least 12
-  characters and not containing the username (decision 5.1).
+- Passwords are hashed with Argon2id (argon2-cffi defaults). Rules: 12 to 128
+  characters and not containing the username (decision 5.1, ASVS 2.1.2 in 9.2).
 - Sign-in fails with the same message whether the username is unknown, the password is
   wrong or the account is locked or inactive, so usernames cannot be discovered. After 5
   failures in a row the account is locked for 15 minutes.
@@ -52,6 +52,7 @@ _hasher = PasswordHasher()  # Argon2id
 _DUMMY_HASH = _hasher.hash("pmp-timing-equaliser")
 _USERNAME = re.compile(r"^[A-Za-z0-9._@-]{3,100}$")
 MIN_PASSWORD = 12
+MAX_PASSWORD = 128  # ASVS 2.1.2: at least 64 allowed, over 128 refused (plan 9.2)
 TOUCH_EVERY = timedelta(seconds=60)  # how often a session's last-seen time is written
 
 
@@ -201,10 +202,12 @@ def _snapshot(session: Session, user: AppUser) -> dict[str, object]:
 
 
 def check_password(username: str, password: str) -> None:
-    """Password rules (decision 5.1): at least 12 characters, not containing the
+    """Password rules (decision 5.1): 12 to 128 characters, not containing the
     username. Length matters more than character classes (NIST SP 800-63B)."""
     if len(password) < MIN_PASSWORD:
         raise UserError(f"Passwords need at least {MIN_PASSWORD} characters")
+    if len(password) > MAX_PASSWORD:
+        raise UserError(f"Passwords may have at most {MAX_PASSWORD} characters")
     if username.strip().lower() in password.lower():
         raise UserError("A password may not contain the username")
 

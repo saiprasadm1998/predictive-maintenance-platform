@@ -32,6 +32,17 @@ logger = logging.getLogger(__name__)
 security_log = logging.getLogger("pmp.security")
 
 SESSION_COOKIE = "pmp_session"
+
+
+def session_cookie(request: Request) -> str:
+    """The session cookie's name: "__Host-" prefixed over HTTPS (ASVS 3.4.4, plan 9.2), so
+    the browser accepts it only from this host, secure and for the whole site. Plain-HTTP
+    development cannot use the prefix."""
+    return (
+        f"__Host-{SESSION_COOKIE}" if settings_of(request).session_cookie_secure else SESSION_COOKIE
+    )
+
+
 CSRF_HEADER = "X-CSRF-Token"
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 KEY_USE_LOG_EVERY_S = 300.0  # successful key use is logged at most every 5 min per key
@@ -173,7 +184,7 @@ def resolve_user(request: Request) -> SignedIn:
     """
     scheme, _, bearer = request.headers.get("authorization", "").partition(" ")
     via_cookie = scheme.lower() != "bearer" or not bearer.strip()
-    token = request.cookies.get(SESSION_COOKIE, "") if via_cookie else bearer.strip()
+    token = request.cookies.get(session_cookie(request), "") if via_cookie else bearer.strip()
     if not token:
         raise _unauthorized("Sign in with POST /api/v1/auth/login or send a bearer token.")
     with database_of(request).session() as session:
