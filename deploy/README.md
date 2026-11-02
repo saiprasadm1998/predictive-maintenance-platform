@@ -92,3 +92,28 @@ docker compose -f deploy/compose.yaml up -d --wait
 
 The artefact archive next to the dump is unpacked too. The web role then applies any
 migrations newer than the backup.
+
+## Upgrade (ARC §10.4)
+
+Images follow semantic versioning (`pmp:<version>`, from `backend/pyproject.toml`).
+Migrations are forward-only and run once, when the web role starts. In this order:
+
+```
+# 1. Back up
+docker compose -f deploy/compose.yaml run --rm --no-deps backup backup
+# 2. Stop the worker (scoring, jobs, e-mails) and the backup service
+docker compose -f deploy/compose.yaml stop worker backup
+# 3. Deploy the new image: build it from the new release, or load the delivered one
+git pull && make image                    # or: docker load -i pmp-<version>.tar
+# 4. Migrations: start the web role on the new image; it migrates, then reports healthy
+docker compose -f deploy/compose.yaml up -d --wait --no-deps web
+# 5. Start the worker and everything else
+docker compose -f deploy/compose.yaml up -d --wait
+# 6. Smoke test: health, then one scoring cycle within two minutes
+curl -k https://<hostname>/healthz
+docker compose -f deploy/compose.yaml exec web pmp score status   # "last cycle" is new
+```
+
+If the smoke test fails, roll back: stop the stack, restore the backup from step 1 into an
+empty database (see Restore into an empty database) and start the previous image
+(`PMP_IMAGE=pmp:<previous version>` in deploy/.env). Migrations never run backwards.

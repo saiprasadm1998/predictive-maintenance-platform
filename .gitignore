@@ -38,3 +38,6 @@ frontend/test-results/
 *.crt
 *.key
 *.pem
+
+# Image reports (make sbom, make scan)
+reports/

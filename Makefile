@@ -6,9 +6,13 @@ UV := cd backend && uv run
 NPM := cd frontend && npm
 COMPOSE := docker compose -f deploy/compose.dev.yaml
 STACK := docker compose -f deploy/compose.yaml
+VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' backend/pyproject.toml)
+# Trivy for the image scan and SBOM (plan 9.1); pinned by version, pin by digest after a pull.
+TRIVY := docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+	-v pmp-trivy-cache:/root/.cache -v "$(CURDIR)/reports:/reports" aquasec/trivy:0.58.1
 
 .PHONY: check check-unit lint format-check format types contracts test test-unit audit \
-        sync db-up db-down db-reset migrate web worker image up down logs perf-backfill perf-scoring perf-api \
+        sync db-up db-down db-reset migrate web worker image sbom scan up down logs perf-backfill perf-scoring perf-api \
         fe-install fe-dev fe-check fe-lint fe-format fe-test fe-build fe-audit fe-e2e
 
 check: lint format-check types contracts test fe-check
@@ -95,7 +99,19 @@ worker:
 	$(UV) pmp worker
 
 image:
-	docker build -f deploy/Dockerfile -t pmp:local .
+	docker build -f deploy/Dockerfile -t pmp:local -t pmp:$(VERSION) .
+
+# The image's software bill of materials (CycloneDX) and vulnerability report, in reports/.
+# `make scan` fails on a critical vulnerability that has a fix (ARC §9, NFR-SEC-03).
+sbom:
+	mkdir -p reports
+	$(TRIVY) image --format cyclonedx --output /reports/pmp-sbom.cdx.json pmp:local
+
+scan:
+	mkdir -p reports
+	$(TRIVY) image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed \
+		--format table --output /reports/pmp-vulnerabilities.txt pmp:local
+	$(TRIVY) image --scanners vuln --severity CRITICAL --ignore-unfixed --exit-code 1 pmp:local
 
 up:
 	$(STACK) up -d --build --wait

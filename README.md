@@ -442,8 +442,9 @@ make down
 ```
 
 Installing at a plant (hostname, corporate certificate, sizing), backups and restoring
-them are in [deploy/README.md](deploy/README.md). `make image` builds the image on its own
-(`pmp:local`).
+them are in [deploy/README.md](deploy/README.md), with the upgrade sequence. `make image`
+builds the image on its own (`pmp:local` and `pmp:<version>`); `make sbom` and `make scan`
+write its software bill of materials and vulnerability report to `reports/`.
 
 ## Continuous integration
 
@@ -451,7 +452,9 @@ GitHub Actions (`.github/workflows/ci.yml`) runs on every push and pull request:
 lint, format check, type check, import contracts, unit and integration tests against a
 TimescaleDB service container, the 80% coverage gate on the analytics modules, a
 dependency audit (`make audit`), then builds the image, starts the stack and smoke-tests it
-through the proxy (`/healthz`, a deep link, the 5 MB batch limit, one backup).
+through the proxy (`/healthz`, a deep link, the 5 MB batch limit, one backup), writes the
+image's SBOM and fails on a critical vulnerability that has a fix (both kept as the
+`image-reports` artifact).
 
 ## Module boundaries
 
