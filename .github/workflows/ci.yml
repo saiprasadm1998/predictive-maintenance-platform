@@ -117,13 +117,22 @@ jobs:
       - name: Build image and start the stack
         run: make up
 
-      - name: Smoke test /healthz
+      - name: Smoke test /healthz through the proxy (TLS)
         run: |
-          curl --fail --silent --show-error --retry 10 --retry-delay 2 --retry-all-errors \
-            http://127.0.0.1:8000/healthz
+          curl --fail --silent --show-error --insecure --retry 10 --retry-delay 2 \
+            --retry-all-errors https://localhost/healthz
 
       - name: Smoke test the front end (a deep link returns the app)
-        run: curl --fail --silent --show-error http://127.0.0.1:8000/fleet | grep -q '<div id="root">'
+        run: curl --fail --silent --show-error --insecure https://localhost/fleet | grep -q '<div id="root">'
+
+      - name: The proxy refuses a gateway batch over 5 MB
+        run: |
+          code=$(head -c 6000000 /dev/zero | curl --silent --insecure --output /dev/null \
+            --write-out '%{http_code}' --data-binary @- https://localhost/api/v1/ingest/samples)
+          test "$code" = 413
+
+      - name: A backup from the running stack
+        run: docker compose -f deploy/compose.yaml run --rm --no-deps backup backup
 
       - name: Show logs on failure
         if: failure()

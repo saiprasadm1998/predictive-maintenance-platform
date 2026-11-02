@@ -33,3 +33,8 @@ backend/.artefacts/
 # Playwright
 frontend/playwright-report/
 frontend/test-results/
+
+# TLS certificates and keys for the reverse proxy (deploy/certs)
+*.crt
+*.key
+*.pem

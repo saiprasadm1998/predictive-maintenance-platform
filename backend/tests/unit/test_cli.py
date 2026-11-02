@@ -26,7 +26,7 @@ def test_a_command_is_required() -> None:
 
 def test_unknown_command_is_rejected() -> None:
     with pytest.raises(SystemExit):
-        cli.main(["backup"])
+        cli.main(["no-such-command"])
 
 
 def test_migrate_runs_migrations(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -171,3 +171,15 @@ def test_replay_explains_when_the_web_role_is_not_running(
     err = capsys.readouterr().err
     assert "cannot reach http://127.0.0.1:8000" in err
     assert "make web" in err
+
+
+def test_backup_reports_a_failure_with_exit_code_1(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pmp.core import BackupError
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise BackupError("pg_dump failed: no server")
+
+    monkeypatch.setattr(cli, "run_backup", fail)
+    with pytest.raises(SystemExit) as exit_:
+        cli.main(["backup", "--dir", "/tmp/pmp-test-backups"])
+    assert exit_.value.code == 1

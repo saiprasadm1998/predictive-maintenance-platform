@@ -1,0 +1,34 @@
+# Reverse proxy (ARC §10.1, plan 9.1): TLS, HTTP/2, a 5 MB limit on gateway batches, and
+# the live event stream passed through unbuffered (ARC T-03). Settings come from deploy/.env:
+#   PMP_HOSTNAME  the name users and the gateway reach PMP by (default localhost)
+#   PMP_TLS       "internal" (Caddy's own CA, for trials: browsers warn) or, for the plant,
+#                 "/certs/pmp.crt /certs/pmp.key" from the corporate CA (files in deploy/certs)
+{
+	admin off
+}
+
+{$PMP_HOSTNAME:localhost} {
+	tls {$PMP_TLS:internal}
+
+	# Gateway batches (ARC §7.1.1): at most 5 MB. History files (backfill) are larger.
+	request_body /api/v1/ingest/samples {
+		max_size 5MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	# Server-sent events: no buffering and no compression, so updates arrive at once.
+	handle /api/v1/events* {
+		reverse_proxy web:8000 {
+			flush_interval -1
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		reverse_proxy web:8000
+	}
+}

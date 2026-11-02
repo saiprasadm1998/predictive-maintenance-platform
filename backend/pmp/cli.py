@@ -56,6 +56,7 @@ from pmp.core import (
     ApiKeyError,
     ApiKeyScope,
     AuditFilter,
+    BackupError,
     Database,
     JobRegistry,
     RetentionError,
@@ -76,9 +77,12 @@ from pmp.core import (
     list_users,
     query_audit,
     reset_password,
+    restore,
     revoke_api_key,
     rotate_api_key,
+    run_backup,
     run_migrations,
+    seconds_until,
     set_active,
     set_retention,
     set_roles,
@@ -242,6 +246,20 @@ def build_parser() -> argparse.ArgumentParser:
 
     commands.add_parser("worker", help="run the worker role (jobs; scheduler from phase 4)")
     commands.add_parser("migrate", help="upgrade the database to the latest migration")
+    backup = commands.add_parser(
+        "backup", help="pg_dump and artefact archive; keeps 14 daily and 8 weekly copies"
+    )
+    backup.add_argument("--dir", type=Path, help="where to write (default: PMP_BACKUP_DIR)")
+    backup.add_argument(
+        "--at", help="keep running and back up every day at HH:MM UTC (the backup service)"
+    )
+    restore_cmd = commands.add_parser(
+        "restore", help="load a backup into an empty database and unpack its artefacts"
+    )
+    restore_cmd.add_argument("dump", type=Path, help="a pmp-<time>.dump file")
+    restore_cmd.add_argument(
+        "--artefacts", type=Path, help="its pmp-<time>-artefacts.tar.gz (default: alongside)"
+    )
 
     registry = commands.add_parser("registry", help="asset and tag registry")
     registry_commands = registry.add_subparsers(dest="registry_command", required=True)
@@ -568,12 +586,78 @@ def build_parser() -> argparse.ArgumentParser:
 def _run_web(settings: Settings, args: argparse.Namespace) -> None:
     if not args.no_migrate:
         run_migrations(settings.database_url.get_secret_value())
+    host, port = args.host or settings.web_host, args.port or settings.web_port
+    if settings.web_workers == 1:
+        uvicorn.run(create_app(settings=settings), host=host, port=port, log_config=None)
+        return
+    # Several processes (ARC §10.1): each builds its app from the same environment.
     uvicorn.run(
-        create_app(settings=settings),
-        host=args.host or settings.web_host,
-        port=args.port or settings.web_port,
+        "pmp.api:create_app_from_env",
+        factory=True,
+        workers=settings.web_workers,
+        host=host,
+        port=port,
         log_config=None,
     )
+
+
+def _backup_once(settings: Settings, target: Path) -> int:
+    url = settings.database_url.get_secret_value()
+    database = Database(url)
+    try:
+        result = run_backup(
+            database,
+            url,
+            settings.artefact_dir,
+            target,
+            keep_daily=settings.backup_keep_daily,
+            keep_weekly=settings.backup_keep_weekly,
+        )
+    except BackupError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    finally:
+        database.dispose()
+    print(f"Backed up to {result.dump} and {result.artefacts}; {len(result.removed)} removed")
+    return 0
+
+
+def _run_backup(settings: Settings, args: argparse.Namespace) -> int:
+    target = args.dir or settings.backup_dir
+    if not args.at:
+        return _backup_once(settings, target)
+    try:
+        at = datetime.strptime(args.at, "%H:%M").time()
+    except ValueError:
+        print("Error: --at takes HH:MM (UTC)", file=sys.stderr)
+        return 2
+    stop = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
+    logger.info("Backups every day at %s UTC into %s", args.at, target)
+    while not stop.wait(seconds_until(at, datetime.now(UTC))):
+        _backup_once(settings, target)  # a failure is recorded; try again tomorrow
+    return 0
+
+
+def _run_restore(settings: Settings, args: argparse.Namespace) -> int:
+    dump: Path = args.dump
+    artefacts = args.artefacts
+    if artefacts is None:
+        beside = dump.with_name(dump.name.removesuffix(".dump") + "-artefacts.tar.gz")
+        artefacts = beside if beside.exists() else None
+    try:
+        result = restore(
+            settings.database_url.get_secret_value(), dump, artefacts, settings.artefact_dir
+        )
+    except BackupError as error:
+        print(f"Error: {error}", file=sys.stderr)
+        return 1
+    print(
+        f"Restored {result['tables']} tables and {result['artefact_files']} artefact files. "
+        "Start the web role: it applies any newer migrations."
+    )
+    return 0
 
 
 def _run_worker(settings: Settings) -> None:
@@ -1594,6 +1678,10 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     if args.command == "migrate":
         run_migrations(settings.database_url.get_secret_value())
+    elif args.command == "backup":
+        sys.exit(_run_backup(settings, args))
+    elif args.command == "restore":
+        sys.exit(_run_restore(settings, args))
     elif args.command == "web":
         _run_web(settings, args)
     elif args.command == "worker":

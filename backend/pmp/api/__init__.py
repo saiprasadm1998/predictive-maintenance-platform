@@ -3,6 +3,6 @@
 Uses the public interfaces of every module. No module imports the api package.
 """
 
-from pmp.api.app import create_app
+from pmp.api.app import create_app, create_app_from_env
 
-__all__ = ["create_app"]
+__all__ = ["create_app", "create_app_from_env"]

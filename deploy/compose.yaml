@@ -1,26 +1,50 @@
-# Full local stack: database, web role and worker role from one image (ARC-001 §10.1).
-# Start with `make up` (needs deploy/.env). The reverse proxy, backups and production
-# settings are added in sub-phase 9.1.
+# The production stack (ARC §10.1, plan 9.1): reverse proxy, web and worker roles from one
+# image, TimescaleDB and the nightly backup. Needs deploy/.env (copy .env.example).
+# Start with `make up`; users and the gateway reach https://$PMP_HOSTNAME through the proxy.
 name: pmp
 
+x-database-url: &database-url postgresql+psycopg://pmp:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@db:5432/pmp
+
 x-app: &app
-  image: pmp:local
+  image: ${PMP_IMAGE:-pmp:local}
   build:
     context: ..
     dockerfile: deploy/Dockerfile
   env_file: .env
   environment:
-    PMP_DATABASE_URL: postgresql+psycopg://pmp:pmp@db:5432/pmp
+    PMP_DATABASE_URL: *database-url
   volumes:
     - artefacts:/data/artefacts
+  restart: unless-stopped
 
 services:
+  proxy:
+    # Pinned by version (pin by digest after the first pull, as the database image).
+    image: caddy:2.8.4-alpine
+    ports:
+      - "${PMP_HTTP_PORT:-80}:80"
+      - "${PMP_HTTPS_PORT:-443}:443"
+      - "${PMP_HTTPS_PORT:-443}:443/udp"
+    environment:
+      PMP_HOSTNAME: ${PMP_HOSTNAME:-localhost}
+      PMP_TLS: ${PMP_TLS:-internal}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./certs:/certs:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
   db:
     # Same pinned image as compose.dev.yaml.
     image: timescale/timescaledb:latest-pg16@sha256:6f139d56042989bd35f50ba5986e492cd32e35cc6778c50be2659add298dc09f
+    command: ["postgres", "-c", "shared_buffers=${PMP_DB_SHARED_BUFFERS:-512MB}"]
     environment:
       POSTGRES_USER: pmp
-      POSTGRES_PASSWORD: pmp
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       POSTGRES_DB: pmp
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -29,12 +53,16 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+    restart: unless-stopped
 
   web:
     <<: *app
     command: ["web"]
-    ports:
-      - "127.0.0.1:8000:8000"
+    environment:
+      PMP_DATABASE_URL: *database-url
+      FORWARDED_ALLOW_IPS: "*"  # only the proxy reaches it: trust its client address
+    expose:
+      - "8000"
     depends_on:
       db:
         condition: service_healthy
@@ -47,7 +75,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    restart: unless-stopped
 
   worker:
     <<: *app
@@ -57,6 +84,19 @@ services:
         condition: service_healthy   # the web role has finished migrations
     restart: always
 
+  backup:
+    <<: *app
+    command: ["backup", "--at", "${PMP_BACKUP_AT:-02:30}"]
+    volumes:
+      - artefacts:/data/artefacts
+      - backups:/data/backups
+    depends_on:
+      web:
+        condition: service_healthy
+
 volumes:
   pgdata:
   artefacts:
+  backups:
+  caddy-data:
+  caddy-config:

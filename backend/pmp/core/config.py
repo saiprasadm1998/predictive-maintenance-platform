@@ -39,6 +39,9 @@ class Settings(BaseSettings):
     ingest_rate_limit: float = Field(default=50.0, gt=0)  # requests per second per API key
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted
     retention_months: int = Field(default=24, ge=1)
+    backup_dir: Path = Path("/data/backups")  # pg_dump files and artefact archives (9.1)
+    backup_keep_daily: int = Field(default=14, ge=1)
+    backup_keep_weekly: int = Field(default=8, ge=0)
     alert_max_shelve_days: int = Field(default=7, ge=1)  # UCS §6.6: configurable maximum
     # UCS §6.8 urgency bands: upper bounds in hours of the forecast's lower interval bound
     # Notifications (UCS §6.10, ARC §10): the SMTP relay; no host means none are sent
@@ -62,10 +65,11 @@ class Settings(BaseSettings):
     log_format: LogFormat = LogFormat.JSON
     web_host: str = "127.0.0.1"
     web_port: int = Field(default=8000, ge=1, le=65535)
+    web_workers: int = Field(default=1, ge=1, le=8)  # ARC §10.1: 2 x vCPU, at most 8
     # The built front end (frontend/dist); the web role serves it when the folder exists.
     frontend_dir: Path | None = None
 
-    @field_validator("artefact_dir", "frontend_dir")
+    @field_validator("artefact_dir", "frontend_dir", "backup_dir")
     @classmethod
     def _anchor_relative_dir(cls, value: Path | None) -> Path | None:
         if value is None:

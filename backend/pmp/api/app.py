@@ -106,6 +106,15 @@ def _openapi(app: FastAPI) -> dict[str, Any]:
     return schema
 
 
+def create_app_from_env() -> FastAPI:
+    """The app for one of several web processes (uvicorn's factory, PMP_WEB_WORKERS > 1)."""
+    from pmp.core import configure_logging, get_settings
+
+    settings = get_settings()
+    configure_logging(settings.log_level, settings.log_format)
+    return create_app(settings=settings)
+
+
 def create_app(*, settings: Settings | None = None, database: Database | None = None) -> FastAPI:
     """Build the app. Settings and database are created on first use if not given."""
 
@@ -126,8 +135,9 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     )
     app.state.settings = settings
     app.state.database = database
+    # One limiter per process: with several web processes each takes its share.
     app.state.ingest_rate_limiter = RateLimiter(
-        settings.ingest_rate_limit if settings else DEFAULT_INGEST_RATE
+        settings.ingest_rate_limit / settings.web_workers if settings else DEFAULT_INGEST_RATE
     )
 
     @app.middleware("http")

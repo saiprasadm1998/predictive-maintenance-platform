@@ -1,4 +1,5 @@
-# One image, two roles: `pmp web` and `pmp worker` (ARC-001 §2.2, ADR-01, NFR-PORT-01).
+# One image, three commands: `pmp web`, `pmp worker` and `pmp backup` (ARC-001 §2.2, §10.1,
+# ADR-01, NFR-PORT-01).
 # Build from the repository root:  docker build -f deploy/Dockerfile -t pmp .
 
 # ---------------------------------------------------------------- front-end build stage
@@ -36,9 +37,24 @@ RUN chmod -R a+rX /app \
 # ---------------------------------------------------------------- runtime stage
 FROM python:3.12-slim-bookworm
 
+# PostgreSQL 16 client tools for `pmp backup` and `pmp restore` (Debian's own are version 15,
+# which cannot dump a version 16 server), from the PostgreSQL project's signed repository.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+        https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && apt-get purge -y curl \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin pmp \
-    && mkdir -p /data/artefacts \
-    && chown pmp /data/artefacts
+    && mkdir -p /data/artefacts /data/backups \
+    && chown pmp /data/artefacts /data/backups
 
 COPY --from=build /opt/venv /opt/venv
 COPY --from=build /app /app
@@ -48,6 +64,7 @@ ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PMP_WEB_HOST=0.0.0.0 \
     PMP_ARTEFACT_DIR=/data/artefacts \
+    PMP_BACKUP_DIR=/data/backups \
     PMP_FRONTEND_DIR=/app/frontend
 
 USER pmp
