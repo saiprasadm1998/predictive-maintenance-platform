@@ -43,7 +43,8 @@ shape, never colour alone.
   **priority** (P1 highest to P4) comes from the asset's criticality and the severity.
 - **Acknowledge** to say you have seen it (with a comment). **Shelve** to silence it for a
   set time with a reason, for example during known work; it comes back when the time ends.
-- Filter by priority, state, asset or time; your filters are remembered in this browser.
+- Filter by priority, state, severity, asset, forecast urgency or whether it has a case, and
+  sort by urgency, persistence or case as well as age and priority; you can save filters.
 - An alert returns to normal by itself when the condition clears; an unacknowledged one
   stays in the list until acknowledged.
 
@@ -52,8 +53,9 @@ shape, never colour alone.
 1. **Create case…** from the alert list, the asset or diagnostics. The case keeps a
    snapshot of the evidence (trend, contributors, diagnosis, forecast) as it was.
 2. Assign it, set the priority and due date, add the likely failure mode.
-3. Add **actions** (inspect, replace, adjust) and record what was found and done; attach
-   photos or reports.
+3. Add **actions** (inspect, replace, adjust), or **Add tasks of …** to copy a likely
+   failure mode's recommended tasks; record what was found and done; attach photos or
+   reports.
 4. **Close** with the outcome: **True finding**, **False alert**, **Sensor issue** or
    **Known condition**. A false alert asks the model engineers to review the model. Add
    lessons learnt if useful.

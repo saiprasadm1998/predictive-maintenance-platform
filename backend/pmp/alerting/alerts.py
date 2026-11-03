@@ -584,13 +584,21 @@ class AlertQuery:
     raised_after: datetime | None = None  # age filters (FR-ALM-03)
     raised_before: datetime | None = None
     sort: str = "default"
+    # Set by callers that know more about alerts than this module (plan 9.4): only these
+    # alerts, and for the ranked sorts a rank per alert (lower first; others last).
+    alert_ids: tuple[int, ...] | None = None
+    rank: Mapping[int, int] | None = None
 
 
 _UNACK = (AlertState.ACTIVE_UNACK.value, AlertState.RTN_UNACK.value)
-SORTS = ("default", "newest", "oldest", "priority", "severity")
+SORTS = ("default", "newest", "oldest", "priority", "severity", "urgency", "persistence", "case")
+RANKED = ("urgency", "persistence", "case")  # ranked by the caller: AlertQuery.rank
+UNRANKED = 1_000_000_000
 
 
-def _sort_columns(sort: str = "default") -> tuple[tuple[Any, str], ...]:
+def _sort_columns(
+    sort: str = "default", rank: Mapping[int, int] | None = None
+) -> tuple[tuple[Any, str], ...]:
     """The list order as (expression, kind) pairs, all ascending so keyset paging is one
     row comparison. PDS §4.2 default: unacknowledged first, then priority, then age, out
     of service last; the others let the user sort by age, priority or severity."""
@@ -598,7 +606,7 @@ def _sort_columns(sort: str = "default") -> tuple[tuple[Any, str], ...]:
     acknowledged = case((Alert.state.in_(_UNACK), 0), else_=1)
     severity = case((Alert.severity == Severity.ALERT.value, 0), else_=1)
     epoch = func.extract("epoch", Alert.raised_at)
-    by = {
+    orders: dict[str, tuple[tuple[Any, str], ...]] = {
         "default": (
             (out_of_service, "int"),
             (acknowledged, "int"),
@@ -609,8 +617,12 @@ def _sort_columns(sort: str = "default") -> tuple[tuple[Any, str], ...]:
         "oldest": ((epoch, "float"),),
         "priority": ((Alert.priority, "str"), (epoch, "float")),
         "severity": ((severity, "int"), (Alert.priority, "str"), (epoch, "float")),
-    }[sort]
-    last = (-Alert.id, "int") if sort == "newest" else (Alert.id, "int")
+    }
+    by = orders.get(sort)
+    if by is None:  # a ranked sort: the caller's rank, then the default order
+        ranked: Any = case(rank, value=Alert.id, else_=UNRANKED) if rank else literal(UNRANKED)
+        by = ((ranked, "int"), *_sort_columns("default")[:-1])
+    last: tuple[Any, str] = (-Alert.id, "int") if sort == "newest" else (Alert.id, "int")
     return (*by, last)
 
 
@@ -628,7 +640,7 @@ def search_alerts(
     paging, done in the database: FR-ALM-03 asks for 1,000 alerts filtered in under 1 s)."""
     if query.sort not in SORTS:
         raise AlertError(f"Sort by one of {', '.join(SORTS)}")
-    columns = _sort_columns(query.sort)
+    columns = _sort_columns(query.sort, query.rank)
     exprs = [e for e, _ in columns]
     stmt = select(Alert, *(e.label(f"sort_{i}") for i, e in enumerate(exprs)))
     if query.open_only:
@@ -643,6 +655,8 @@ def search_alerts(
         stmt = stmt.where(Alert.severity.in_([s.value for s in query.severities]))
     if query.kind is not None:
         stmt = stmt.where(Alert.kind == query.kind.value)
+    if query.alert_ids is not None:
+        stmt = stmt.where(Alert.id.in_(query.alert_ids))
     if query.raised_after is not None:
         stmt = stmt.where(Alert.raised_at >= query.raised_after)
     if query.raised_before is not None:

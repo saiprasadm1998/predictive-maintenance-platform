@@ -12,6 +12,7 @@ import {
   addComment,
   attachmentUrl,
   closeCase,
+  addModeTasks,
   completeAction,
   fetchCase,
   fetchCasePeople,
@@ -259,6 +260,13 @@ export function CasePage() {
                   </li>
                 ))}
               </ul>
+            )}
+            {may && (
+              <SuggestedTasks
+                c={c}
+                pending={change.isPending}
+                add={(modeId) => change.mutate(() => addModeTasks(id, modeId))}
+              />
             )}
           </section>
 
@@ -694,5 +702,39 @@ function Closure({
         </button>
       </form>
     </section>
+  );
+}
+
+/** FR-ADV-01 (plan 9.4): the snapshot's likely failure modes, each with a button that
+ * copies its recommended tasks into the case as actions. */
+function SuggestedTasks({
+  c,
+  pending,
+  add,
+}: {
+  c: CaseDetail;
+  pending: boolean;
+  add: (modeId: number) => void;
+}) {
+  const modes = c.snapshot.models
+    .flatMap((m) => m.diagnosis ?? [])
+    .filter((d) => d.mode_id !== undefined && !d.insufficient_evidence)
+    .slice(0, 3);
+  if (!modes.length) return null;
+  return (
+    <div className="field-row">
+      <span className="muted small">Recommended tasks:</span>
+      {modes.map((d) => (
+        <button
+          key={d.mode_id}
+          type="button"
+          className="button button-small"
+          disabled={pending}
+          onClick={() => add(d.mode_id!)}
+        >
+          Add tasks of {d.name}
+        </button>
+      ))}
+    </div>
   );
 }

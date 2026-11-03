@@ -11,6 +11,8 @@ export interface AlertFilter {
   priorities?: readonly string[];
   severities?: readonly string[];
   kind?: "di" | "sensor";
+  urgencies?: readonly string[];
+  hasCase?: boolean;
   cursor?: string | null;
   sort?: string;
 }
@@ -27,6 +29,8 @@ function alertQuery(filter: AlertFilter): string {
   for (const s of filter.states ?? []) params.append("state", s);
   for (const p of filter.priorities ?? []) params.append("priority", p);
   for (const s of filter.severities ?? []) params.append("severity", s);
+  for (const u of filter.urgencies ?? []) params.append("urgency", u);
+  if (filter.hasCase !== undefined) params.set("has_case", String(filter.hasCase));
   return params.toString();
 }
 

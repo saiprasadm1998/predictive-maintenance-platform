@@ -19,8 +19,16 @@ export const SORTS = [
   ["oldest", "Oldest first"],
   ["priority", "Priority"],
   ["severity", "Severity"],
+  ["urgency", "Forecast urgency"],
+  ["persistence", "Persistence"],
+  ["case", "Linked case"],
 ] as const;
 export type Sort = (typeof SORTS)[number][0];
+export const URGENCIES = ["Immediate", "High", "Medium", "Low", "None"] as const;
+export const CASE_LINKS = [
+  ["yes", "With a case"],
+  ["no", "Without a case"],
+] as const;
 export const KINDS = [
   ["di", "Deviation Index"],
   ["sensor", "Sensor residual"],
@@ -33,11 +41,23 @@ export interface ListFilter {
   priorities: string[];
   severities: string[];
   kind: "di" | "sensor" | null;
+  urgencies: string[];
+  hasCase: "yes" | "no" | null;
   closed: boolean;
   sort: Sort;
 }
 
-const KEYS = ["scope", "state", "priority", "severity", "kind", "closed", "sort"] as const;
+const KEYS = [
+  "scope",
+  "state",
+  "priority",
+  "severity",
+  "kind",
+  "urgency",
+  "case",
+  "closed",
+  "sort",
+] as const;
 
 export function readFilter(params: URLSearchParams): ListFilter {
   const list = (key: string, allowed: readonly string[]) =>
@@ -53,6 +73,8 @@ export function readFilter(params: URLSearchParams): ListFilter {
     priorities: list("priority", PRIORITIES),
     severities: list("severity", SEVERITIES),
     kind: kind === "di" || kind === "sensor" ? kind : null,
+    urgencies: list("urgency", URGENCIES),
+    hasCase: params.get("case") === "yes" ? "yes" : params.get("case") === "no" ? "no" : null,
     closed: params.get("closed") === "true",
     sort,
   };
@@ -67,6 +89,8 @@ export function writeFilter(params: URLSearchParams, filter: ListFilter): URLSea
   filter.priorities.forEach((p) => next.append("priority", p));
   filter.severities.forEach((s) => next.append("severity", s));
   if (filter.kind) next.set("kind", filter.kind);
+  filter.urgencies.forEach((u) => next.append("urgency", u));
+  if (filter.hasCase) next.set("case", filter.hasCase);
   if (filter.closed) next.set("closed", "true");
   if (filter.sort !== "default") next.set("sort", filter.sort);
   return next;
@@ -79,6 +103,8 @@ export function toApiFilter(filter: ListFilter): AlertFilter {
     priorities: filter.priorities,
     severities: filter.severities,
     kind: filter.kind ?? undefined,
+    urgencies: filter.urgencies,
+    hasCase: filter.hasCase === null ? undefined : filter.hasCase === "yes",
     includeClosed: filter.closed,
     sort: filter.sort,
   };

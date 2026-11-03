@@ -22,7 +22,7 @@ const alert = (extra: Partial<Alert>): Alert => ({ ...base, ...extra });
 describe("filters in the URL", () => {
   it("reads, ignores unknown values and writes back without touching other parameters", () => {
     const params = new URLSearchParams(
-      "state=Shelved&state=Bogus&priority=P1&severity=Alert&kind=sensor&scope=SA-AMM&closed=true&sort=newest&range=24h",
+      "state=Shelved&state=Bogus&priority=P1&severity=Alert&kind=sensor&scope=SA-AMM&closed=true&sort=newest&range=24h&urgency=High&urgency=Soon&case=no",
     );
     const filter = readFilter(params);
     expect(filter).toEqual({
@@ -31,6 +31,8 @@ describe("filters in the URL", () => {
       priorities: ["P1"],
       severities: ["Alert"],
       kind: "sensor",
+      urgencies: ["High"],
+      hasCase: "no",
       closed: true,
       sort: "newest",
     });
@@ -43,8 +45,12 @@ describe("filters in the URL", () => {
       asset: "SA-AMM",
       includeClosed: true,
       kind: "sensor",
+      urgencies: ["High"],
+      hasCase: false,
       sort: "newest",
     });
+    expect(written.getAll("urgency")).toEqual(["High"]);
+    expect(written.get("case")).toBe("no");
     expect(writeFilter(params, { ...filter, sort: "default" }).has("sort")).toBe(false);
   });
 

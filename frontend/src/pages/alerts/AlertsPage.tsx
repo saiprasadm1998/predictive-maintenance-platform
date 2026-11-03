@@ -26,6 +26,7 @@ import { age } from "../fleet/fleetModel";
 import { AlertDetailPanel } from "./AlertDetailPanel";
 import {
   KINDS,
+  CASE_LINKS,
   PRIORITIES,
   SEVERITIES,
   SORTS,
@@ -36,6 +37,7 @@ import {
   filterQuery,
   liveView,
   loadSaved,
+  URGENCIES,
   menuLabel,
   modelText,
   persistenceText,
@@ -57,9 +59,13 @@ const SORT_TEXT: Record<Sort, string> = {
   oldest: "oldest first",
   priority: "by priority, then age",
   severity: "by severity, then age",
+  urgency: "most urgent forecast first",
+  persistence: "most persistent first",
+  case: "with a case first, by case number",
 };
 const STATE_LABELS = new Map<string, string>(STATES.map(([v, l]) => [v, l]));
 const KIND_LABELS = new Map<string, string>(KINDS.map(([v, l]) => [v, l]));
+const CASE_LABELS = new Map<string, string>(CASE_LINKS.map(([v, l]) => [v, l]));
 
 /**
  * SCR-02 Alert list (PDS §4.2, UC-10, FR-ALM-02, -03): the prioritised work queue across
@@ -232,6 +238,22 @@ export function AlertsPage() {
             label={menuLabel("Rule", filter.kind ? [filter.kind] : [], KIND_LABELS)}
             onChange={(kinds) =>
               update({ kind: (kinds.at(-1) as "di" | "sensor" | undefined) ?? null })
+            }
+          />
+          <FilterMenu
+            name="Urgency"
+            options={URGENCIES.map((u) => [u, u] as const)}
+            chosen={filter.urgencies}
+            label={menuLabel("Urgency", filter.urgencies)}
+            onChange={(urgencies) => update({ urgencies })}
+          />
+          <FilterMenu
+            name="Case"
+            options={CASE_LINKS}
+            chosen={filter.hasCase ? [filter.hasCase] : []}
+            label={menuLabel("Case", filter.hasCase ? [filter.hasCase] : [], CASE_LABELS)}
+            onChange={(links) =>
+              update({ hasCase: (links.at(-1) as "yes" | "no" | undefined) ?? null })
             }
           />
           <label className="field-inline">

@@ -100,6 +100,7 @@ export interface CaseSnapshot {
       used: boolean | null;
     }[];
     diagnosis?: {
+      mode_id?: number; // snapshots from plan 9.4 on
       code: string;
       name: string;
       version: number;
@@ -217,6 +218,11 @@ export function addAction(
     method: "POST",
     body: { type: "action", body: description, owner_id: ownerId, due },
   });
+}
+
+/** FR-ADV-01: a failure mode's recommended tasks become actions (once each). */
+export function addModeTasks(id: number, modeId: number): Promise<CaseDetail> {
+  return api<CaseDetail>(`/cases/${id}/tasks`, { method: "POST", body: { mode_id: modeId } });
 }
 
 export function completeAction(id: number, actionId: number): Promise<CaseDetail> {

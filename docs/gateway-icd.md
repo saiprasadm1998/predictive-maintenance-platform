@@ -117,6 +117,10 @@ deployed model has not been scored yet); `health` and `di` are null when the ban
 Unknown; `urgency` is the most urgent forecast of the model's open alerts, or null.
 Recommended: one call a minute, after the cycle (for example 10 s past the minute).
 
+The same key may also read the alerts: `GET /api/v1/alerts?state=active` returns the
+active alerts (paged, `next_cursor` for more) with asset, model, priority, severity, DI,
+raised time and forecast urgency.
+
 ## 6. Open items with the gateway owner
 
 1. Transport: REST only, or MQTT too.

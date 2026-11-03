@@ -27,6 +27,7 @@ from pmp.cases import (
     add_action,
     add_attachment,
     add_comment,
+    add_mode_tasks,
     assignable_people,
     attachment_file,
     change_status,
@@ -436,6 +437,19 @@ def post_activity(request: Request, user: User, case_id: int, body: ActivityIn) 
         request,
         lambda s: add_action(s, user.actor, case_id, body.body, body.owner_id, body.due),
     )
+
+
+class TasksIn(BaseModel):
+    mode_id: int
+
+
+@router.post(
+    "/cases/{case_id}/tasks",
+    response_model=CaseDetailOut,
+    summary="Copy a failure mode's recommended tasks into the case as actions (FR-ADV-01)",
+)
+def post_tasks(request: Request, user: User, case_id: int, body: TasksIn) -> CaseDetailOut:
+    return _run(request, lambda s: add_mode_tasks(s, user.actor, case_id, body.mode_id))
 
 
 @router.post(

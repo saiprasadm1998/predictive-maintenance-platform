@@ -215,7 +215,7 @@ export function VersionPage() {
             </tbody>
           </table>
           <p className="muted small">
-            Proposed limits from validation arrive with the prediction model (Phase 7).
+            The limits the validation proposed are in its report above; these are the ones in force.
           </p>
         </section>
       </div>

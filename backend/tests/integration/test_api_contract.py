@@ -105,6 +105,7 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/cases/{case_id}/transition"): Permission.MANAGE_CASES,
     ("POST", "/api/v1/cases/{case_id}/alerts"): Permission.MANAGE_CASES,
     ("POST", "/api/v1/cases/{case_id}/activities"): Permission.WORK_ON_CASES,
+    ("POST", "/api/v1/cases/{case_id}/tasks"): Permission.WORK_ON_CASES,
     ("POST", "/api/v1/cases/{case_id}/actions/{action_id}/done"): Permission.WORK_ON_CASES,
     ("POST", "/api/v1/cases/{case_id}/attachments"): Permission.WORK_ON_CASES,
     ("GET", "/api/v1/cases/{case_id}/attachments/{attachment_id}"): V,
@@ -491,6 +492,15 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/forecasts/{forecast['id']}", 200)
     listed = call("GET", f"{v1}/alerts", 200).json()["items"]
     assert {a["id"]: a["forecast_urgency"] for a in listed}[alert_id] == "High"
+    # filters and sorts by urgency, linked case and persistence (FR-ALM-03, plan 9.4)
+    high = call("GET", f"{v1}/alerts", 200, params={"urgency": "High", "sort": "urgency"})
+    assert [a["id"] for a in high.json()["items"]] == [alert_id]
+    assert call("GET", f"{v1}/alerts", 200, params={"urgency": "Low"}).json()["items"] == []
+    call("GET", f"{v1}/alerts", 200, params={"sort": "persistence"})
+    # a results-read key reads the active alerts (UC-18 step 3)
+    active = call("GET", f"{v1}/alerts", 200, headers=results_key, params={"state": "active"})
+    assert alert_id in [a["id"] for a in active.json()["items"]]
+    call("GET", f"{v1}/alerts", 403, headers=key)  # an ingest key does not
 
     # cases (8.4)
     case = call("POST", f"{v1}/cases", 201, json={"alert_ids": [alert_id]}).json()
@@ -505,6 +515,15 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         "POST", f"{case_url}/activities", 201, json={"type": "action", "body": "Reduce load"}
     ).json()
     assert acting["status"] == "Action required"
+    tasks = call("POST", f"{case_url}/tasks", 200, json={"mode_id": mode["id"]}).json()
+    assert [a["description"] for a in tasks["actions"]] == ["Reduce load", "Check the strainer"]
+    again = call("POST", f"{case_url}/tasks", 200, json={"mode_id": mode["id"]}).json()
+    assert len(again["actions"]) == 2  # copied once
+    strainer = tasks["actions"][1]["id"]
+    call("POST", f"{case_url}/actions/{strainer}/done", 200)  # the rest of the flow
+    assert call("GET", f"{v1}/alerts", 200, params={"has_case": "true"}).json()["items"]
+    assert call("GET", f"{v1}/alerts", 200, params={"has_case": "false"}).json()["items"] == []
+    call("GET", f"{v1}/alerts", 200, params={"sort": "case"})
     attached = call(
         "POST",
         f"{case_url}/attachments",

@@ -156,6 +156,23 @@ describe("SCR-02 alert list", () => {
         calls.some((c) => c.path === "/alerts" && c.query.getAll("priority").includes("P1")),
       ).toBe(true),
     );
+    // FR-ALM-03 (plan 9.4): forecast urgency and linked case.
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /Urgency: All/ }));
+    await user.click(await screen.findByRole("checkbox", { name: "High" }));
+    await user.keyboard("{Escape}");
+    await user.click(screen.getByRole("button", { name: /Case: All/ }));
+    await user.click(await screen.findByRole("checkbox", { name: "Without a case" }));
+    await waitFor(() =>
+      expect(
+        calls.some(
+          (c) =>
+            c.path === "/alerts" &&
+            c.query.getAll("urgency").includes("High") &&
+            c.query.get("has_case") === "false",
+        ),
+      ).toBe(true),
+    );
   });
 
   it("acknowledges the selection after confirmation", async () => {

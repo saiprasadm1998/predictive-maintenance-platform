@@ -9,14 +9,16 @@ found" when asked for by ID.
 from __future__ import annotations
 
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from pmp.alerting import (
+    RANKED,
     SORTS,
     AlertChanged,
     AlertError,
@@ -47,10 +49,17 @@ from pmp.api.common import (
     not_found,
     utc,
 )
-from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
+from pmp.api.deps import (
+    SignedIn,
+    authenticate_api_key,
+    database_of,
+    resolve_user,
+    settings_of,
+    signed_in,
+)
 from pmp.api.problems import ProblemError
 from pmp.cases import case_number, count_open_cases, open_cases_for_alerts
-from pmp.core import user_names
+from pmp.core import ApiKeyScope, user_names
 from pmp.dataquality import get_sensor_statuses
 from pmp.modelling import list_active_versions, model_assets, version_numbers
 from pmp.prognostics import latest_for_alerts
@@ -75,13 +84,14 @@ def _path_label(asset: AssetView, assets: dict[int, AssetView]) -> str:
     return " / ".join([*above, asset.code])
 
 
-def visible_models(session: Session, user: SignedIn) -> dict[int, _Model]:
-    """Models whose asset the user may see, with their asset's ID, code and path."""
+def visible_models(session: Session, user: SignedIn | None) -> dict[int, _Model]:
+    """Models whose asset the user may see, with their asset's ID, code and path.
+    `None`: a results-read key, which reads every model (UC-18)."""
     assets = {a.id: a for a in list_subtree(session)}
     out = {}
     for model_id, (asset_id, name) in model_assets(session).items():
         asset = assets.get(asset_id)
-        if asset is not None and can_see(user, asset.path):
+        if asset is not None and (user is None or can_see(user, asset.path)):
             out[model_id] = _Model(name, asset_id, asset.code, _path_label(asset, assets))
     return out
 
@@ -185,11 +195,73 @@ def _outs(session: Session, views: list[AlertView], models: dict[int, _Model]) -
     ]
 
 
+URGENCY_RANK = {"Immediate": 0, "High": 1, "Medium": 2, "Low": 3, "None": 4}
+StateName = Literal[
+    "active",
+    "Active-Unacknowledged",
+    "Active-Acknowledged",
+    "RTN-Unacknowledged",
+    "Normal",
+    "Shelved",
+    "Out of service",
+]
+
+
+def _reader(request: Request) -> SignedIn | None:
+    """A signed-in user, or (UC-18 step 3) a results-read key, which reads every alert."""
+    if request.headers.get("authorization", "").lower().startswith("apikey "):
+        authenticate_api_key(request, ApiKeyScope.RESULTS_READ)
+        return None
+    return resolve_user(request)
+
+
+def _states(names: list[StateName] | None) -> tuple[AlertState, ...]:
+    out: list[AlertState] = []
+    for name in names or ():
+        if name == "active":  # UC-18: ?state=active
+            out += [AlertState.ACTIVE_UNACK, AlertState.ACTIVE_ACK]
+        else:
+            out.append(AlertState(name))
+    return tuple(dict.fromkeys(out))
+
+
+def _ranked(
+    session: Session,
+    query: AlertQuery,
+    has_case: bool | None,
+    urgency: list[str] | None,
+) -> AlertQuery:
+    """Filters and sorts that need cases, forecasts and persistence (FR-ALM-03, plan 9.4):
+    worked out here over the matching alerts, then handed to the query as IDs and ranks."""
+    every, _ = search_alerts(session, replace(query, sort="default"), limit=1_000_000)
+    ids = [v.id for v in every]
+    cases = open_cases_for_alerts(session, ids)
+    forecasts = latest_for_alerts(session, ids)
+    keep = [
+        i
+        for i in ids
+        if (has_case is None or (i in cases) == has_case)
+        and (not urgency or (i in forecasts and forecasts[i].urgency in urgency))
+    ]
+    rank: dict[int, int] | None = None
+    if query.sort == "urgency":
+        rank = {i: URGENCY_RANK.get(forecasts[i].urgency, 5) for i in keep if i in forecasts}
+    elif query.sort == "case":
+        rank = {i: cases[i] for i in keep if i in cases}
+    elif query.sort == "persistence":  # the most persistent first
+        rank = {
+            i: 1000 - round(1000 * n / m) for i, (n, m) in persistence(session, keep).items() if m
+        }
+    return replace(query, alert_ids=tuple(keep), rank=rank)
+
+
 @router.get("/alerts", response_model=Page[AlertOut], summary="The alert list (FR-ALM-03)")
 def list_alert_page(
     request: Request,
-    user: User,
-    state: Annotated[list[AlertState] | None, Query()] = None,
+    user: Annotated[SignedIn | None, Depends(_reader)],
+    state: Annotated[
+        list[StateName] | None, Query(description="a state, or active for both active states")
+    ] = None,
     priority: Annotated[list[str] | None, Query()] = None,
     severity: Annotated[list[Severity] | None, Query()] = None,
     kind: RuleKind | None = None,
@@ -200,9 +272,17 @@ def list_alert_page(
     raised_before: Annotated[datetime | None, Query(description="age: raised before")] = None,
     sort: Annotated[
         str,
-        Query(description="default (PDS §4.2), newest, oldest, priority or severity"),
+        Query(
+            description="default (PDS §4.2), newest, oldest, priority, severity, urgency, "
+            "persistence or case"
+        ),
     ] = "default",
     scope: Annotated[str | None, Query(description="asset code (ARC §7.3 name)")] = None,
+    has_case: Annotated[bool | None, Query(description="linked to an open case or not")] = None,
+    urgency: Annotated[
+        list[Literal["Immediate", "High", "Medium", "Low", "None"]] | None,
+        Query(description="the urgency of the alert's latest forecast"),
+    ] = None,
     cursor: str | None = None,
     limit: Annotated[int, Query(ge=1, le=MAX_LIMIT)] = 100,
 ) -> Page[AlertOut]:
@@ -224,7 +304,7 @@ def list_alert_page(
         query = AlertQuery(
             open_only=not include_closed,
             model_ids=tuple(sorted(ids)),
-            states=tuple(state or ()),
+            states=_states(state),
             priorities=tuple(priority or ()),
             severities=tuple(severity or ()),
             kind=kind,
@@ -232,6 +312,8 @@ def list_alert_page(
             raised_before=utc(raised_before, "raised_before"),
             sort=sort,
         )
+        if has_case is not None or urgency or sort in RANKED:
+            query = _ranked(session, query, has_case, list(urgency or ()))
         after = decode_cursor(cursor) if cursor else None
         try:
             views, last = search_alerts(session, query, after=after, limit=limit)

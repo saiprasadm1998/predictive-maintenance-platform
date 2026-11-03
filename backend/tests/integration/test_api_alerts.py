@@ -273,3 +273,21 @@ def test_a_thousand_alerts_filter_in_under_a_second(api: dict[str, Any]) -> None
     } == {True}
     bad = call(api, "GET", "/api/v1/alerts", "vera", params={"sort": "nonsense"})
     assert bad.status_code == 400
+
+    # Plan 9.4 (FR-ALM-03): ranked sorts (urgency, persistence, case) page the same way.
+    from pmp.alerting import AlertQuery, search_alerts
+
+    with api["db"].session() as s:
+        every, _ = search_alerts(s, AlertQuery(), limit=10_000)
+        ranks = {a.id: a.id % 3 for a in every[::2]}  # half ranked 0 to 2, half unranked
+        query = AlertQuery(sort="urgency", rank=ranks, alert_ids=tuple(a.id for a in every))
+        seen: list[int] = []
+        after = None
+        while True:
+            page, after = search_alerts(s, query, after=after, limit=300)
+            seen += [a.id for a in page]
+            if after is None:
+                break
+    order = [ranks.get(i, 10**9) for i in seen]
+    assert len(seen) == len(set(seen)) == len(every)
+    assert order == sorted(order)  # ranked first, lowest rank first, then the rest

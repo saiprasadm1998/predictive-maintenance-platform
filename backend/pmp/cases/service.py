@@ -411,6 +411,7 @@ def take_snapshot(session: Session, alerts: list[AlertView], now: datetime) -> d
             found = diagnose(session, model_id, cycle)
             entry["diagnosis"] = [
                 {
+                    "mode_id": d.mode.id,
                     "code": d.mode.spec.code,
                     "name": d.mode.spec.name,
                     "version": d.mode.version,
@@ -730,6 +731,32 @@ def add_action(
         _set_status(session, row, actor, CaseStatus.ACTION_REQUIRED, now, automatic=True)
     _notify(session, row)
     return get_case(session, row.id)
+
+
+def add_mode_tasks(
+    session: Session,
+    actor: Actor,
+    case_id: int,
+    mode_id: int,
+    now: datetime | None = None,
+) -> CaseDetail:
+    """FR-ADV-01, UC-09 step 6 (plan 9.4): copy a failure mode's recommended tasks into
+    the case as actions, leaving out any the case already has."""
+    row = _load(session, case_id, actor, Permission.WORK_ON_CASES)  # authorise first
+    _require_open(row)
+    try:
+        versions = mode_history(session, mode_id)
+    except LibraryError:
+        raise CaseError(f"Failure mode {mode_id} does not exist") from None
+    if not versions:
+        raise CaseError(f"Failure mode {mode_id} does not exist")
+    have = {a.description for a in get_case(session, case_id).actions}
+    detail = get_case(session, case_id)
+    for task in versions[0].spec.tasks:
+        if task not in have:
+            detail = add_action(session, actor, case_id, task, now=now)
+            have.add(task)
+    return detail
 
 
 def complete_action(

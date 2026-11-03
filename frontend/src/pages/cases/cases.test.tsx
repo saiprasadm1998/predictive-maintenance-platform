@@ -118,6 +118,7 @@ const DETAIL: CaseDetail = {
         ],
         diagnosis: [
           {
+            mode_id: 26,
             code: "thrust_bearing_degradation",
             name: "Thrust bearing degradation",
             version: 1,
@@ -224,6 +225,7 @@ function routes(role: string, detail: CaseDetail = DETAIL, me = 2) {
     };
     return { status: 201, body: current };
   };
+  r["POST /cases/14/tasks"] = () => ({ status: 200, body: current });
   r["POST /cases/14/actions/7/done"] = () => {
     current = {
       ...current,
@@ -349,6 +351,20 @@ describe("SCR-05 case detail", () => {
     await u.selectOptions(assignee, "3");
     await waitFor(() =>
       expect(calls.find((c: Call) => c.method === "PATCH")?.body).toEqual({ assignee_id: 3 }),
+    );
+  });
+
+  it("copies a likely mode's recommended tasks into the case (FR-ADV-01)", async () => {
+    const { calls } = fakeApi(routes("analyst"));
+    const u = userEvent.setup();
+    renderApp("/cases/14");
+    await u.click(
+      await screen.findByRole("button", { name: "Add tasks of Thrust bearing degradation" }),
+    );
+    await waitFor(() =>
+      expect(calls.find((c: Call) => c.path === "/cases/14/tasks")?.body).toEqual({
+        mode_id: 26,
+      }),
     );
   });
 
