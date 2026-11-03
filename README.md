@@ -459,6 +459,7 @@ write its software bill of materials and vulnerability report to `reports/`.
 | [deploy/README.md](deploy/README.md) | Installing, backups, restore, monitoring, upgrades |
 | [docs/gateway-icd.md](docs/gateway-icd.md) | The gateway owner: the ingestion and results interfaces (OI-01) |
 | [docs/release-notes.md](docs/release-notes.md) | What release 0.1.0 does and does not do |
+| [docs/traceability.md](docs/traceability.md) | Every requirement in the six documents against the build, with gaps |
 | [docs/acceptance.md](docs/acceptance.md) | Each acceptance criterion's result and evidence, measured performance |
 | [docs/security-asvs-l1.md](docs/security-asvs-l1.md) | The OWASP ASVS level 1 review |
 | [docs/accessibility.md](docs/accessibility.md) | The WCAG 2.1 AA check |
