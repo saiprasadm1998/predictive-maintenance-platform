@@ -40,25 +40,25 @@ export function ImportTab({ editable }: { editable: boolean }) {
   });
 
   if (!editable)
-    return <p className="muted">Model Engineers and Administrators import the registry.</p>;
+    return <p className="sec">Model Engineers and Administrators import the registry.</p>;
   const valid = report && report.dry_run && !report.problems.length;
 
   return (
-    <section className="panel" aria-labelledby="import-title">
-      <h2 id="import-title" className="panel-title">
+    <section className="pnl" aria-labelledby="import-title">
+      <h2 id="import-title" className="pt">
         Registry import
       </h2>
-      <p className="muted small">
+      <p className="sec s13">
         CSV files named after their sheet (<code>asset_types.csv</code>, <code>roles.csv</code>,{" "}
         <code>assets.csv</code>, <code>tags.csv</code>), or one Excel workbook with those sheets.
         Existing rows are updated by code; nothing is deleted.
       </p>
       <div className="builder-row">
-        <label className="field" htmlFor={inputId}>
+        <label className="fld" htmlFor={inputId}>
           <span>Files</span>
           <input
             id={inputId}
-            className="control"
+            className="in"
             type="file"
             multiple
             accept=".csv,.xlsx"
@@ -71,7 +71,7 @@ export function ImportTab({ editable }: { editable: boolean }) {
         <span className="lifecycle">
           <button
             type="button"
-            className="button"
+            className="btn btn-s"
             disabled={!files.length || run.isPending}
             onClick={() => run.mutate(true)}
           >
@@ -79,7 +79,7 @@ export function ImportTab({ editable }: { editable: boolean }) {
           </button>
           <button
             type="button"
-            className="button button-primary"
+            className="btn btn-p"
             disabled={!valid || run.isPending}
             onClick={() => run.mutate(false)}
           >
@@ -110,7 +110,7 @@ function ReportView({ report }: { report: ImportReport }) {
         </strong>
       </p>
       {report.problems.length > 0 ? (
-        <table className="tree-table">
+        <table className="tb">
           <caption>Validation report</caption>
           <thead>
             <tr>
@@ -134,7 +134,7 @@ function ReportView({ report }: { report: ImportReport }) {
           </tbody>
         </table>
       ) : (
-        <table className="summary-table">
+        <table className="tb">
           <caption>{report.committed ? "Changes made" : "Changes the import will make"}</caption>
           <tbody>
             {sheets.map((s) => (

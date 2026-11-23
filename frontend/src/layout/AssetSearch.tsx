@@ -32,7 +32,9 @@ export function AssetSearch() {
 
   useEffect(() => {
     function onKey(event: KeyboardEvent) {
-      if (event.key === "/" && !event.ctrlKey && !event.metaKey && !typingInAField(event.target)) {
+      const slash = event.key === "/" && !event.ctrlKey && !event.metaKey;
+      const ctrlK = event.key.toLowerCase() === "k" && (event.ctrlKey || event.metaKey);
+      if (ctrlK || (slash && !typingInAField(event.target))) {
         event.preventDefault();
         inputRef.current?.focus();
       }
@@ -73,38 +75,42 @@ export function AssetSearch() {
   const expanded = open && text.trim() !== "";
   const optionId = (i: number) => `${listId}-option-${i}`;
   return (
-    <div className="search">
-      <label htmlFor={`${listId}-input`} className="visually-hidden">
-        Search assets
+    <div style={{ position: "relative" }}>
+      <label className="search" htmlFor={`${listId}-input`}>
+        <svg className="ico" viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="11" cy="11" r="6.5" />
+          <path d="M16 16l4.5 4.5" />
+        </svg>
+        <span className="sr">Search</span>
+        <input
+          id={`${listId}-input`}
+          ref={inputRef}
+          type="search"
+          placeholder="Search equipment, tags and records"
+          autoComplete="off"
+          role="combobox"
+          aria-expanded={expanded}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={expanded && results.length ? optionId(active) : undefined}
+          value={text}
+          onFocus={() => setWanted(true)}
+          onChange={(event) => {
+            setText(event.target.value);
+            setActive(0);
+            setOpen(true);
+          }}
+          onBlur={() => setOpen(false)}
+          onKeyDown={onKeyDown}
+        />
+        <span className="kbd">Ctrl K</span>
       </label>
-      <input
-        id={`${listId}-input`}
-        ref={inputRef}
-        className="control search-input"
-        type="search"
-        placeholder="Search assets…  /"
-        autoComplete="off"
-        role="combobox"
-        aria-expanded={expanded}
-        aria-controls={listId}
-        aria-autocomplete="list"
-        aria-activedescendant={expanded && results.length ? optionId(active) : undefined}
-        value={text}
-        onFocus={() => setWanted(true)}
-        onChange={(event) => {
-          setText(event.target.value);
-          setActive(0);
-          setOpen(true);
-        }}
-        onBlur={() => setOpen(false)}
-        onKeyDown={onKeyDown}
-      />
       {expanded && (
-        <div id={listId} role="listbox" aria-label="Matching assets" className="search-results">
-          {assets.isPending && <div className="search-note">Loading assets…</div>}
-          {assets.isError && <div className="search-note">Assets could not be loaded.</div>}
+        <div id={listId} role="listbox" aria-label="Matching equipment" className="pop search-pop">
+          {assets.isPending && <div className="sec s13">Loading…</div>}
+          {assets.isError && <div className="sec s13">Equipment could not be loaded.</div>}
           {assets.isSuccess && results.length === 0 && (
-            <div className="search-note">No asset matches.</div>
+            <div className="sec s13">Nothing matches.</div>
           )}
           {results.map((asset, i) => (
             <div
@@ -113,15 +119,15 @@ export function AssetSearch() {
               role="option"
               tabIndex={-1}
               aria-selected={i === active}
-              className={i === active ? "search-option search-option-active" : "search-option"}
+              className={`sel-btn${i === active ? " on" : ""}`}
               onMouseDown={(event) => {
-                event.preventDefault(); // keep focus until the click lands
+                event.preventDefault();
                 go(asset);
               }}
               onMouseEnter={() => setActive(i)}
             >
-              <span className="search-code">{asset.code}</span>
-              <span className="search-name">{asset.name}</span>
+              <span className="mono">{asset.code}</span>
+              <span className="sec s13">{asset.name}</span>
             </div>
           ))}
         </div>

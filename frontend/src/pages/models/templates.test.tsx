@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN, type Call, MODELS, fakeApi, sessionRoutes } from "../../test/fakeApi";
+import { TREE as SCOPE_TREE } from "../../test/fakeApi";
 import { renderApp } from "../../test/renderApp";
 
 const PUMP = (code: string, id: number) => ({
@@ -61,10 +62,16 @@ describe("Apply template (UC-07)", () => {
         { id: 1, code: "centrifugal_pump", name: "Centrifugal pump", description: "", roles: [] },
       ],
     });
-    r["GET /assets"] = () => ({
-      status: 200,
-      body: { items: [PUMP("P-104A", 7), PUMP("P-104B", 8), PUMP("P-205", 9)], next_cursor: null },
-    });
+    r["GET /assets"] = (call) =>
+      call.query.get("tree") === "true"
+        ? { status: 200, body: SCOPE_TREE }
+        : {
+            status: 200,
+            body: {
+              items: [PUMP("P-104A", 7), PUMP("P-104B", 8), PUMP("P-205", 9)],
+              next_cursor: null,
+            },
+          };
     r["GET /model-templates"] = () => ({ status: 200, body: [TEMPLATE] });
     r["POST /model-templates/4/apply"] = (call) => {
       const { preview } = call.body as { preview: boolean };
@@ -83,7 +90,7 @@ describe("Apply template (UC-07)", () => {
     const user = userEvent.setup();
     renderApp("/models");
 
-    await user.click(await screen.findByRole("button", { name: "Apply template…" }));
+    await user.click(await screen.findByRole("link", { name: "Apply template" }));
     const panel = screen.getByRole("region", { name: "Apply a template" });
     await user.selectOptions(within(panel).getByLabelText("Asset type"), "centrifugal_pump");
     expect(

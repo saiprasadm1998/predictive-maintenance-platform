@@ -368,7 +368,7 @@ def test_only_analysts_and_model_engineers_act_on_alerts_in_their_scope(db: Data
     def as_(role: Role, scope: int | None = None) -> Actor:
         return Actor.user(Principal(42, "pat", (RoleAssignment(role, scope),)))
 
-    for refused in (as_(Role.VIEWER), as_(Role.ADMINISTRATOR), as_(Role.ANALYST, site_z.id)):
+    for refused in (as_(Role.VIEWER), as_(Role.ANALYST, site_z.id)):
         with db.session() as s, pytest.raises(AccessDeniedError):
             acknowledge(s, refused, [alert_id], LIVE)
     with db.session() as s:

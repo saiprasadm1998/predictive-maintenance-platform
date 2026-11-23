@@ -11,6 +11,7 @@ import pytest
 from pmp.modelling.validation import (
     count_alerts,
     deviation_index,
+    di_histogram,
     propose_limits,
     validation_report,
 )
@@ -79,3 +80,12 @@ def test_the_report_warns_above_one_false_alert_a_week() -> None:
 def test_nothing_scored_is_refused() -> None:
     with pytest.raises(ValueError, match="No validation cycle"):
         validation_report(np.array([np.nan, np.nan]), 60)
+
+
+def test_histogram_counts_every_scored_cycle_up_to_above_the_alert_limit() -> None:
+    di = np.array([1.0, 2.0, 2.5, 50.0, np.nan])
+    histogram = di_histogram(di[~np.isnan(di)], alert=10.0)
+    assert histogram["top"] == 13.0
+    assert len(histogram["counts"]) == 30
+    assert sum(histogram["counts"]) == 4
+    assert histogram["counts"][-1] == 1  # 50 falls in the last bin

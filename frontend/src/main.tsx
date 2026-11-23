@@ -1,11 +1,10 @@
-import "@fontsource/inter/400.css";
-import "@fontsource/inter/600.css";
-import "@fontsource/inter/700.css";
-import "./styles/tokens.css";
-import "./styles/base.css";
-import "./styles/layout.css";
-import "./styles/components.css";
-import "./styles/screens.css";
+import "@fontsource/noto-sans/400.css";
+import "@fontsource/noto-sans/500.css";
+import "@fontsource/noto-sans/600.css";
+import "@fontsource/noto-sans/700.css";
+import "./styles/tpm.css";
+import "./styles/app.css";
+import "./styles/legacy.css";
 
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";

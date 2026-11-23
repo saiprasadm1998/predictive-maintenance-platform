@@ -22,6 +22,7 @@ export interface Subscription {
   events: EventName[];
   channel: string;
   enabled: boolean;
+  delivery: "immediate" | "daily";
   created_at: string;
   updated_at: string;
 }
@@ -31,6 +32,7 @@ export interface SubscriptionIn {
   min_priority: Subscription["min_priority"];
   events: EventName[];
   enabled: boolean;
+  delivery: Subscription["delivery"];
 }
 
 /** One row of the delivery log (administrators). */
@@ -80,4 +82,27 @@ export function fetchDeliveries(
 
 export function sendTestEmail(to: string): Promise<void> {
   return api<void>("/notifications/test", { method: "POST", body: { to } });
+}
+
+/** My quiet hours, and the throttle and digest time set for everyone. */
+export interface Preferences {
+  quiet_start: number | null;
+  quiet_end: number | null;
+  per_alert_minutes: number;
+  time_zone: string;
+  digest_hour: number;
+}
+
+export function fetchPreferences(signal?: AbortSignal): Promise<Preferences> {
+  return api<Preferences>("/notifications/preferences", { signal });
+}
+
+export function savePreferences(
+  quiet_start: number | null,
+  quiet_end: number | null,
+): Promise<Preferences> {
+  return api<Preferences>("/notifications/preferences", {
+    method: "PUT",
+    body: { quiet_start, quiet_end },
+  });
 }

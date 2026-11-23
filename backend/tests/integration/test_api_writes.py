@@ -80,7 +80,8 @@ def test_a_rejected_model_lists_every_problem(api: Any) -> None:
     body = response.json()
     assert (response.status_code, body["code"]) == (400, "model_refused")
     assert len(body["problems"]) >= 2
-    assert client.post("/api/v1/models", json=definition, headers=h["root"]).status_code == 403
+    assert client.post("/api/v1/models", json=definition, headers=h["root"]).status_code == 400
+    assert client.post("/api/v1/models", json=definition, headers=h["vera"]).status_code == 403
 
 
 def test_data_quality_changes_need_confirmation_when_much_is_excluded(api: Any) -> None:
@@ -92,12 +93,6 @@ def test_data_quality_changes_need_confirmation_when_much_is_excluded(api: Any) 
     assert viewer.status_code == 403  # refused before any preview is shown (plan 6.7)
     refused = client.put("/api/v1/dq/rules", json=harsh, headers=h["eng"])
     assert (refused.status_code, refused.json()["code"]) == (409, "preview_warning")
-    assert (
-        client.put(
-            "/api/v1/dq/rules", json={**harsh, "confirm": True}, headers=h["root"]
-        ).status_code
-        == 403
-    )  # not an administrator's job
     saved = client.put("/api/v1/dq/rules", json={**harsh, "confirm": True}, headers=h["eng"])
     assert saved.json()["rules"]["version"] == 1
     assert (
@@ -217,3 +212,22 @@ def test_every_response_carries_the_security_headers(api: Any) -> None:
     assert response.headers["Strict-Transport-Security"].startswith("max-age=")
     docs = client.get("/api/v1/docs")
     assert "Content-Security-Policy" not in docs.headers  # Swagger UI loads its own assets
+
+
+def test_stored_history_is_reported_per_tag(api: Any) -> None:
+    client, h = api
+    coverage = client.get("/api/v1/tags/coverage", headers=h["vera"])
+    assert coverage.status_code == 200
+    rows = coverage.json()
+    assert rows, "the deployed model's tags have samples"
+    first = rows[0]
+    assert first["samples"] > 0
+    assert first["first_ts"] <= first["last_ts"]
+
+
+def test_history_imports_are_listed_for_those_who_import(api: Any) -> None:
+    client, h = api
+    assert client.get("/api/v1/ingest/backfill", headers=h["vera"]).status_code == 403
+    listed = client.get("/api/v1/ingest/backfill", headers=h["eng"])
+    assert listed.status_code == 200
+    assert isinstance(listed.json(), list)

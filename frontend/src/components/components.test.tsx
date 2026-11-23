@@ -20,9 +20,9 @@ describe("no status by colour alone (PDS §3.2, WCAG 1.4.1)", () => {
     ...NE107.map((value) => ({ kind: "ne107" as const, value })),
   ];
 
-  it.each(cases)("$kind $value has a shape and a text label", (props) => {
+  it.each(cases)("$kind $value is a pill with a text label", (props) => {
     const { container } = render(<StatusChip {...props} />);
-    expect(shapeOf(container)).not.toBeNull();
+    expect(container.querySelector(".pill .d")).not.toBeNull();
     expect(container.textContent?.trim().length).toBeGreaterThan(2);
   });
 
@@ -48,9 +48,9 @@ describe("no status by colour alone (PDS §3.2, WCAG 1.4.1)", () => {
         <StatusChip kind="ne107" value="Failure" detail="flatline" />
       </>,
     );
-    expect(screen.getByText("ALERT")).toBeInTheDocument();
-    expect(screen.getByText(/Unknown/).textContent).toBe("Unknown — insufficient data");
-    expect(screen.getByText(/Failure/).textContent).toBe("Failure: flatline");
+    expect(screen.getByText("Alert")).toBeInTheDocument();
+    expect(screen.getByText(/^Unknown/).textContent).toBe("Unknown — insufficient data");
+    expect(screen.getByText(/^Failure/).textContent).toBe("Failure: flatline");
   });
 });
 
@@ -94,14 +94,14 @@ describe("health", () => {
     expect(screen.getByLabelText("Health: no score")).toHaveTextContent("—");
   });
 
-  it("HealthScore reads 'Health 41 · ALERT' with the DI and its limits", () => {
+  it("HealthScore reads 'Health 41 · Alert' with the DI and its limits", () => {
     const { container } = render(
       <HealthScore health={41} band="Alert" di={29.46} diWarning={15} diAlert={25} />,
     );
     const row = container.querySelector(".health-score-row") as HTMLElement;
     expect(within(row).getByText("Health")).toBeInTheDocument();
     expect(within(row).getByText("41")).toBeInTheDocument();
-    expect(within(row).getByText("ALERT")).toBeInTheDocument();
+    expect(within(row).getByText("Alert")).toBeInTheDocument();
     expect(container.textContent).toContain("DI 29.5 %");
     expect(container.firstElementChild).toHaveAttribute(
       "title",

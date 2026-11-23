@@ -41,7 +41,7 @@ def bands_of(settings: Settings) -> UrgencyBands:
 
 class ForecastIn(BaseModel):
     model_id: int
-    target: Literal["di", "actual", "residual"] = "di"
+    target: Literal["di", "actual", "residual", "corrected"] = "di"
     tag_id: int | None = Field(default=None, description="the sensor, for actual and residual")
     threshold_kind: Literal["warning", "alert", "custom"] = Field(
         default="alert", description="the model's DI warning or alert limit, or a custom value"

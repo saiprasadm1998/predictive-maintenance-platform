@@ -24,6 +24,7 @@ BOOTSTRAP = 500
 SEED = 0
 MIN_POINTS = 96  # UC-11 precondition: at least 24 h of valid data, as 15-minute means
 MIN_R2 = 0.5
+RECENT_POINTS = 4  # the last hour of 15-minute means: the level now, before any trend
 EXP_GAIN = 0.05  # adjusted R² the exponential must add to be used
 GRID = 600  # b values per sign: neighbours 1 % apart
 B_RANGE = (0.05, 20.0)  # e-folds over the fit window
@@ -231,6 +232,14 @@ def forecast(
             None, None, None, Urgency.NONE,
         )  # fmt: skip
 
+    # Already beyond the threshold: the time left is zero whatever the trend looks like, so a
+    # noisy series (low R²) or a flat one still answers Immediate.
+    recent = float(np.median(values[-RECENT_POINTS:]))
+    if (recent - threshold) * direction >= 0:
+        return Forecast(
+            threshold, direction, len(t), fit, linear_adj, True, None,
+            0.0, 0.0, 0.0, Urgency.IMMEDIATE,
+        )  # fmt: skip
     if fit.r2 < MIN_R2:
         return no_trend(f"No trend to threshold: fit quality R² {fit.r2:.2f} is below {MIN_R2}")
     if fit.slope(0.0) * direction <= 0:

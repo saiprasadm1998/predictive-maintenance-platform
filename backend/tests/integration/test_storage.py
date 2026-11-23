@@ -75,7 +75,7 @@ def test_retention_removes_only_expired_data(db: Database) -> None:
     assert scores >= recent
     assert policy.raw_months == 24
     assert policy.last_run_at == NOW
-    assert "raw before 2024-10-21" in summary
+    assert "raw before 2024-10-20" in summary  # 24 months = 731 days
 
 
 def test_only_administrators_change_retention(db: Database) -> None:

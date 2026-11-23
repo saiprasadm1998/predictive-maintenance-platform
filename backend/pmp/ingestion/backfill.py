@@ -562,6 +562,7 @@ def make_backfill_handler(
             return {"error": str(error)}
         if not preview:
             path.unlink(missing_ok=True)
+            path.with_suffix(".name").unlink(missing_ok=True)  # the original file name
         return report.as_dict()
 
     return handle

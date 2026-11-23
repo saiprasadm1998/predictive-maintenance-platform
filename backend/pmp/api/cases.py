@@ -63,6 +63,7 @@ class CaseOut(BaseModel):
     assignee_id: int | None
     assignee: str | None = Field(description="display name")
     due: date | None
+    work_order: str | None = Field(default=None, description="maintenance work order reference")
     overdue: bool
     outcome: OutcomeName | None
     review_requested: bool = Field(description="closed as a false alert: model review asked")
@@ -144,6 +145,7 @@ def _summary_fields(c: CaseSummary, names: dict[int, str]) -> dict[str, Any]:
         "assignee_id": c.assignee_id,
         "assignee": names.get(c.assignee_id) if c.assignee_id else None,
         "due": c.due,
+        "work_order": c.work_order,
         "overdue": c.overdue(_today()),
         "outcome": c.outcome.value if c.outcome else None,
         "review_requested": c.review_requested,
@@ -308,6 +310,27 @@ def get_case_people(request: Request, user: User, case_id: int) -> list[PersonOu
 
 
 @router.get(
+    "/assets/{asset_id}/people",
+    response_model=list[PersonOut],
+    summary="Who a new case on this asset can be assigned to",
+)
+def get_asset_people(request: Request, user: User, asset_id: int) -> list[PersonOut]:
+    with database_of(request).session() as session:
+        asset = next((a for a in list_subtree(session) if a.id == asset_id), None)
+        if asset is None or not can_see(user, asset.path):
+            raise not_found("Asset")
+        return [
+            PersonOut(
+                id=p.principal.user_id,
+                username=p.principal.username,
+                display_name=p.display_name,
+                roles=sorted(r.value for r in p.principal.roles),
+            )
+            for p in assignable_people(session, asset.path)
+        ]
+
+
+@router.get(
     "/cases/{case_id}/attachments/{attachment_id}",
     response_class=FileResponse,
     summary="Download an attachment",
@@ -342,6 +365,7 @@ class CasePatch(BaseModel):
     priority: Literal["P1", "P2", "P3", "P4"] | None = None
     assignee_id: int | None = Field(default=None, description="null: unassign (Open only)")
     due: date | None = None
+    work_order: str | None = Field(default=None, max_length=40)
 
 
 class TransitionIn(BaseModel):
@@ -399,6 +423,7 @@ def patch_case(request: Request, user: User, case_id: int, body: CasePatch) -> C
             priority=body.priority if "priority" in given else UNSET,
             assignee_id=body.assignee_id if "assignee_id" in given else UNSET,
             due=body.due if "due" in given else UNSET,
+            work_order=body.work_order if "work_order" in given else UNSET,
         ),
     )
 

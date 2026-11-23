@@ -1,6 +1,9 @@
 import * as Dialog from "@radix-ui/react-dialog";
 import { type ReactNode, useId, useState } from "react";
 
+import { ICONS } from "./icons";
+import { Icon } from "./ui";
+
 /**
  * Confirmation for state-changing actions (PDS §5, §6): it states the consequence, and asks
  * for a reason where one is mandatory (shelve, override, retire ...). The confirm button
@@ -67,47 +70,60 @@ export function ConfirmDialog({
   return (
     <Dialog.Root open={open} onOpenChange={change}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
-        <Dialog.Content className="dialog">
-          <form onSubmit={confirm} style={{ display: "grid", gap: 12 }}>
-            <Dialog.Title className="dialog-title">{title}</Dialog.Title>
-            <Dialog.Description asChild>
-              <div>{consequence}</div>
-            </Dialog.Description>
-            {hasReason && (
-              <label className="field" htmlFor={reasonId}>
-                <span>
-                  {reasonLabel} ({needsReason ? "required" : "optional"})
-                </span>
-                <textarea
-                  id={reasonId}
-                  className="control"
-                  value={reason}
-                  required={needsReason}
-                  onChange={(event) => setReason(event.target.value)}
-                />
-              </label>
-            )}
-            {children}
-            <div role="alert" className="form-error">
-              {error}
-            </div>
-            <div className="dialog-actions">
-              <Dialog.Close asChild>
-                <button type="button" className="button" disabled={busy}>
-                  Cancel
-                </button>
+        <Dialog.Overlay className="scrim">
+          <Dialog.Content
+            className="dlg"
+            style={{ fontFamily: "var(--app-font)", fontSize: 14, lineHeight: 1.5 }}
+          >
+            <div className="dlgh">
+              <Dialog.Title asChild>
+                <h2>{title}</h2>
+              </Dialog.Title>
+              <Dialog.Close className="iconbtn" aria-label="Close" disabled={busy}>
+                <Icon d={ICONS.close} size={20} />
               </Dialog.Close>
-              <button
-                type="submit"
-                className={danger ? "button button-danger" : "button button-primary"}
-                disabled={!ready || busy}
-              >
-                {busy ? "Working…" : confirmLabel}
-              </button>
             </div>
-          </form>
-        </Dialog.Content>
+            <form onSubmit={confirm} style={{ display: "contents" }}>
+              <div className="dlgb">
+                <Dialog.Description asChild>
+                  <div>{consequence}</div>
+                </Dialog.Description>
+                {hasReason && (
+                  <div className="fld">
+                    <label htmlFor={reasonId}>
+                      {reasonLabel} ({needsReason ? "required" : "optional"})
+                    </label>
+                    <textarea
+                      id={reasonId}
+                      className="ta"
+                      value={reason}
+                      required={needsReason}
+                      onChange={(event) => setReason(event.target.value)}
+                    />
+                  </div>
+                )}
+                {children}
+                <div role="alert" className="err">
+                  {error}
+                </div>
+              </div>
+              <div className="dlgf">
+                <Dialog.Close asChild>
+                  <button type="button" className="btn btn-s" disabled={busy}>
+                    Cancel
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  className={danger ? "btn btn-d" : "btn btn-p"}
+                  disabled={!ready || busy}
+                >
+                  {busy ? "Working…" : confirmLabel}
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Overlay>
       </Dialog.Portal>
     </Dialog.Root>
   );

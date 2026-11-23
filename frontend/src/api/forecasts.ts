@@ -1,6 +1,6 @@
 import { api } from "./client";
 
-export type ForecastTarget = "di" | "actual" | "residual";
+export type ForecastTarget = "di" | "actual" | "residual" | "corrected";
 export type ThresholdKind = "warning" | "alert" | "custom";
 export type Urgency = "Immediate" | "High" | "Medium" | "Low" | "None";
 

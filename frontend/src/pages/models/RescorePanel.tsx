@@ -43,7 +43,7 @@ export function RescorePanel({ model, version }: { model: ModelDetail; version: 
 
   if (!open) {
     return (
-      <button type="button" className="button" onClick={() => setOpen(true)}>
+      <button type="button" className="btn btn-s" onClick={() => setOpen(true)}>
         Re-score…
       </button>
     );
@@ -55,11 +55,11 @@ export function RescorePanel({ model, version }: { model: ModelDetail; version: 
   const result = job.data?.result as { cycles?: number; end?: string } | null | undefined;
 
   return (
-    <section className="panel" aria-labelledby="rescore-title">
-      <h2 id="rescore-title" className="panel-title">
+    <section className="pnl" aria-labelledby="rescore-title">
+      <h2 id="rescore-title" className="pt">
         Re-score v{version.version}
       </h2>
-      <p className="muted small">
+      <p className="sec s13">
         Replaces this version's scores and sensor outputs for the period, computed again from the
         stored samples with the current DI limits. No alert changes and no e-mail is sent; the
         latest live cycle is kept.
@@ -80,38 +80,39 @@ export function RescorePanel({ model, version }: { model: ModelDetail; version: 
           }
         }}
       >
-        <label className="field-inline">
+        <label className="fld fld-inline">
           <span>From</span>
           <input
-            className="control"
+            className="in"
             type="datetime-local"
             value={from}
             required
             onChange={(e) => setFrom(e.target.value)}
           />
         </label>
-        <label className="field-inline">
+        <label className="fld fld-inline">
           <span>To</span>
           <input
-            className="control"
+            className="in"
             type="datetime-local"
             value={to}
             required
             onChange={(e) => setTo(e.target.value)}
           />
         </label>
-        <button
-          type="submit"
-          className="button button-primary"
-          disabled={!valid || busy || running}
-        >
+        <button type="submit" className="btn btn-p" disabled={!valid || busy || running}>
           Re-score
         </button>
-        <button type="button" className="button" onClick={() => setOpen(false)} disabled={running}>
+        <button
+          type="button"
+          className="btn btn-s"
+          onClick={() => setOpen(false)}
+          disabled={running}
+        >
           Close
         </button>
       </form>
-      {!valid && <p className="form-error">The period must end after it starts.</p>}
+      {!valid && <p className="err">The period must end after it starts.</p>}
       <Problems error={error} />
       {jobId !== null && (
         <p role="status">

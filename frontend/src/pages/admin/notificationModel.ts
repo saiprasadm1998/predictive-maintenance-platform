@@ -10,7 +10,7 @@ export function eventsFor(
   const roles = new Set(user?.roles.map((r) => r.role) ?? []);
   return events.filter(
     (e) =>
-      (e.value !== "model_review" || roles.has("model_engineer")) &&
+      (e.value !== "model_review" || roles.has("model_engineer") || roles.has("administrator")) &&
       (e.value !== "source_stale" || roles.has("administrator")),
   );
 }

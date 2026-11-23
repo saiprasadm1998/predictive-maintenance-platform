@@ -71,9 +71,9 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
 
   const shown = results ?? preview;
   return (
-    <section className="panel" aria-labelledby="apply-title">
-      <div className="panel-head">
-        <h2 id="apply-title" className="panel-title">
+    <section className="pnl" aria-labelledby="apply-title">
+      <div className="pnlh">
+        <h2 id="apply-title" className="pt">
           Apply a template
         </h2>
         <button type="button" className="link-button" onClick={onClose}>
@@ -81,10 +81,10 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
         </button>
       </div>
       <div className="field-row">
-        <label className="field-inline">
+        <label className="fld fld-inline">
           <span>Asset type</span>
           <select
-            className="control"
+            className="in"
             value={type}
             onChange={(e) => {
               setType(e.target.value);
@@ -102,10 +102,10 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
           </select>
         </label>
         {type && (
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <span>Template</span>
             <select
-              className="control"
+              className="in"
               value={template?.id ?? ""}
               disabled={!templates.data?.length}
               onChange={(e) => {
@@ -123,14 +123,14 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
         )}
       </div>
       {type && templates.isSuccess && !templates.data.length && (
-        <p className="muted">
+        <p className="sec">
           This asset type has no template yet. Import one with <code>pmp template import FILE</code>{" "}
           or <code>PUT /api/v1/model-templates</code>.
         </p>
       )}
       {template && (
         <>
-          <p className="muted small">
+          <p className="sec s13">
             Required roles: {template.required_roles.join(", ") || "none"}. Optional:{" "}
             {template.optional_roles.join(", ") || "none"}.
           </p>
@@ -139,7 +139,7 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
               Assets ({chosen.length} of {ofType.length})
             </legend>
             {ofType.map((a) => (
-              <label key={a.code} className="field-inline">
+              <label key={a.code} className="fld fld-inline">
                 <input
                   type="checkbox"
                   checked={!unticked.has(a.code)}
@@ -158,7 +158,7 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
           <div className="form-actions">
             <button
               type="button"
-              className="button"
+              className="btn btn-s"
               disabled={busy || !chosen.length || !!results}
               onClick={() => void run(true)}
             >
@@ -166,7 +166,7 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="button"
-              className="button button-primary"
+              className="btn btn-p"
               disabled={busy || !preview || !ready || !!results}
               onClick={() => void run(false)}
             >
@@ -177,10 +177,8 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
       )}
       <Problems error={error} />
       {shown && (
-        <table className="tree-table">
-          <caption className="visually-hidden">
-            {results ? "Results per asset" : "Preview per asset"}
-          </caption>
+        <table className="tb">
+          <caption className="sr">{results ? "Results per asset" : "Preview per asset"}</caption>
           <thead>
             <tr>
               <th scope="col">Asset</th>
@@ -198,7 +196,7 @@ export function ApplyTemplate({ onClose }: { onClose: () => void }) {
                   {r.outcome === "ready" ? "will be created" : r.outcome}
                   {r.reason ? `: ${r.reason}` : ""}
                 </td>
-                <td className="small">
+                <td className="s13">
                   {Object.entries(r.tags)
                     .map(([role, tag]) => `${role} → ${tag}`)
                     .join(", ") || "—"}

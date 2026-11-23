@@ -30,6 +30,7 @@ class SubscriptionRow(Base):
     min_priority: Mapped[str] = mapped_column(String(2))
     events: Mapped[list[str]] = mapped_column(JSONB)
     channel: Mapped[str] = mapped_column(String(10), default="email")
+    delivery: Mapped[str] = mapped_column(String(10), default="immediate")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -61,3 +62,15 @@ class CursorRow(Base):
     name: Mapped[str] = mapped_column(String(30), primary_key=True)
     position: Mapped[int] = mapped_column(BigInteger)
     checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class NotificationPrefRow(Base):
+    """A user's quiet hours (plant time): notifications then wait for a summary."""
+
+    __tablename__ = "notification_pref"
+
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("app_user.id", ondelete="CASCADE"), primary_key=True
+    )
+    quiet_start: Mapped[int | None] = mapped_column(Integer)
+    quiet_end: Mapped[int | None] = mapped_column(Integer)

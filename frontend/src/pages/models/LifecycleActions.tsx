@@ -29,14 +29,14 @@ export function LifecycleActions({
     },
   });
   const choices = lifecycleChoices(model);
-  if (!choices.length) return compact ? <span className="muted">—</span> : null;
+  if (!choices.length) return compact ? <span className="sec">—</span> : null;
   return (
     <span className="lifecycle">
       {choices.map((c) => (
         <button
           key={c.action}
           type="button"
-          className={`button${compact ? " button-small" : ""}${c.danger ? " button-danger-outline" : ""}`}
+          className={`btn btn-s${compact ? " button-small" : ""}${c.danger ? " button-danger-outline" : ""}`}
           onClick={() => setChoice(c)}
         >
           {c.label}

@@ -2,6 +2,7 @@
 
 POST /api/v1/ingest/backfill             upload a file; queue a preview or an import job
 POST /api/v1/ingest/backfill/{id}/load   import a file that was uploaded for preview
+GET  /api/v1/ingest/backfill             recent history imports, newest first
 GET  /api/v1/jobs/{id}                   job status, progress and result
 
 Authentication: an `ingest` API key (a gateway or script), or a signed-in user allowed to
@@ -39,6 +40,7 @@ from pmp.core import (
     authorize,
     enqueue,
     get_job,
+    list_jobs,
 )
 from pmp.ingestion import (
     BACKFILL_JOB,
@@ -131,7 +133,10 @@ def _uploader(request: Request) -> _Uploader:
 def _queue(
     request: Request, who: _Uploader, upload_id: str, options: BackfillOptions, preview: bool
 ) -> QueuedJob:
+    name_file = _find_upload(request, upload_id).with_suffix(".name")
     payload = {
+        "filename": name_file.read_text() if name_file.exists() else None,
+        "user": who.actor.user_id if who.actor is not None else None,
         "key_id": who.key_id,  # only this key may read the job (ARC §1.2: keys write only)
         "upload": _find_upload(request, upload_id).name,
         "options": options.to_payload(),
@@ -209,6 +214,7 @@ def upload_history(
     except ProblemError:
         path.unlink(missing_ok=True)
         raise
+    path.with_suffix(".name").write_text(Path(file.filename or path.name).name[:200])
     return _queue(request, who, upload_id, options, preview)
 
 
@@ -241,6 +247,42 @@ def _user_sees_job(
             return principal.grant(Permission.VIEW, None)
         return principal.grant(Permission.VIEW, asset_path(session, model.asset_code))
     return True
+
+
+class ImportOut(BaseModel):
+    job_id: int
+    filename: str | None
+    user_id: int | None
+    status: str
+    created_at: datetime
+    finished_at: datetime | None
+    result: dict[str, Any] | None
+    error: str | None
+
+
+@router.get(
+    "/api/v1/ingest/backfill",
+    response_model=list[ImportOut],
+    summary="Recent history imports (not previews), newest first",
+)
+def list_imports(request: Request) -> list[ImportOut]:
+    user = resolve_user(request)
+    authorize(user.actor, Permission.REGISTRY, what="history imports")
+    with database_of(request).session() as session:
+        jobs = [j for j in list_jobs(session, BACKFILL_JOB, 100) if not j.payload.get("preview")]
+    return [
+        ImportOut(
+            job_id=j.id,
+            filename=j.payload.get("filename"),
+            user_id=j.payload.get("user"),
+            status=j.status,
+            created_at=j.created_at,
+            finished_at=j.finished_at,
+            result=dict(j.result) if j.result else None,
+            error=j.last_error,
+        )
+        for j in jobs[:20]
+    ]
 
 
 @router.get(

@@ -27,6 +27,7 @@ from pmp.core import (
     user_id_var,
     verify_api_key,
 )
+from pmp.notifications import configure_tuning
 
 logger = logging.getLogger(__name__)
 security_log = logging.getLogger("pmp.security")
@@ -54,6 +55,7 @@ def settings_of(request: Request) -> Settings:
     if settings is None:
         settings = get_settings()
         request.app.state.settings = settings
+        configure_tuning(settings.notify_per_alert_minutes, settings.plant_timezone)
     return settings
 
 

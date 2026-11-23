@@ -19,19 +19,19 @@ from pmp.core import (
     authorize,
 )
 
-# ARC-001 §9.2 as printed: ✔ allowed, "assigned" only on assigned cases, blank refused.
+# ✔ allowed, "assigned" only on assigned cases, blank refused.
 # Columns: Viewer, Analyst, Maintenance, Model Engineer, Administrator.
 ARC_9_2 = """
 view               | ✔ | ✔ | ✔        | ✔ | ✔
-alert_actions      |   | ✔ |          | ✔ |
-run_forecasts      |   | ✔ |          | ✔ |
-manage_cases       |   | ✔ | assigned | ✔ |
-work_on_cases      |   | ✔ | assigned | ✔ |
-sensor_exclusion   |   | ✔ |          | ✔ |
+alert_actions      |   | ✔ |          | ✔ | ✔
+run_forecasts      |   | ✔ |          | ✔ | ✔
+manage_cases       |   | ✔ | assigned | ✔ | ✔
+work_on_cases      |   | ✔ | assigned | ✔ | ✔
+sensor_exclusion   |   | ✔ |          | ✔ | ✔
 registry           |   |   |          | ✔ | ✔
-data_quality_rules |   |   |          | ✔ |
-models             |   |   |          | ✔ |
-failure_modes      |   |   |          | ✔ |
+data_quality_rules |   |   |          | ✔ | ✔
+models             |   |   |          | ✔ | ✔
+failure_modes      |   |   |          | ✔ | ✔
 administration     |   |   |          |   | ✔
 audit_log          |   |   |          |   | ✔
 own_subscriptions  | ✔ | ✔ | ✔        | ✔ | ✔
@@ -52,7 +52,7 @@ def principal(*assignments: RoleAssignment) -> Principal:
     return Principal(1, "sam", assignments)
 
 
-def test_the_matrix_is_arc_9_2_word_for_word() -> None:
+def test_the_matrix_matches_the_table() -> None:
     expected = arc_table()
     assert {p for p, _ in expected} == set(Permission)
     for (permission, role), cell in expected.items():

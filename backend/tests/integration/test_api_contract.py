@@ -84,6 +84,8 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("POST", "/api/v1/asset-types"): Permission.REGISTRY,
     ("POST", "/api/v1/asset-types/{type_id}/roles"): Permission.REGISTRY,
     ("GET", "/api/v1/unmapped-tags"): V,
+    ("GET", "/api/v1/tags/coverage"): V,
+    ("GET", "/api/v1/tags/{tag_id}/trend"): V,
     ("POST", "/api/v1/unmapped-tags/promote"): Permission.REGISTRY,
     ("GET", "/api/v1/sensors/health"): V,
     ("POST", "/api/v1/sensors/{tag_id}/exclusions"): Permission.SENSOR_EXCLUSION,
@@ -102,6 +104,7 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("GET", "/api/v1/cases/{case_id}"): V,
     ("PATCH", "/api/v1/cases/{case_id}"): Permission.MANAGE_CASES,
     ("GET", "/api/v1/cases/{case_id}/people"): V,
+    ("GET", "/api/v1/assets/{asset_id}/people"): V,
     ("POST", "/api/v1/cases/{case_id}/transition"): Permission.MANAGE_CASES,
     ("POST", "/api/v1/cases/{case_id}/alerts"): Permission.MANAGE_CASES,
     ("POST", "/api/v1/cases/{case_id}/activities"): Permission.WORK_ON_CASES,
@@ -160,11 +163,18 @@ PERMISSIONS: dict[tuple[str, str], Permission | str | None] = {
     ("GET", "/api/v1/events"): V,
     ("POST", "/api/v1/ingest/samples"): "key",
     ("POST", "/api/v1/ingest/backfill"): Permission.REGISTRY,  # or an ingest key
+    ("GET", "/api/v1/ingest/backfill"): Permission.REGISTRY,
     ("POST", "/api/v1/ingest/backfill/{upload_id}/load"): Permission.REGISTRY,
     ("GET", "/api/v1/jobs/{job_id}"): V,
     ("GET", "/api/v1/ingest/health"): Permission.ADMINISTRATION,
     ("GET", "/api/v1/ops/alerts"): Permission.ADMINISTRATION,
     ("GET", "/api/v1/results/health"): "key",  # results-read
+    ("GET", "/api/v1/results/alerts"): "key",
+    ("GET", "/api/v1/results/forecast"): "key",
+    ("GET", "/api/v1/ingest/rejects"): Permission.ADMINISTRATION,
+    ("POST", "/api/v1/ingest/broker/test"): Permission.ADMINISTRATION,
+    ("GET", "/api/v1/notifications/preferences"): V,
+    ("PUT", "/api/v1/notifications/preferences"): Permission.OWN_SUBSCRIPTIONS,
 }
 
 
@@ -317,6 +327,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200, headers=key)
     call("GET", f"{v1}/jobs/{queued['job_id']}", 200)  # as a user
     health = call("GET", f"{v1}/ingest/health", 200).json()
+    call("GET", f"{v1}/ingest/rejects", 200)
+    assert call("POST", f"{v1}/ingest/broker/test", 200).json()["ok"] is False  # none set
     call("GET", f"{v1}/ops/alerts", 200)
     metrics = call("GET", "/metrics", 200)
     assert 'pmp_ingest_samples_accepted_total{source="gw-1"} 1' in metrics.text
@@ -406,6 +418,14 @@ def test_every_operation_is_exercised_and_matches_its_schema(
             ],
         )
     call("GET", f"{v1}/unmapped-tags", 200)
+    call("GET", f"{v1}/tags/coverage", 200)
+    call(
+        "GET",
+        f"{v1}/tags/{tag['id']}/trend",
+        200,
+        params={"start": "2026-01-01T00:00:00Z", "end": "2026-01-02T00:00:00Z"},
+    )
+    call("GET", f"{v1}/ingest/backfill", 200)
     call(
         "POST",
         f"{v1}/unmapped-tags/promote",
@@ -456,6 +476,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
         "GET", f"{v1}/results/health", 200, headers=results_key, params={"scope": "EQ-1"}
     )
     assert [m["asset"] for m in results.json()["models"]] == ["EQ-1"]
+    call("GET", f"{v1}/results/alerts", 200, headers=results_key, params={"scope": "EQ-1"})
+    call("GET", f"{v1}/results/forecast", 200, headers=results_key, params={"asset": "EQ-1"})
     definition = {
         "asset": "EQ-1",
         "name": "second",
@@ -508,6 +530,7 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("POST", f"{v1}/cases", 409, json={"alert_ids": [alert_id]})
     call("GET", f"{v1}/cases", 200, params={"open_only": "true"})
     (me,) = call("GET", f"{case_url}/people", 200).json()
+    call("GET", f"{v1}/assets/{case['asset_id']}/people", 200)
     call("PATCH", case_url, 200, json={"assignee_id": me["id"], "due": "2026-12-01"})
     call("POST", f"{case_url}/alerts", 200, json={"alert_ids": [alert_id]})
     call("POST", f"{case_url}/activities", 201, json={"type": "comment", "body": "Oil sample"})
@@ -557,6 +580,8 @@ def test_every_operation_is_exercised_and_matches_its_schema(
     call("POST", f"{v1}/notifications/subscriptions", 400, json={"events": []})
     call("GET", f"{v1}/notifications/log", 200)
     call("POST", f"{v1}/notifications/test", 409, json={"to": "root@plant.test"})  # no relay
+    call("GET", f"{v1}/notifications/preferences", 200)
+    call("PUT", f"{v1}/notifications/preferences", 200, json={"quiet_start": 22, "quiet_end": 6})
     call("DELETE", f"{v1}/notifications/subscriptions/{sub['id']}", 204)
     call("POST", f"{v1}/alerts/{alert_id}/ack", 200, json={"comment": "seen"})
     call("POST", f"{v1}/alerts/{alert_id}/shelve", 200, json={"reason": "work", "minutes": 30})

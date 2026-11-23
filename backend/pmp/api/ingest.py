@@ -23,13 +23,20 @@ from sqlalchemy.exc import OperationalError
 from pmp.api.deps import SignedIn, authenticate_api_key, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.api.ratelimit import RateLimiter, retry_after_header
-from pmp.core import ApiKeyScope
+from pmp.core import ApiKeyScope, Permission, authorize
 from pmp.ingestion import (
     MAX_BODY_BYTES,
     MAX_SAMPLES,
+    MQTT_TRANSPORT,
     BatchIn,
+    BrokerConfig,
+    check_broker,
+    count_rejections,
+    get_transport,
     ingest_batch,
     ingestion_health,
+    list_rejections,
+    samples_since,
     server_now,
 )
 
@@ -190,10 +197,54 @@ class TagHealthOut(BaseModel):
     stale: bool
 
 
+class BrokerOut(BaseModel):
+    configured: bool = Field(description="a broker URL is set (PMP_MQTT_URL)")
+    url: str | None
+    topic: str | None
+    connected: bool
+    last_message_at: datetime | None
+    last_error: str | None
+    updated_at: datetime | None
+
+
 class IngestionHealthOut(BaseModel):
     checked_at: datetime
     sources: list[SourceHealthOut]
     tags: list[TagHealthOut]
+    broker: BrokerOut
+    topic_prefix: str
+    accepted_24h: int = Field(description="samples time-stamped in the last 24 h")
+    rejected_24h: int = Field(description="refusals in the reject log in the last 24 h")
+
+
+class RejectOut(BaseModel):
+    received_at: datetime
+    source: str
+    transport: str
+    tag: str | None
+    sample_ts: datetime | None
+    value: float | None
+    reason: str
+    detail: str | None
+
+
+class BrokerTestOut(BaseModel):
+    ok: bool
+    message: str
+
+
+def _broker(request: Request) -> BrokerConfig | None:
+    settings = settings_of(request)
+    if not settings.mqtt_url:
+        return None
+    return BrokerConfig(
+        url=settings.mqtt_url,
+        topic_prefix=settings.mqtt_topic_prefix,
+        username=settings.mqtt_username,
+        password=settings.mqtt_password.get_secret_value() if settings.mqtt_password else None,
+        ca_file=settings.mqtt_ca_file,
+        client_id=settings.mqtt_client_id,
+    )
 
 
 @router.get(
@@ -202,9 +253,26 @@ class IngestionHealthOut(BaseModel):
     summary="Ingestion health per source and tag (administrators, FR-ING-07)",
 )
 def get_ingestion_health(request: Request, user: User) -> IngestionHealthOut:
+    config = _broker(request)
     with database_of(request).session() as session:
-        health = ingestion_health(session, user.actor, server_now(session))
+        now = server_now(session)
+        health = ingestion_health(session, user.actor, now)
+        state = get_transport(session, MQTT_TRANSPORT)
+        accepted = samples_since(session, now - timedelta(hours=24))
+        rejected = count_rejections(session, now - timedelta(hours=24))
     return IngestionHealthOut(
+        broker=BrokerOut(
+            configured=config is not None,
+            url=config.display_url if config else (state.url if state else None),
+            topic=config.topic if config else (state.topic if state else None),
+            connected=bool(config and state and state.connected),
+            last_message_at=state.last_message_at if state else None,
+            last_error=state.last_error if state else None,
+            updated_at=state.updated_at if state else None,
+        ),
+        topic_prefix=settings_of(request).mqtt_topic_prefix,
+        accepted_24h=accepted,
+        rejected_24h=rejected,
         checked_at=health.checked_at,
         sources=[
             SourceHealthOut(
@@ -215,3 +283,29 @@ def get_ingestion_health(request: Request, user: User) -> IngestionHealthOut:
         ],
         tags=[TagHealthOut(**asdict(t)) for t in health.tags],
     )
+
+
+@router.get(
+    "/rejects",
+    response_model=list[RejectOut],
+    summary="The reject log: refused samples and messages, newest first (administrators)",
+)
+def get_rejects(request: Request, user: User, limit: int = 100) -> list[RejectOut]:
+    authorize(user.actor, Permission.ADMINISTRATION, what="the reject log")
+    with database_of(request).session() as session:
+        rows = list_rejections(session, max(1, min(limit, 1000)))
+    return [RejectOut(**asdict(r)) for r in rows]
+
+
+@router.post(
+    "/broker/test",
+    response_model=BrokerTestOut,
+    summary="Connect once to the configured MQTT broker (administrators)",
+)
+def post_broker_test(request: Request, user: User) -> BrokerTestOut:
+    authorize(user.actor, Permission.ADMINISTRATION, what="the broker test")
+    config = _broker(request)
+    if config is None:
+        return BrokerTestOut(ok=False, message="No broker is configured (PMP_MQTT_URL)")
+    ok, message = check_broker(config)
+    return BrokerTestOut(ok=ok, message=message)

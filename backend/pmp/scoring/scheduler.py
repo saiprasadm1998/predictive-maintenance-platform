@@ -32,6 +32,7 @@ from pmp.core import (
     EventBus,
     LockKey,
     RetainedTable,
+    RetentionPlan,
     apply_retention,
     enqueue,
     holds_advisory_lock,
@@ -54,11 +55,11 @@ from pmp.scoring.runtime import (
 logger = logging.getLogger(__name__)
 MIN_CYCLE_S = 10
 # The time series retention applies to, each named by its owner (ARC §4, §6.3).
-RETAINED_TABLES = (
-    SAMPLES,
+SCORE_TABLES = (
     RetainedTable("score", "score_1h"),
     RetainedTable("sensor_output", "sensor_output_1h"),
 )
+RETAINED_TABLES = (SAMPLES, *SCORE_TABLES)
 OVERRUN_SHARE = 0.5  # ARC §10.3: a cycle overruns past half its length
 STATUS_CYCLE_S = 60  # sensors no deployed model scores are checked on this cycle
 
@@ -253,8 +254,10 @@ class Scheduler:
 
 def make_retention_handler(
     database: Database,
+    plan: RetentionPlan | None = None,
 ) -> Callable[[Mapping[str, Any]], Mapping[str, Any]]:
     """The worker's handler for the daily retention job."""
+    plan = plan or RetentionPlan(tables=(SAMPLES,), scores=SCORE_TABLES)
 
     def handle(payload: Mapping[str, Any]) -> Mapping[str, Any]:
         with database.session() as session:
@@ -262,7 +265,10 @@ def make_retention_handler(
                 session,
                 datetime.now(UTC),
                 int(payload.get("default_raw_months", 24)),
-                RETAINED_TABLES,
+                plan.tables,
+                scores=plan.scores,
+                records=plan.records,
+                files=plan.files,
             )
         return {"summary": summary}
 

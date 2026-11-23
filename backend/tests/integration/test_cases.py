@@ -137,10 +137,17 @@ def test_detect_diagnose_act_close(db: Database, tmp_path: Path) -> None:
         with pytest.raises(CaseError, match="Assign the case before investigating"):
             change_status(s, ana, case.id, CaseStatus.INVESTIGATING, now=NOW)
         assigned = update_case(
-            s, ana, case.id, assignee_id=max_.user_id, due=date(2026, 6, 10), now=NOW
+            s,
+            ana,
+            case.id,
+            assignee_id=max_.user_id,
+            due=date(2026, 6, 10),
+            work_order="  WO-48213  ",
+            now=NOW,
         )
     assert assigned.status is CaseStatus.INVESTIGATING  # assigning starts the investigation
     assert assigned.assignee_id == max_.user_id
+    assert assigned.work_order == "WO-48213"
 
     with db.session() as s:  # the maintenance engineer works on the case assigned to them
         add_comment(s, max_, case.id, "Oil sample: elevated iron particles.", now=NOW)

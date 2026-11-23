@@ -1,37 +1,36 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 
 import { Announcer } from "../app/Announcer";
-import { BreadcrumbContext, type BreadcrumbItem } from "../app/breadcrumbs";
 import { LiveEvents } from "../app/LiveEvents";
+import { ScopeProvider } from "../app/ScopeProvider";
 import { useScreen } from "../app/useScreen";
-import { NavRail } from "./NavRail";
-import { TopBar } from "./TopBar";
+import { Header } from "./Header";
+import { Sidebar } from "./Sidebar";
 
 export function AppShell() {
   const screen = useScreen();
-  const [crumbs, setCrumbs] = useState<BreadcrumbItem[] | null>(null);
   useEffect(() => {
-    document.title = screen ? `${screen.title} · PMP` : "PMP";
+    document.title = screen ? `${screen.title} · Traverse PM` : "Traverse PM";
   }, [screen]);
   return (
     <Announcer>
-      <BreadcrumbContext.Provider value={setCrumbs}>
-        <LiveEvents>
-          <div className="shell">
+      <LiveEvents>
+        <ScopeProvider>
+          <div className="app">
             <a href="#main" className="skip-link">
               Skip to content
             </a>
-            <NavRail />
-            <div className="shell-main">
-              <TopBar crumbs={crumbs} />
-              <main id="main" tabIndex={-1} className="content">
+            <Header />
+            <div className="shell">
+              <Sidebar />
+              <main id="main" tabIndex={-1} className="pg">
                 <Outlet />
               </main>
             </div>
           </div>
-        </LiveEvents>
-      </BreadcrumbContext.Provider>
+        </ScopeProvider>
+      </LiveEvents>
     </Announcer>
   );
 }

@@ -17,6 +17,7 @@ export interface CaseSummary {
   assignee_id: number | null;
   assignee: string | null;
   due: string | null; // YYYY-MM-DD
+  work_order?: string | null;
   overdue: boolean;
   outcome: Outcome | null;
   review_requested: boolean;
@@ -184,6 +185,7 @@ export interface CasePatch {
   priority?: string;
   assignee_id?: number | null;
   due?: string | null;
+  work_order?: string | null;
 }
 
 export function updateCase(id: number, patch: CasePatch): Promise<CaseDetail> {
@@ -249,4 +251,9 @@ export interface Closure {
 
 export function closeCase(id: number, closure: Closure): Promise<CaseDetail> {
   return api<CaseDetail>(`/cases/${id}/close`, { method: "POST", body: closure });
+}
+
+/** Who a new case on this asset can be assigned to. */
+export function fetchAssetPeople(assetId: number, signal?: AbortSignal): Promise<CasePerson[]> {
+  return api<CasePerson[]>(`/assets/${assetId}/people`, { signal });
 }

@@ -7,7 +7,6 @@ import {
   ne107Look,
   severityLook,
 } from "./status";
-import { StatusShape } from "./StatusShape";
 
 type Props = (
   | { kind: "band"; value: Band }
@@ -31,21 +30,29 @@ function lookOf(props: Props): StatusLook {
   }
 }
 
-/** Shape + label + colour for a band, severity or NE 107 status (PDS §3.2, §5). */
+const PILL: Record<string, string> = {
+  alert: " p-danger",
+  fault: " p-danger",
+  watch: " p-warning",
+  unknown: " p-unknown",
+  healthy: "",
+};
+
+function sentence(label: string): string {
+  return label === label.toUpperCase() ? label.charAt(0) + label.slice(1).toLowerCase() : label;
+}
+
+/** A band, severity or NE 107 status as a Traverse pill: dot, label, tone (never colour alone). */
 export function StatusChip(props: Props) {
   const look = lookOf(props);
-  const size = props.size ?? "m";
   const separator = props.kind === "ne107" && props.value === "Failure" ? ": " : " — ";
   return (
-    <span
-      className={`chip chip-${size} tone-${look.tone}${props.bold === false ? " chip-regular" : ""}`}
-      data-status={props.value}
-    >
-      <StatusShape shape={look.shape} tone={look.tone} size={size === "s" ? 10 : 12} />
-      <span className="chip-label">
-        {look.label}
+    <span className={`pill${PILL[look.tone] ?? ""}`} data-status={props.value}>
+      <span className="d" />
+      <span>
+        {sentence(look.label)}
         {props.detail ? (
-          <span className="chip-detail">
+          <span className="sec">
             {separator}
             {props.detail}
           </span>

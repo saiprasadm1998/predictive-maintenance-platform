@@ -14,8 +14,8 @@ export function OpsAlerts() {
   });
   if (!alerts.data?.length) return null;
   return (
-    <section className="panel" aria-labelledby="ops-title">
-      <h2 id="ops-title" className="panel-title">
+    <section className="pnl" aria-labelledby="ops-title">
+      <h2 id="ops-title" className="pt">
         Operational alerts
       </h2>
       <ul className="case-list">

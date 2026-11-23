@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Protocol
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -49,6 +50,8 @@ from pmp.core import (
 from pmp.ingestion import MAX_SKEW_S, source_health
 from pmp.modelling import ModelError, get_model_by_id, model_asset_code
 from pmp.notifications.domain import (
+    DIGEST_HOUR,
+    PER_ALERT,
     PER_HOUR,
     Decision,
     EventKind,
@@ -57,12 +60,18 @@ from pmp.notifications.domain import (
     SubscriptionSpec,
     contributors_text,
     decide,
+    in_quiet_hours,
     is_history,
     matches,
     next_attempt,
     summary_text,
 )
-from pmp.notifications.models import CursorRow, NotificationRow, SubscriptionRow
+from pmp.notifications.models import (
+    CursorRow,
+    NotificationPrefRow,
+    NotificationRow,
+    SubscriptionRow,
+)
 from pmp.registry import AssetView, RegistryError, find_asset, get_asset_by_id
 from pmp.scoring import cycle_outputs, get_runtime_statuses
 
@@ -87,10 +96,13 @@ class SubscriptionView:
     enabled: bool
     created_at: datetime
     updated_at: datetime
+    delivery: str = "immediate"
 
     @property
     def spec(self) -> SubscriptionSpec:
-        return SubscriptionSpec(self.min_priority, self.events, self.scope_asset_id, self.enabled)
+        return SubscriptionSpec(
+            self.min_priority, self.events, self.scope_asset_id, self.enabled, self.delivery
+        )
 
 
 def _sub_view(session: Session, row: SubscriptionRow) -> SubscriptionView:
@@ -106,6 +118,7 @@ def _sub_view(session: Session, row: SubscriptionRow) -> SubscriptionView:
         row.enabled,
         row.created_at,
         row.updated_at,
+        row.delivery,
     )
 
 
@@ -146,6 +159,7 @@ def save_subscription(
         "min_priority": spec.min_priority,
         "events": [e.value for e in spec.events],
         "enabled": spec.enabled,
+        "delivery": spec.delivery,
     }
     if subscription_id is None:
         row = SubscriptionRow(user_id=user_id, channel="email", **content)
@@ -161,6 +175,7 @@ def save_subscription(
             "min_priority": row.min_priority,
             "events": list(row.events),
             "enabled": row.enabled,
+            "delivery": row.delivery,
         }
         for key, value in content.items():
             setattr(row, key, value)
@@ -244,6 +259,7 @@ def list_deliveries(
 class Recipient:
     person: Person
     email: str
+    digest: bool = False  # every matching subscription is a daily digest
 
 
 def _subscriptions(session: Session, user_ids: Iterable[int]) -> dict[int, list[SubscriptionSpec]]:
@@ -258,7 +274,9 @@ def _subscriptions(session: Session, user_ids: Iterable[int]) -> dict[int, list[
     ).all():
         events = tuple(EventKind(e) for e in row.events if e in EventKind._value2member_map_)
         out.setdefault(row.user_id, []).append(
-            SubscriptionSpec(row.min_priority, events, row.scope_asset_id, row.enabled)
+            SubscriptionSpec(
+                row.min_priority, events, row.scope_asset_id, row.enabled, row.delivery
+            )
         )
     return out
 
@@ -287,10 +305,14 @@ def recipients(
         needed = NEEDS.get(event)
         if needed is not None and not person.principal.grant(needed, asset_path):
             continue
-        if any(
-            matches(s, event, priority, asset_path) for s in subs.get(person.principal.user_id, [])
-        ):
-            found.append(Recipient(person, person.email or ""))
+        hits = [
+            s
+            for s in subs.get(person.principal.user_id, [])
+            if matches(s, event, priority, asset_path)
+        ]
+        if hits:
+            digest = all(s.delivery == "daily" for s in hits)
+            found.append(Recipient(person, person.email or "", digest))
     return found
 
 
@@ -332,12 +354,19 @@ def _queue(
     case_id: int | None = None,
 ) -> int:
     queued = 0
+    tuning = current_tuning()
     for r in people:
         user_id = r.person.principal.user_id
         last = _last_for_alert(session, user_id, alert_id) if alert_id is not None else None
-        decision = decide(now, last, _recent_count(session, user_id, now))
+        decision = decide(now, last, _recent_count(session, user_id, now), tuning.per_alert)
         if decision is Decision.SKIP:
             continue
+        if r.digest:
+            status = Status.DIGEST
+        elif decision is Decision.HOLD or _quiet(session, user_id, now, tuning):
+            status = Status.HELD
+        else:
+            status = Status.PENDING
         session.add(
             NotificationRow(
                 user_id=user_id,
@@ -347,7 +376,7 @@ def _queue(
                 recipient=r.email,
                 subject=subject,
                 body=body,
-                status=(Status.HELD if decision is Decision.HOLD else Status.PENDING).value,
+                status=status.value,
                 attempts=0,
                 next_attempt_at=now,
                 created_at=now,
@@ -579,7 +608,7 @@ def collect_stale_sources(session: Session, now: datetime, public_url: str) -> i
                 + (source.last_sample_ts.isoformat() if source.last_sample_ts else "—"),
                 f"Clock skew:     {skew}",
                 "",
-                f"Ingestion health: {public_url.rstrip('/')}/admin?tab=ingestion",
+                f"Ingestion health: {public_url.rstrip('/')}/system/ingestion",
             ]
         )
         queued += _queue(session, people, EventKind.SOURCE_STALE, subject, body, now)
@@ -631,8 +660,11 @@ def summarise(session: Session, now: datetime, public_url: str) -> int:
         .distinct()
     ).all()
     made = 0
+    tuning = current_tuning()
     for user_id in users:
-        if _recent_count(session, user_id, now) >= PER_HOUR:
+        if _recent_count(session, user_id, now) >= PER_HOUR or _quiet(
+            session, user_id, now, tuning
+        ):
             continue
         held = session.scalars(
             select(NotificationRow)
@@ -659,6 +691,124 @@ def summarise(session: Session, now: datetime, public_url: str) -> int:
             h.summary_id = summary.id
         made += 1
     return made
+
+
+def send_digests(session: Session, now: datetime, public_url: str) -> int:
+    """Daily-digest notifications collected before today's digest hour (plant time) go out
+    as one summary per user."""
+    tuning = current_tuning()
+    local = now.astimezone(tuning.zone)
+    cut = local.replace(hour=DIGEST_HOUR, minute=0, second=0, microsecond=0)
+    if local < cut:
+        cut -= timedelta(days=1)
+    users = session.scalars(
+        select(NotificationRow.user_id)
+        .where(NotificationRow.status == Status.DIGEST.value, NotificationRow.created_at < cut)
+        .distinct()
+    ).all()
+    made = 0
+    for user_id in users:
+        rows = session.scalars(
+            select(NotificationRow)
+            .where(
+                NotificationRow.user_id == user_id,
+                NotificationRow.status == Status.DIGEST.value,
+                NotificationRow.created_at < cut,
+            )
+            .order_by(NotificationRow.id)
+            .with_for_update()
+        ).all()
+        subject, body = summary_text([r.subject for r in rows], public_url.rstrip("/") + "/alerts")
+        digest = NotificationRow(
+            user_id=user_id,
+            event=EventKind.SUMMARY.value,
+            recipient=rows[0].recipient,
+            subject=f"Daily digest: {subject}",
+            body=body,
+            status=Status.PENDING.value,
+            attempts=0,
+            next_attempt_at=now,
+            created_at=now,
+        )
+        session.add(digest)
+        session.flush()
+        for r in rows:
+            r.status = Status.SUMMARISED.value
+            r.summary_id = digest.id
+        made += 1
+    return made
+
+
+PLANT_ZONE = ZoneInfo("Asia/Dubai")
+
+
+@dataclass(frozen=True)
+class Tuning:
+    """Delivery settings fixed by the administrator for everyone (PMP_NOTIFY_*)."""
+
+    per_alert: timedelta = PER_ALERT
+    zone: ZoneInfo = PLANT_ZONE
+
+
+_tuning = Tuning()
+
+
+def configure_tuning(per_alert_minutes: int, zone: str) -> None:
+    """Called once at start-up with the settings."""
+    global _tuning
+    _tuning = Tuning(timedelta(minutes=per_alert_minutes), ZoneInfo(zone))
+
+
+def current_tuning() -> Tuning:
+    return _tuning
+
+
+def _quiet(session: Session, user_id: int, now: datetime, tuning: Tuning) -> bool:
+    pref = session.get(NotificationPrefRow, user_id)
+    if pref is None:
+        return False
+    return in_quiet_hours(now.astimezone(tuning.zone).hour, pref.quiet_start, pref.quiet_end)
+
+
+@dataclass(frozen=True)
+class Preferences:
+    quiet_start: int | None
+    quiet_end: int | None
+    per_alert_minutes: int
+    time_zone: str
+    digest_hour: int
+
+
+def get_preferences(session: Session, actor: Actor) -> Preferences:
+    user_id = _own(actor)
+    pref = session.get(NotificationPrefRow, user_id)
+    tuning = current_tuning()
+    return Preferences(
+        pref.quiet_start if pref else None,
+        pref.quiet_end if pref else None,
+        int(tuning.per_alert.total_seconds() // 60),
+        str(tuning.zone),
+        DIGEST_HOUR,
+    )
+
+
+def set_quiet_hours(
+    session: Session, actor: Actor, start: int | None, end: int | None
+) -> Preferences:
+    """The actor's own quiet hours; both None: none."""
+    user_id = _own(actor)
+    if (start is None) != (end is None):
+        raise NotificationError("Give both the start and the end of the quiet hours, or neither")
+    for hour in (start, end):
+        if hour is not None and not 0 <= hour <= 23:
+            raise NotificationError("Quiet hours are whole hours from 0 to 23")
+    pref = session.get(NotificationPrefRow, user_id)
+    if pref is None:
+        pref = NotificationPrefRow(user_id=user_id)
+        session.add(pref)
+    pref.quiet_start, pref.quiet_end = start, end
+    session.flush()
+    return get_preferences(session, actor)
 
 
 def deliver(session: Session, sender: Sender, now: datetime) -> tuple[int, int]:

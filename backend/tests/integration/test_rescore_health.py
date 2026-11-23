@@ -210,7 +210,7 @@ def test_the_stale_source_is_emailed_to_subscribed_administrators_once(plant: Da
     ((to, subject, body),) = mailbox.sent
     assert (to, subject) == ("ada@plant.test", "[PMP] Data source stale · gw-1")
     assert "has sent nothing for 135 s (scan interval 60 s)" in body
-    assert "https://pmp.test/admin?tab=ingestion" in body
+    assert "https://pmp.test/system/ingestion" in body
     clock.now += timedelta(minutes=10)
     worker.run_once()
     assert len(mailbox.sent) == 1  # once per stop

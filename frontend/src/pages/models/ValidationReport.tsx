@@ -11,8 +11,10 @@ export function ValidationReportTable({ report }: { report: ValidationReport }) 
   const sensors = Object.entries(report.sensors ?? {}).sort((a, b) => b[1].nrmse - a[1].nrmse);
   return (
     <>
-      <table className="summary-table">
-        <caption>Validation report</caption>
+      <table className="tb">
+        <caption className="cap" style={{ textAlign: "left", paddingBottom: 6 }}>
+          Validation report
+        </caption>
         <tbody>
           <tr>
             <th scope="row">Cycles scored</th>
@@ -57,8 +59,8 @@ export function ValidationReportTable({ report }: { report: ValidationReport }) 
       {sensors.length > 0 && (
         <details>
           <summary>Each sensor on the validation period ({sensors.length})</summary>
-          <table className="tree-table">
-            <caption className="visually-hidden">Prediction error per sensor</caption>
+          <table className="tb">
+            <caption className="sr">Prediction error per sensor</caption>
             <thead>
               <tr>
                 <th scope="col">Sensor</th>

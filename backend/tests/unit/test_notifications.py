@@ -12,6 +12,7 @@ from pmp.notifications import (
     NotificationError,
     SubscriptionSpec,
     decide,
+    in_quiet_hours,
     is_history,
     matches,
     next_attempt,
@@ -126,3 +127,13 @@ def test_the_smtp_sender_uses_starttls_and_the_relay_login(
     ]
     with pytest.raises(NotificationError, match="No SMTP host"):
         SmtpSender(Settings(database_url="x", secret_key="k", _env_file=None))
+
+
+def test_quiet_hours_may_wrap_past_midnight() -> None:
+    assert in_quiet_hours(23, 22, 6)
+    assert in_quiet_hours(5, 22, 6)
+    assert not in_quiet_hours(6, 22, 6)
+    assert in_quiet_hours(13, 12, 14)
+    assert not in_quiet_hours(14, 12, 14)
+    assert not in_quiet_hours(3, None, 6)
+    assert not in_quiet_hours(3, 6, 6)  # the same hour twice: no quiet hours

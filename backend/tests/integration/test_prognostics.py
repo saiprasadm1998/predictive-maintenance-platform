@@ -14,7 +14,7 @@ from sqlalchemy import text
 
 from pmp import cli
 from pmp.core import Database, get_settings
-from pmp.modelling import get_model
+from pmp.modelling import get_model, load_version
 from pmp.prognostics import (
     ForecastError,
     ForecastRequest,
@@ -139,3 +139,46 @@ def test_the_forecast_command(
         assert run("--target", "actual", "--tag", "NOPE", "--threshold", "5") == 1
     finally:
         get_settings.cache_clear()
+
+
+def test_a_sensor_is_trended_at_the_reference_operating_point(
+    deployed: Database,  # noqa: F811
+) -> None:
+    """PHI-001 §12.1: the load-corrected value is residual + the sensor's training median."""
+    model_id = seed_di_ramp(deployed)
+    with deployed.session() as s:
+        version = get_model(s, "EQ-1", "main").latest
+        sensor = version.sensors[0]
+        end = s.execute(
+            text("SELECT max(ts) FROM score WHERE version_id = :v"), {"v": version.id}
+        ).scalar_one()
+        s.execute(text("DELETE FROM sensor_output WHERE version_id = :v"), {"v": version.id})
+        steps = 3 * 24 * 12
+        s.execute(
+            text(
+                "INSERT INTO sensor_output (version_id, tag_id, ts, actual, predicted, residual,"
+                " dq_status, used) VALUES (:v, :t, :ts, :a, :p, :r, 'Good', true)"
+            ),
+            [
+                {
+                    "v": version.id,
+                    "t": sensor.tag_id,
+                    "ts": end - timedelta(minutes=5 * i),
+                    "a": 100.0 + 0.5 * i,  # the load swing is in actual and predicted alike
+                    "p": 100.0 + 0.5 * i - (3.0 - 0.001 * i),
+                    "r": 3.0 - 0.001 * i,  # residual grows by 0.288 a day
+                }
+                for i in range(steps + 1)
+            ],
+        )
+        reference = load_version(s, version.id).medians[sensor.source_name]
+        result = run_forecast(
+            s,
+            ACTOR,
+            ForecastRequest(
+                model_id, Target.CORRECTED, sensor.tag_id, ThresholdKind.CUSTOM, reference + 10
+            ),
+        )
+    assert result.target == "corrected"
+    assert result.series[-1][1] == pytest.approx(reference + 3.0, abs=0.05)
+    assert result.direction == 1

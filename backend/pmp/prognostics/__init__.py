@@ -6,6 +6,7 @@ Public interface of the module (ARC-001 §4.1). Other modules may import only
 what this file exports, never the module's internal files.
 """
 
+from pmp.core import RetainedRecords
 from pmp.prognostics.domain import (
     BOOTSTRAP,
     MIN_POINTS,
@@ -32,9 +33,13 @@ from pmp.prognostics.service import (
     run_forecast,
 )
 
+# Stored forecasts past their period.
+FORECAST_RECORDS = RetainedRecords("forecasts", "forecast", "created_at")
+
 __all__ = [
     "BOOTSTRAP",
     "DEFAULT_WINDOW_DAYS",
+    "FORECAST_RECORDS",
     "MAX_WINDOW_DAYS",
     "MIN_POINTS",
     "Fit",

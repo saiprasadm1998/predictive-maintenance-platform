@@ -221,7 +221,7 @@ def test_services_check_roles_and_scopes(db: Database) -> None:
     global_rules = lambda s, a: save_rule_set(s, a, RuleScope.everywhere(), {"spike_pct": 30})  # noqa: E731
     assert tried(eng, global_rules)
     assert not tried(eng_a, global_rules)  # global rules need an unscoped Model Engineer
-    assert not tried(admin, global_rules)  # not an administrator's job (§9.2)
+    assert tried(admin, global_rules)  # administrators have full access
 
     key = lambda s, a: issue_api_key(s, a, name="gw", scope=ApiKeyScope.INGEST)  # noqa: E731
     assert tried(admin, key)

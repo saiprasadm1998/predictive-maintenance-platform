@@ -3,6 +3,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { fetchAllAssets, fetchAssetTags } from "../../api/assets";
+import { fetchCoverage, fetchTagTrend } from "../../api/registry";
 import { ApiError } from "../../api/client";
 import {
   changeVersion,
@@ -78,7 +79,7 @@ function StepFooter({
   return (
     <div className="builder-foot">
       {shown.length > 0 && (
-        <ul role="alert" className="form-error builder-problems">
+        <ul role="alert" className="err builder-problems">
           {shown.map((p) => (
             <li key={p}>{p}</li>
           ))}
@@ -86,14 +87,14 @@ function StepFooter({
       )}
       <div className="builder-buttons">
         {step > 1 && (
-          <button type="button" className="button" onClick={() => go(step - 1)}>
+          <button type="button" className="btn btn-s" onClick={() => go(step - 1)}>
             ← Back
           </button>
         )}
         {next && (
           <button
             type="button"
-            className="button button-primary"
+            className="btn btn-p"
             disabled={busy}
             onClick={() => {
               setTried(true);
@@ -110,8 +111,8 @@ function StepFooter({
 
 function Panel({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <section className="panel" aria-label={title}>
-      <h2 className="panel-title">{title}</h2>
+    <section className="pnl" aria-label={title}>
+      <h2 className="pt">{title}</h2>
       {children}
     </section>
   );
@@ -158,7 +159,7 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
   }
 
   return (
-    <Panel title="1 Asset and sensors">
+    <Panel title="1. Asset and sensors">
       <div className="builder-fields">
         {model ? (
           <p>
@@ -166,10 +167,10 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
           </p>
         ) : (
           <>
-            <label className="field">
+            <label className="fld">
               <span>Asset</span>
               <select
-                className="control"
+                className="in"
                 value={draft.asset}
                 onChange={(e) => setDraft({ ...newDraft(e.target.value), name: draft.name })}
               >
@@ -183,20 +184,20 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
                   ))}
               </select>
             </label>
-            <label className="field">
+            <label className="fld">
               <span>Model name</span>
               <input
-                className="control"
+                className="in"
                 value={draft.name}
                 onChange={(e) => setDraft({ ...draft, name: e.target.value })}
               />
             </label>
           </>
         )}
-        <label className="field builder-wide">
+        <label className="fld builder-wide">
           <span>Description</span>
           <input
-            className="control"
+            className="in"
             value={draft.description}
             onChange={(e) => setDraft({ ...draft, description: e.target.value })}
           />
@@ -210,21 +211,21 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
         ) : (
           <>
             <div className="builder-row">
-              <p className="muted">
+              <p className="sec">
                 {draft.sensors.length} of {tags.data.length} tags selected. A required sensor must
-                be usable for the model to score (UCS §6.1).
+                be usable for the model to score.
               </p>
               <button
                 type="button"
-                className="button button-small"
+                className="btn btn-s btn-sm"
                 disabled={!mapped}
                 onClick={() => setDraft(applyTemplate(draft, tags.data))}
               >
                 Apply asset-type template ({mapped} tags)
               </button>
             </div>
-            <table className="tree-table">
-              <caption className="visually-hidden">Tags of {draft.asset}</caption>
+            <table className="tb">
+              <caption className="sr">Tags of {draft.asset}</caption>
               <thead>
                 <tr>
                   <th scope="col">Use</th>
@@ -251,7 +252,7 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
                       <td className="mono">{t.source_name}</td>
                       <td>{t.description}</td>
                       <td>{t.unit}</td>
-                      <td>{t.role ?? <span className="muted">—</span>}</td>
+                      <td>{t.role ?? <span className="sec">—</span>}</td>
                       <td>
                         <input
                           type="checkbox"
@@ -289,103 +290,392 @@ export function StepAsset({ draft, setDraft, model, go }: StepProps) {
 
 // ------------------------------------------------------------------ 2 periods
 
+const DAY_MS = 86_400_000;
+
 function PeriodFields({
   label,
   value,
   onChange,
 }: {
   label: string;
-  value: { start: string; end: string };
-  onChange: (value: { start: string; end: string }) => void;
+  value: DraftPeriod;
+  onChange: (value: DraftPeriod) => void;
 }) {
   return (
-    <fieldset className="builder-period">
-      <legend>{label}</legend>
-      <label className="field">
-        <span>From</span>
+    <div className="fg" style={{ flex: 1 }} role="group" aria-label={label}>
+      <label className="fld">
+        <span>{label}: from</span>
         <input
-          className="control"
+          className="in"
           type="datetime-local"
           value={value.start}
           onChange={(e) => onChange({ ...value, start: e.target.value })}
         />
       </label>
-      <label className="field">
-        <span>To</span>
+      <label className="fld">
+        <span>to</span>
         <input
-          className="control"
+          className="in"
           type="datetime-local"
           value={value.end}
           onChange={(e) => onChange({ ...value, end: e.target.value })}
         />
       </label>
-    </fieldset>
+    </div>
+  );
+}
+
+function PeriodChart({
+  draft,
+  tagId,
+  from,
+  to,
+}: {
+  draft: BuilderDraft;
+  tagId: number;
+  from: number;
+  to: number;
+}) {
+  const trend = useQuery({
+    queryKey: ["tags", tagId, "trend", from, to],
+    queryFn: ({ signal }) =>
+      fetchTagTrend(tagId, new Date(from).toISOString(), new Date(to).toISOString(), 400, signal),
+  });
+  const W = 820;
+  const H = 230;
+  const L = 40;
+  const R = 10;
+  const T = 10;
+  const B = 40;
+  const pts = (trend.data?.ts ?? []).map((t, i) => [Date.parse(t), trend.data!.mean[i]!] as const);
+  const vals = pts.map(([, v]) => v);
+  const lo = vals.length ? Math.min(...vals) : 0;
+  const hi = vals.length ? Math.max(...vals) : 1;
+  const pad = (hi - lo) * 0.05 || 1;
+  const x = (t: number) => L + ((t - from) / Math.max(1, to - from)) * (W - L - R);
+  const y = (v: number) => T + (1 - (v - (lo - pad)) / (hi - lo + 2 * pad)) * (H - T - B);
+  const span = (p: DraftPeriod) => {
+    const s = fromLocalInput(p.start).getTime();
+    const e = fromLocalInput(p.end).getTime();
+    return Number.isFinite(s) && Number.isFinite(e) && e > s
+      ? { x: x(Math.max(from, s)), w: Math.max(0, x(Math.min(to, e)) - x(Math.max(from, s))) }
+      : null;
+  };
+  let d = "";
+  let gapStart = 0;
+  pts.forEach(([t, v], i) => {
+    const jump = i > 0 && t - pts[i - 1]![0] > 3 * ((to - from) / 400 + 3_600_000);
+    if (jump) gapStart += 1;
+    d += `${i === 0 || jump ? "M" : "L"}${x(t).toFixed(1)},${y(v).toFixed(1)}`;
+  });
+  const tick = (t: number) =>
+    new Date(t).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const v = span(draft.validation);
+  return (
+    <>
+      <svg
+        className="chart"
+        viewBox={`0 0 ${W} ${H}`}
+        role="img"
+        aria-label="The sensor over the stored history, with the training and validation periods marked"
+      >
+        {draft.training.map((p, i) => {
+          const r = span(p);
+          return r ? (
+            <rect
+              key={i}
+              x={r.x}
+              y={T}
+              width={r.w}
+              height={H - T - B}
+              style={{ fill: "var(--traverse-surface-selected)" }}
+            />
+          ) : null;
+        })}
+        {v && (
+          <rect
+            x={v.x}
+            y={T}
+            width={v.w}
+            height={H - T - B}
+            style={{ fill: "var(--traverse-surface-raised)" }}
+          />
+        )}
+        <line
+          x1={L}
+          x2={W - R}
+          y1={H - B}
+          y2={H - B}
+          style={{ stroke: "var(--traverse-border-strong)" }}
+        />
+        {vals.length > 0 && (
+          <>
+            <text
+              x={L - 6}
+              y={T + 10}
+              textAnchor="end"
+              style={{ fontSize: 11, fill: "var(--traverse-text-secondary)" }}
+            >
+              {hi.toFixed(0)}
+            </text>
+            <text
+              x={L - 6}
+              y={H - B}
+              textAnchor="end"
+              style={{ fontSize: 11, fill: "var(--traverse-text-secondary)" }}
+            >
+              {lo.toFixed(0)}
+            </text>
+          </>
+        )}
+        <path
+          d={d}
+          style={{ fill: "none", stroke: "var(--traverse-chart-series-1)", strokeWidth: 1.5 }}
+        />
+        {[from, from + (to - from) / 3, from + (2 * (to - from)) / 3, to].map((t, i) => (
+          <text
+            key={i}
+            x={x(t)}
+            y={H - B + 18}
+            textAnchor={i === 0 ? "start" : i === 3 ? "end" : "middle"}
+            style={{ fontSize: 11, fill: "var(--traverse-text-secondary)" }}
+          >
+            {tick(t)}
+          </text>
+        ))}
+      </svg>
+      <div
+        className="lg"
+        style={{ display: "flex", gap: 16, fontSize: 12, color: "var(--traverse-text-secondary)" }}
+      >
+        <span>
+          <i
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 10,
+              marginRight: 6,
+              background: "var(--traverse-surface-selected)",
+            }}
+          />
+          Training
+        </span>
+        <span>
+          <i
+            style={{
+              display: "inline-block",
+              width: 12,
+              height: 10,
+              marginRight: 6,
+              background: "var(--traverse-surface-raised)",
+              border: "1px solid var(--traverse-border-subtle)",
+            }}
+          />
+          Validation
+        </span>
+        {gapStart > 0 && <span>Gaps in the line: no data stored</span>}
+      </div>
+    </>
   );
 }
 
 export function StepPeriods({ draft, setDraft, go }: StepProps) {
+  const tags = useQuery({
+    queryKey: ["tags", "asset", draft.asset],
+    queryFn: ({ signal }) => fetchAssetTags(draft.asset, signal),
+    enabled: !!draft.asset,
+  });
+  const coverage = useQuery({
+    queryKey: ["tags", "coverage"],
+    queryFn: ({ signal }) => fetchCoverage(signal),
+  });
+  const byName = new Map((tags.data ?? []).map((t) => [t.source_name, t]));
+  const cov = new Map((coverage.data ?? []).map((c) => [c.tag_id, c]));
+  const used = draft.sensors.map((s) => ({ ...s, tag: byName.get(s.tag) })).filter((s) => s.tag);
+  const lead = used.find((s) => s.required) ?? used[0];
+  const spans = used.map((s) => cov.get(s.tag!.id)).filter(Boolean) as {
+    first_ts: string;
+    last_ts: string;
+  }[];
+  const [now] = useState(() => Date.now());
+  const from = spans.length
+    ? Math.min(...spans.map((c) => Date.parse(c.first_ts)))
+    : now - 180 * DAY_MS;
+  const to = spans.length ? Math.max(...spans.map((c) => Date.parse(c.last_ts))) : now;
+  const cycles = (p: DraftPeriod) => {
+    const ms = fromLocalInput(p.end).getTime() - fromLocalInput(p.start).getTime();
+    return Number.isFinite(ms) && ms > 0 ? Math.floor(ms / 1000 / Math.max(1, draft.cycleS)) : 0;
+  };
+  const trainCycles = draft.training.reduce((a, p) => a + cycles(p), 0);
+  const day = (iso: string) =>
+    new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+  const covers = (c: { first_ts: string; last_ts: string } | undefined) => {
+    if (!c) return false;
+    const need = [...draft.training, draft.validation].flatMap((p) => [
+      fromLocalInput(p.start).getTime(),
+      fromLocalInput(p.end).getTime(),
+    ]);
+    return need.every(
+      (t) =>
+        !Number.isFinite(t) ||
+        (t >= Date.parse(c.first_ts) - 3_600_000 && t <= Date.parse(c.last_ts) + 3_600_000),
+    );
+  };
+  const setTraining = (i: number, value: DraftPeriod) =>
+    setDraft({ ...draft, training: draft.training.map((q, j) => (j === i ? value : q)) });
   return (
-    <Panel title="2 Training and validation periods">
-      <p className="muted">
-        The model learns normal behaviour from the training periods and is played back over the
-        validation period, which may not overlap them (UC-05). Times are in this browser's time
-        zone.
-      </p>
-      {draft.training.map((p, i) => (
-        <div key={i} className="builder-row">
-          <PeriodFields
-            label={`Training period ${i + 1}`}
-            value={p}
-            onChange={(value) =>
-              setDraft({
-                ...draft,
-                training: draft.training.map((q, j) => (j === i ? value : q)),
-              })
-            }
-          />
-          {draft.training.length > 1 && (
+    <>
+      <div className="two">
+        <section className="pnl" aria-label="2. Training period">
+          <div className="pnlh">
+            <span className="pt">2. Training period</span>
+            <span className="meta">
+              {lead
+                ? `${lead.tag!.description || lead.tag!.source_name}, stored history`
+                : "Choose sensors first"}
+            </span>
+          </div>
+          {lead && <PeriodChart draft={draft} tagId={lead.tag!.id} from={from} to={to} />}
+          {draft.training.map((p, i) => (
+            <div key={i} className="fg f4" style={{ marginTop: 12, alignItems: "end" }}>
+              <div className="fld">
+                <label htmlFor={`tp-s-${i}`}>
+                  Training from{draft.training.length > 1 ? ` (${i + 1})` : ""}
+                </label>
+                <input
+                  id={`tp-s-${i}`}
+                  className="in"
+                  type="datetime-local"
+                  value={p.start}
+                  onChange={(e) => setTraining(i, { ...p, start: e.target.value })}
+                />
+              </div>
+              <div className="fld">
+                <label htmlFor={`tp-e-${i}`}>Training to</label>
+                <input
+                  id={`tp-e-${i}`}
+                  className="in"
+                  type="datetime-local"
+                  value={p.end}
+                  onChange={(e) => setTraining(i, { ...p, end: e.target.value })}
+                />
+              </div>
+              {i === 0 ? (
+                <>
+                  <div className="fld">
+                    <label htmlFor="vp-s">Validation from</label>
+                    <input
+                      id="vp-s"
+                      className="in"
+                      type="datetime-local"
+                      value={draft.validation.start}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          validation: { ...draft.validation, start: e.target.value },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="fld">
+                    <label htmlFor="vp-e">Validation to</label>
+                    <input
+                      id="vp-e"
+                      className="in"
+                      type="datetime-local"
+                      value={draft.validation.end}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          validation: { ...draft.validation, end: e.target.value },
+                        })
+                      }
+                    />
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="btn btn-g btn-sm"
+                  onClick={() =>
+                    setDraft({ ...draft, training: draft.training.filter((_, j) => j !== i) })
+                  }
+                >
+                  Remove period {i + 1}
+                </button>
+              )}
+            </div>
+          ))}
+          <div style={{ display: "flex", gap: 16, alignItems: "end", marginTop: 8 }}>
             <button
               type="button"
-              className="button button-small"
+              className="btn btn-g btn-sm"
               onClick={() =>
-                setDraft({ ...draft, training: draft.training.filter((_, j) => j !== i) })
+                setDraft({ ...draft, training: [...draft.training, { start: "", end: "" }] })
               }
             >
-              Remove period {i + 1}
+              Add another training period
             </button>
-          )}
-        </div>
-      ))}
-      <button
-        type="button"
-        className="button button-small"
-        onClick={() =>
-          setDraft({
-            ...draft,
-            training: [...draft.training, { start: "", end: "" }],
-          })
-        }
-      >
-        Add a training period
-      </button>
-      <PeriodFields
-        label="Validation period (hold-out)"
-        value={draft.validation}
-        onChange={(validation) => setDraft({ ...draft, validation })}
-      />
-      <label className="field builder-narrow">
-        <span>Scoring cycle (seconds)</span>
-        <input
-          className="control"
-          type="number"
-          min={MIN_CYCLE_S}
-          step={1}
-          value={draft.cycleS}
-          onChange={(e) => setDraft({ ...draft, cycleS: Number(e.target.value) })}
-        />
-      </label>
+            <div className="fld" style={{ width: 160 }}>
+              <label htmlFor="tp-c">Scoring cycle (seconds)</label>
+              <input
+                id="tp-c"
+                className="in"
+                type="number"
+                min={MIN_CYCLE_S}
+                step={1}
+                value={draft.cycleS}
+                onChange={(e) => setDraft({ ...draft, cycleS: Number(e.target.value) })}
+              />
+            </div>
+          </div>
+        </section>
+        <section className="pnl" aria-label="History available">
+          <div className="pnlh">
+            <span className="pt">History available</span>
+            <Link className="btn btn-s btn-sm" to="/setup/history/upload">
+              Upload more
+            </Link>
+          </div>
+          <p className="sec s13" style={{ marginBottom: 8 }}>
+            Training uses history uploaded under Historical data. Each sensor needs it for the whole
+            period.
+          </p>
+          <div className="fill">
+            {used.map((s) => {
+              const c = cov.get(s.tag!.id);
+              const ok = covers(c);
+              return (
+                <div
+                  key={s.tag!.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    minHeight: 34,
+                    borderBottom: "1px solid var(--traverse-border-subtle)",
+                  }}
+                >
+                  <span className="mono grow">{s.tag!.source_name}</span>
+                  <span className="num sec s13">
+                    {c ? `${day(c.first_ts)} to ${day(c.last_ts)}` : "No history"}
+                  </span>
+                  <span className={`pill${ok ? "" : " p-warning"}`}>
+                    <span className="d" />
+                    {ok ? "Covers" : "Short"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="s13" style={{ marginTop: 8 }}>
+            <b>{trainCycles.toLocaleString()}</b> training cycles,{" "}
+            <b>{cycles(draft.validation).toLocaleString()}</b> validation cycles ({draft.cycleS} s)
+          </p>
+        </section>
+      </div>
       <StepFooter step={2} problems={stepProblems(2, draft)} go={go} next={() => go(3)} />
-    </Panel>
+    </>
   );
 }
 
@@ -448,19 +738,19 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
   const trend = useMemo(() => (data && shown ? trainingTrend(data, shown) : null), [data, shown]);
 
   return (
-    <Panel title="3 Cleanse data">
+    <Panel title="3. Cleanse data">
       <fieldset className="builder-filters">
         <legend>Operating-mode filters</legend>
-        <p className="muted small">
+        <p className="sec s13">
           Only cycles that satisfy every filter are used, for example{" "}
           <code>K101.II1001.PV &gt; 120</code> (motor running). Name tags by their source name.
         </p>
         {draft.modeFilters.map((f, i) => (
           <div key={i} className="builder-row">
-            <label className="field builder-wide">
+            <label className="fld builder-wide">
               <span>Filter {i + 1}</span>
               <input
-                className="control mono"
+                className="in mono"
                 value={f}
                 onChange={(e) =>
                   setDraft({
@@ -472,7 +762,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
             </label>
             <button
               type="button"
-              className="button button-small"
+              className="btn btn-s btn-sm"
               onClick={() =>
                 setDraft({ ...draft, modeFilters: draft.modeFilters.filter((_, j) => j !== i) })
               }
@@ -482,10 +772,10 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
           </div>
         ))}
         <div className="builder-row">
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <span>Add a filter on</span>
             <select
-              className="control"
+              className="in"
               value=""
               onChange={(e) =>
                 e.target.value &&
@@ -502,7 +792,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
           </label>
           <button
             type="button"
-            className="button button-small"
+            className="btn btn-s btn-sm"
             disabled={!dirty}
             onClick={() => setApplied(draft.modeFilters)}
           >
@@ -516,9 +806,9 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
       ) : !data ? null : (
         <div className="builder-cleanse">
           <div>
-            <label className="field-inline">
+            <label className="fld fld-inline">
               <span>Training data of</span>
-              <select className="control" value={shown} onChange={(e) => setSensor(e.target.value)}>
+              <select className="in" value={shown} onChange={(e) => setSensor(e.target.value)}>
                 {data.sensors.map((s) => (
                   <option key={s.source_name} value={s.source_name}>
                     {s.source_name}
@@ -541,7 +831,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                 onSelect={exclude}
               />
             )}
-            <table className="summary-table">
+            <table className="tb">
               <caption>Cleansing rules applied</caption>
               <thead>
                 <tr>
@@ -590,7 +880,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
             <fieldset className="builder-filters">
               <legend>Excluded periods</legend>
               {exclusions.length === 0 && (
-                <p className="muted small">
+                <p className="sec s13">
                   Drag across the trend over a period that was not normal operation (a trip, a test,
                   a known fault), or add one by its times.
                 </p>
@@ -606,7 +896,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                   />
                   <button
                     type="button"
-                    className="button button-small"
+                    className="btn btn-s btn-sm"
                     onClick={() => setExclusions(exclusions.filter((_, j) => j !== i))}
                   >
                     Remove excluded period {i + 1}
@@ -615,7 +905,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
               ))}
               <button
                 type="button"
-                className="button button-small"
+                className="btn btn-s btn-sm"
                 onClick={() => {
                   const first = draft.training[0];
                   if (!first) return;
@@ -627,7 +917,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
               </button>
             </fieldset>
           </div>
-          <table className="summary-table">
+          <table className="tb">
             <caption>Training data summary</caption>
             <tbody>
               <tr>
@@ -686,7 +976,7 @@ export function StepCleanse({ draft, setDraft, model, go, saved }: StepProps) {
                 <th scope="row">Minimum data</th>
                 <td>
                   {data.blocked ? (
-                    <span className="form-error">✖ {data.blocked}</span>
+                    <span className="err">✖ {data.blocked}</span>
                   ) : (
                     "✔ passes (2,000 cycles and 50 % of the period)"
                   )}
@@ -744,28 +1034,28 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
   const percent = job.data?.progress ?? null;
 
   return (
-    <Panel title="4 Train and validate">
+    <Panel title="4. Train and validate">
       <p>
         Version {latest.version} <strong>{latest.status}</strong>
       </p>
       {latest.status === "Draft" && (
         <p>
           The draft is saved but not training.{" "}
-          <button type="button" className="button button-small" onClick={() => retrain.mutate()}>
+          <button type="button" className="btn btn-s btn-sm" onClick={() => retrain.mutate()}>
             Start training
           </button>
         </p>
       )}
       {running && (
         <div className="builder-progress">
-          <label className="field">
+          <label className="fld">
             <span>
               Training{percent !== null ? `: ${Math.round(percent)} %` : "…"}
               {job.data?.status === "queued" ? " (waiting for the worker)" : ""}
             </span>
             <progress max={100} value={percent ?? undefined} />
           </label>
-          <p className="muted small">
+          <p className="sec s13">
             Training runs in the background. You can leave this page; this step shows the result
             when you come back.
           </p>
@@ -773,12 +1063,12 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
       )}
       {latest.status === "Failed" && (
         <div role="alert">
-          <p className="form-error">Training failed: {latest.error}</p>
+          <p className="err">Training failed: {latest.error}</p>
           <p>
             Change the definition in the earlier steps, or{" "}
             <button
               type="button"
-              className="button button-small"
+              className="btn btn-s btn-sm"
               disabled={retrain.isPending}
               onClick={() => retrain.mutate()}
             >
@@ -788,44 +1078,48 @@ export function StepTrain({ draft, setDraft, model, go, saved }: StepProps) {
         </div>
       )}
       {latest.status === "Validated" && (
-        <table className="summary-table">
-          <caption>Training and validation</caption>
-          <tbody>
-            <tr>
-              <th scope="row">Training cycles retained</th>
-              <td className="num">
-                {metric(metrics, "training_retained").toLocaleString("en-GB")} of{" "}
-                {metric(metrics, "training_cycles").toLocaleString("en-GB")} (
-                {share(metric(metrics, "training_retained"), metric(metrics, "training_cycles"))})
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Validation cycles retained</th>
-              <td className="num">
-                {metric(metrics, "validation_retained").toLocaleString("en-GB")} of{" "}
-                {metric(metrics, "validation_cycles").toLocaleString("en-GB")}
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Sensors at their scale floor</th>
-              <td>
-                {((metrics?.floored_sensors as string[] | undefined) ?? []).join(", ") || "None"}
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Details</th>
-              <td>
-                <Link to={`/models/${model.id}/versions/${latest.version}`}>
-                  Version {latest.version} in full
-                </Link>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div className="half">
+          <table className="tb" style={{ alignSelf: "start" }}>
+            <caption className="cap" style={{ textAlign: "left", paddingBottom: 6 }}>
+              Training and validation
+            </caption>
+            <tbody>
+              <tr>
+                <th scope="row">Training cycles retained</th>
+                <td className="num">
+                  {metric(metrics, "training_retained").toLocaleString("en-GB")} of{" "}
+                  {metric(metrics, "training_cycles").toLocaleString("en-GB")} (
+                  {share(metric(metrics, "training_retained"), metric(metrics, "training_cycles"))})
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Validation cycles retained</th>
+                <td className="num">
+                  {metric(metrics, "validation_retained").toLocaleString("en-GB")} of{" "}
+                  {metric(metrics, "validation_cycles").toLocaleString("en-GB")}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Sensors at their scale floor</th>
+                <td>
+                  {((metrics?.floored_sensors as string[] | undefined) ?? []).join(", ") || "None"}
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Details</th>
+                <td>
+                  <Link to={`/models/${model.id}/versions/${latest.version}`}>
+                    Version {latest.version} in full
+                  </Link>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          {report && <ValidationReportTable report={report} />}
+        </div>
       )}
-      {latest.status === "Validated" && report && <ValidationReportTable report={report} />}
       {retrain.error !== null && (
-        <ul role="alert" className="form-error">
+        <ul role="alert" className="err">
           {problemsOf(retrain.error).map((p) => (
             <li key={p}>{p}</li>
           ))}
@@ -859,13 +1153,128 @@ function NumberCell({
 }) {
   return (
     <input
-      className="control builder-number"
+      className="in builder-number"
       type="number"
       aria-label={label}
       step={step}
       value={value}
       onChange={(e) => onChange(Number(e.target.value))}
     />
+  );
+}
+
+/** How the Deviation Index was spread over the validation period, against the limits. */
+function DiHistogram({
+  histogram,
+  warning,
+  alert,
+  perWeek,
+}: {
+  histogram: { top: number; counts: number[] } | null;
+  warning: number;
+  alert: number;
+  perWeek: number | null;
+}) {
+  const counts = histogram?.counts ?? [];
+  const total = counts.reduce((n, c) => n + c, 0);
+  const top = histogram?.top ?? Math.max(alert * 1.3, 10);
+  const bins = Math.max(1, counts.length);
+  const peak = Math.max(1, ...counts);
+  const L = 20;
+  const W = 390;
+  const base = 190;
+  const axis = Math.max(top, alert * 1.15, warning * 1.15);
+  const x = (v: number) => L + (Math.min(v, axis) / axis) * (W - L);
+  const bw = (x(top) - L) / bins;
+  const label = (v: number) =>
+    x(v) > W - 40
+      ? { x: x(v) - 4, anchor: "end" as const }
+      : { x: x(v) + 4, anchor: "start" as const };
+  return (
+    <section className="pnl" aria-label="Deviation on the validation period">
+      <div className="pnlh">
+        <span className="pt">Deviation on the validation period</span>
+        {perWeek !== null && (
+          <span className={`pill${perWeek > 1 ? " p-warning" : ""}`}>
+            <span className="d" />
+            {perWeek.toLocaleString("en-GB")} false alerts a week (proposed limits)
+          </span>
+        )}
+      </div>
+      {!histogram ? (
+        <p className="sec s13">Retrain this version to see the distribution.</p>
+      ) : (
+        <svg
+          className="chart"
+          viewBox="0 0 400 230"
+          role="img"
+          aria-label="Distribution of the Deviation Index with the warning and alert limits"
+        >
+          {counts.map((c, i) => (
+            <rect
+              key={i}
+              x={L + i * bw + 1}
+              y={base - (c / peak) * 170}
+              width={bw - 2}
+              height={(c / peak) * 170}
+              style={{ fill: "var(--traverse-chart-series-1)", opacity: 0.8 }}
+            />
+          ))}
+          <line
+            x1={L}
+            x2={W}
+            y1={base}
+            y2={base}
+            style={{ stroke: "var(--traverse-border-strong)" }}
+          />
+          <line
+            x1={x(warning)}
+            x2={x(warning)}
+            y1={10}
+            y2={base}
+            style={{ stroke: "var(--traverse-status-warning-fg)", strokeDasharray: "4 3" }}
+          />
+          <text
+            x={label(warning).x}
+            textAnchor={label(warning).anchor}
+            y={22}
+            style={{ fontSize: 11, fill: "var(--traverse-status-warning-fg)" }}
+          >
+            W {warning}
+          </text>
+          <line
+            x1={x(alert)}
+            x2={x(alert)}
+            y1={10}
+            y2={base}
+            style={{ stroke: "var(--traverse-status-danger-fg)", strokeDasharray: "4 3" }}
+          />
+          <text
+            x={label(alert).x}
+            textAnchor={label(alert).anchor}
+            y={40}
+            style={{ fontSize: 11, fill: "var(--traverse-status-danger-fg)" }}
+          >
+            A {alert}
+          </text>
+          <text x={L} y={210} style={{ fontSize: 11, fill: "var(--traverse-text-secondary)" }}>
+            0 %
+          </text>
+          <text
+            x={W}
+            y={210}
+            textAnchor="end"
+            style={{ fontSize: 11, fill: "var(--traverse-text-secondary)" }}
+          >
+            {axis.toFixed(0)} %
+          </text>
+        </svg>
+      )}
+      <p className="s13" style={{ marginTop: 8 }}>
+        {total.toLocaleString()} validation cycles. Cycles to the right of a line would count toward
+        that alert.
+      </p>
+    </section>
   );
 }
 
@@ -894,112 +1303,124 @@ export function StepLimits({ draft, setDraft, model, go }: StepProps) {
   }
 
   return (
-    <Panel title="5 Alert limits">
-      <p className="muted">
-        {report
-          ? `The limits start at those proposed from the validation period (DI warning 1.2 × P99 = ${report.proposed.di_warning} %, alert 1.5 × P99.9, at least 10 % = ${report.proposed.di_alert} %; sensor |z| 3 and 5), with about ${report.alerts_per_week.toLocaleString("en-GB")} false alerts a week expected. You can change them.`
-          : "The limits start at the defaults (Deviation Index warning 15 % and alert 25 %; sensor |z| 3 and 5)."}
-        {live &&
-          ` Version ${live.version} keeps its current limits until this version is deployed.`}
-      </p>
-      {report?.warning && (
-        <p className="form-warning" role="status">
-          ⚠ {report.warning}
-        </p>
-      )}
-      {report && di.warning < report.proposed.di_warning && (
-        <p className="form-warning" role="status">
-          ⚠ The DI warning is below the proposed {report.proposed.di_warning} %: expect more false
-          alerts than estimated.
-        </p>
-      )}
-      <fieldset className="builder-period">
-        <legend>Deviation Index (DI) rule</legend>
-        <div className="field">
-          <span aria-hidden="true">Warning (%)</span>
-          <NumberCell
-            label="DI warning (%)"
-            value={di.warning}
-            onChange={(warning) => setDraft({ ...draft, di: { ...di, warning } })}
-          />
-        </div>
-        <div className="field">
-          <span aria-hidden="true">Alert (%)</span>
-          <NumberCell
-            label="DI alert (%)"
-            value={di.alert}
-            onChange={(alert) => setDraft({ ...draft, di: { ...di, alert } })}
-          />
-        </div>
-        <div className="field">
-          <span aria-hidden="true">Persistence: n cycles</span>
-          <NumberCell
-            label="Persistence n"
-            step={1}
-            value={di.n}
-            onChange={(n) => setDraft({ ...draft, di: { ...di, n } })}
-          />
-        </div>
-        <div className="field">
-          <span aria-hidden="true">of the last m</span>
-          <NumberCell
-            label="Persistence m"
-            step={1}
-            value={di.m}
-            onChange={(m) => setDraft({ ...draft, di: { ...di, m } })}
-          />
-        </div>
-      </fieldset>
-      <table className="tree-table">
-        <caption>Sensor |z| rules</caption>
-        <thead>
-          <tr>
-            <th scope="col">Rule</th>
-            <th scope="col">Sensor</th>
-            <th scope="col">Warning |z|</th>
-            <th scope="col">Alert |z|</th>
-          </tr>
-        </thead>
-        <tbody>
-          {draft.sensors.map((s) => {
-            const rule = rules.get(s.tag);
-            return (
-              <tr key={s.tag}>
-                <td>
-                  <input
-                    type="checkbox"
-                    aria-label={`|z| rule on ${s.tag}`}
-                    checked={!!rule}
-                    onChange={(e) => setRule(s.tag, e.target.checked ? {} : null)}
-                  />
-                </td>
-                <td className="mono">
-                  {s.tag}
-                  {s.required && <span className="muted"> · required</span>}
-                </td>
-                <td>
-                  {rule && (
-                    <NumberCell
-                      label={`${s.tag} warning |z|`}
-                      value={rule.warning}
-                      onChange={(warning) => setRule(s.tag, { warning })}
-                    />
-                  )}
-                </td>
-                <td>
-                  {rule && (
-                    <NumberCell
-                      label={`${s.tag} alert |z|`}
-                      value={rule.alert}
-                      onChange={(alert) => setRule(s.tag, { alert })}
-                    />
-                  )}
-                </td>
+    <>
+      <div className="two">
+        <Panel title="5. Alert limits">
+          <p className="sec">
+            {report
+              ? `The limits start at those proposed from the validation period (DI warning 1.2 × P99 = ${report.proposed.di_warning} %, alert 1.5 × P99.9, at least 10 % = ${report.proposed.di_alert} %; sensor |z| 3 and 5), with about ${report.alerts_per_week.toLocaleString("en-GB")} false alerts a week expected. You can change them.`
+              : "The limits start at the defaults (Deviation Index warning 15 % and alert 25 %; sensor |z| 3 and 5)."}
+            {live &&
+              ` Version ${live.version} keeps its current limits until this version is deployed.`}
+          </p>
+          {report?.warning && (
+            <p className="form-warning" role="status">
+              ⚠ {report.warning}
+            </p>
+          )}
+          {report && di.warning < report.proposed.di_warning && (
+            <p className="form-warning" role="status">
+              ⚠ The DI warning is below the proposed {report.proposed.di_warning} %: expect more
+              false alerts than estimated.
+            </p>
+          )}
+          <span className="cap">Deviation Index rule</span>
+          <div className="fg f4" style={{ margin: "6px 0 16px" }}>
+            <div className="fld">
+              <span aria-hidden="true">Warning (%)</span>
+              <NumberCell
+                label="DI warning (%)"
+                value={di.warning}
+                onChange={(warning) => setDraft({ ...draft, di: { ...di, warning } })}
+              />
+            </div>
+            <div className="fld">
+              <span aria-hidden="true">Alert (%)</span>
+              <NumberCell
+                label="DI alert (%)"
+                value={di.alert}
+                onChange={(alert) => setDraft({ ...draft, di: { ...di, alert } })}
+              />
+            </div>
+            <div className="fld">
+              <span aria-hidden="true">Persistence: n cycles</span>
+              <NumberCell
+                label="Persistence n"
+                step={1}
+                value={di.n}
+                onChange={(n) => setDraft({ ...draft, di: { ...di, n } })}
+              />
+            </div>
+            <div className="fld">
+              <span aria-hidden="true">of the last m</span>
+              <NumberCell
+                label="Persistence m"
+                step={1}
+                value={di.m}
+                onChange={(m) => setDraft({ ...draft, di: { ...di, m } })}
+              />
+            </div>
+          </div>
+          <table className="tb">
+            <caption>Sensor |z| rules</caption>
+            <thead>
+              <tr>
+                <th scope="col">Rule</th>
+                <th scope="col">Sensor</th>
+                <th scope="col">Warning |z|</th>
+                <th scope="col">Alert |z|</th>
               </tr>
-            );
-          })}
-        </tbody>
-      </table>
+            </thead>
+            <tbody>
+              {draft.sensors.map((s) => {
+                const rule = rules.get(s.tag);
+                return (
+                  <tr key={s.tag}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`|z| rule on ${s.tag}`}
+                        checked={!!rule}
+                        onChange={(e) => setRule(s.tag, e.target.checked ? {} : null)}
+                      />
+                    </td>
+                    <td className="mono">
+                      {s.tag}
+                      {s.required && <span className="sec"> · required</span>}
+                    </td>
+                    <td>
+                      {rule && (
+                        <NumberCell
+                          label={`${s.tag} warning |z|`}
+                          value={rule.warning}
+                          onChange={(warning) => setRule(s.tag, { warning })}
+                        />
+                      )}
+                    </td>
+                    <td>
+                      {rule && (
+                        <NumberCell
+                          label={`${s.tag} alert |z|`}
+                          value={rule.alert}
+                          onChange={(alert) => setRule(s.tag, { alert })}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </Panel>
+        {model && validated && (
+          <DiHistogram
+            histogram={report?.histogram ?? null}
+            warning={di.warning}
+            alert={di.alert}
+            perWeek={report?.alerts_per_week ?? null}
+          />
+        )}
+      </div>
       <StepFooter
         step={5}
         problems={stepProblems(5, draft)}
@@ -1008,7 +1429,7 @@ export function StepLimits({ draft, setDraft, model, go }: StepProps) {
         busy={save.isPending}
         error={save.error}
       />
-    </Panel>
+    </>
   );
 }
 
@@ -1036,8 +1457,8 @@ export function StepDeploy({ draft, model, go, done }: StepProps) {
 
   const rules = alertRules(draft);
   return (
-    <Panel title="6 Deploy">
-      <table className="summary-table">
+    <Panel title="6. Deploy">
+      <table className="tb">
         <caption>
           {model.asset_code} / {model.name} version {latest.version}
         </caption>
@@ -1089,14 +1510,10 @@ export function StepDeploy({ draft, model, go, done }: StepProps) {
         <p role="alert">Only a Validated version can be deployed; this one is {latest.status}.</p>
       ) : (
         <div className="builder-buttons">
-          <button type="button" className="button" onClick={() => go(5)}>
+          <button type="button" className="btn btn-s" onClick={() => go(5)}>
             ← Back
           </button>
-          <button
-            type="button"
-            className="button button-primary"
-            onClick={() => setConfirming(true)}
-          >
+          <button type="button" className="btn btn-p" onClick={() => setConfirming(true)}>
             Deploy version {latest.version}
           </button>
         </div>

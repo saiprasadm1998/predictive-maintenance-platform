@@ -41,6 +41,7 @@ from pmp.api.frontend import mount_frontend
 from pmp.api.problems import ProblemError, problem_response
 from pmp.api.ratelimit import RateLimiter
 from pmp.core import AccessDeniedError, Database, Settings, log_context
+from pmp.notifications import configure_tuning
 
 DOCS_PATH = "/api/v1/docs"
 # The front end is served from this origin only: its scripts, styles (ECharts and React
@@ -136,6 +137,8 @@ def create_app(*, settings: Settings | None = None, database: Database | None = 
     )
     app.state.settings = settings
     app.state.database = database
+    if settings is not None:
+        configure_tuning(settings.notify_per_alert_minutes, settings.plant_timezone)
     # One limiter per process: with several web processes each takes its share.
     app.state.ingest_rate_limiter = RateLimiter(
         settings.ingest_rate_limit / settings.web_workers if settings else DEFAULT_INGEST_RATE

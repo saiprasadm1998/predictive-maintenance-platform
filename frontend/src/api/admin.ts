@@ -135,19 +135,34 @@ export function saveRules(rules: RulesIn): Promise<{ rules: RuleSet; preview: Ru
 
 // ------------------------------------------------------------------ retention
 
+export interface RetentionItem {
+  kind: string;
+  label: string;
+  days: number;
+  min_days: number;
+  unit: "days" | "years";
+  note: string;
+  size_bytes: number | null;
+}
+
 export interface Retention {
   raw_months: number;
   aggregate_months: number;
   last_run_at: string | null;
   last_result: string | null;
+  last_removed: number | null;
+  next_run_at: string;
+  database_bytes: number;
+  raw_samples: number | null;
+  items: RetentionItem[];
 }
 
 export function fetchRetention(signal?: AbortSignal): Promise<Retention> {
   return api<Retention>("/retention", { signal });
 }
 
-export function saveRetention(raw_months: number, aggregate_months: number): Promise<Retention> {
-  return api<Retention>("/retention", { method: "PUT", body: { raw_months, aggregate_months } });
+export function saveRetention(days: Record<string, number>): Promise<Retention> {
+  return api<Retention>("/retention", { method: "PUT", body: { days } });
 }
 
 // ------------------------------------------------------------------ audit log

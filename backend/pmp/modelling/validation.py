@@ -54,6 +54,7 @@ class ValidationReport:
     alerts: int  # raised over the hold-out with the proposed DI limits
     alerts_per_week: float
     warning: str | None  # UC-05 8a, in plain language
+    histogram: dict[str, Any] | None = None  # {"top": DI upper edge, "counts": per bin}
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -109,6 +110,17 @@ def count_alerts(di: Sequence[float] | npt.NDArray[np.float64], limit: float) ->
     return count
 
 
+HISTOGRAM_BINS = 30
+
+
+def di_histogram(scored: npt.NDArray[np.float64], alert: float) -> dict[str, Any]:
+    """Counts of validation DI over equal bins from 0 to a little above the alert limit;
+    values beyond the top fall in the last bin."""
+    top = round(max(alert * 1.3, 10.0), 3)
+    counts, _ = np.histogram(np.clip(scored, 0.0, top), bins=HISTOGRAM_BINS, range=(0.0, top))
+    return {"top": top, "counts": [int(c) for c in counts]}
+
+
 def validation_report(
     di: npt.NDArray[np.float64],
     cycle_s: int,
@@ -142,4 +154,5 @@ def validation_report(
         alerts=alerts,
         alerts_per_week=per_week,
         warning=warning,
+        histogram=di_histogram(scored, proposed.di_alert),
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from datetime import UTC, datetime
 from typing import Annotated, Literal
 
@@ -22,10 +23,12 @@ from pmp.notifications import (
     SubscriptionSpec,
     SubscriptionView,
     delete_subscription,
+    get_preferences,
     list_deliveries,
     list_subscriptions,
     save_subscription,
     send_test,
+    set_quiet_hours,
 )
 
 router = APIRouter(prefix="/api/v1", tags=["notifications"])
@@ -50,6 +53,9 @@ class SubscriptionIn(BaseModel):
     min_priority: Literal["P1", "P2", "P3", "P4"] = "P2"
     events: list[EventName] = Field(min_length=1)
     enabled: bool = True
+    delivery: Literal["immediate", "daily"] = Field(
+        default="immediate", description="immediately (throttled per alert), or a daily digest"
+    )
 
 
 class SubscriptionOut(BaseModel):
@@ -58,8 +64,9 @@ class SubscriptionOut(BaseModel):
     scope_code: str | None
     min_priority: str
     events: list[str]
-    channel: str = Field(description="email (webhooks arrive in Release 3)")
+    channel: str = Field(description="email")
     enabled: bool
+    delivery: str
     created_at: datetime
     updated_at: datetime
 
@@ -72,7 +79,7 @@ class NotificationOut(BaseModel):
     case_id: int | None
     recipient: str
     subject: str
-    status: str = Field(description="pending, sent, failed, held or summarised")
+    status: str = Field(description="pending, sent, failed, held, digest or summarised")
     attempts: int
     next_attempt_at: datetime | None
     last_error: str | None
@@ -94,6 +101,7 @@ def _sub_out(v: SubscriptionView) -> SubscriptionOut:
         events=[e.value for e in v.events],
         channel=v.channel,
         enabled=v.enabled,
+        delivery=v.delivery,
         created_at=v.created_at,
         updated_at=v.updated_at,
     )
@@ -124,6 +132,7 @@ def _spec(body: SubscriptionIn) -> SubscriptionSpec:
         tuple(EventKind(e) for e in body.events),
         body.scope_asset_id,
         body.enabled,
+        body.delivery,
     )
 
 
@@ -237,3 +246,43 @@ def post_test(request: Request, user: User, body: TestIn) -> Response:
     except OSError as error:  # SMTP and network failures
         raise ProblemError(502, "relay_failed", f"The relay refused: {error}") from None
     return Response(status_code=204)
+
+
+class PreferencesOut(BaseModel):
+    quiet_start: int | None = Field(description="plant-time hour quiet hours start, 0-23")
+    quiet_end: int | None
+    per_alert_minutes: int = Field(description="at most one e-mail per alert in this period")
+    time_zone: str
+    digest_hour: int = Field(description="when the daily digest goes out, plant time")
+
+
+class QuietIn(BaseModel):
+    quiet_start: int | None = Field(default=None, ge=0, le=23)
+    quiet_end: int | None = Field(default=None, ge=0, le=23)
+
+
+@router.get(
+    "/notifications/preferences",
+    response_model=PreferencesOut,
+    summary="Your quiet hours, and the throttle and digest time set for everyone",
+)
+def get_notification_preferences(request: Request, user: User) -> PreferencesOut:
+    try:
+        with database_of(request).session() as session:
+            return PreferencesOut(**asdict(get_preferences(session, user.actor)))
+    except NotificationError as error:
+        raise _problem(error) from None
+
+
+@router.put(
+    "/notifications/preferences",
+    response_model=PreferencesOut,
+    summary="Set your quiet hours (both empty: none)",
+)
+def put_notification_preferences(request: Request, user: User, body: QuietIn) -> PreferencesOut:
+    try:
+        with database_of(request).session() as session:
+            prefs = set_quiet_hours(session, user.actor, body.quiet_start, body.quiet_end)
+            return PreferencesOut(**asdict(prefs))
+    except NotificationError as error:
+        raise _problem(error) from None

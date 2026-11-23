@@ -43,11 +43,11 @@ describe("time range in the URL", () => {
 
 describe("routes", () => {
   it("maps URLs to screen IDs, most specific first", () => {
-    expect(findScreen("/fleet")?.id).toBe("SCR-01");
-    expect(findScreen("/assets/6")?.id).toBe("SCR-03");
-    expect(findScreen("/assets/6/diagnostics")?.id).toBe("SCR-04");
-    expect(findScreen("/models/3/build/2")?.id).toBe("SCR-06");
-    expect(findScreen("/admin/registry")?.id).toBe("SCR-13");
+    expect(findScreen("/fleet")?.id).toBe("overview");
+    expect(findScreen("/assets/6")?.id).toBe("analysis");
+    expect(findScreen("/models/3/build/2")?.id).toBe("builder");
+    expect(findScreen("/setup/equipment/new")?.id).toBe("add-equipment");
+    expect(findScreen("/setup/history/upload")?.id).toBe("upload");
     expect(findScreen("/nowhere")).toBeNull();
   });
 

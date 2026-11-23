@@ -6,16 +6,19 @@ Administrators only; the services check it (ARC §9.2), so these handlers just t
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from pmp.api.deps import SignedIn, database_of, settings_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.core import (
+    PERIODS,
+    RUN_EVERY,
     ApiKeyError,
     ApiKeyScope,
     ApiKeyView,
@@ -30,10 +33,13 @@ from pmp.core import (
     issue_api_key,
     list_api_keys,
     query_audit,
+    retention_sizes,
     revoke_api_key,
     rotate_api_key,
     set_retention,
+    set_retention_days,
 )
+from pmp.retained import retention_plan
 
 router = APIRouter(prefix="/api/v1", tags=["administration"])
 CSV_PAGE = 5000
@@ -216,24 +222,61 @@ def get_audit_csv(
     )
 
 
+class RetentionItemOut(BaseModel):
+    kind: str
+    label: str
+    days: int
+    min_days: int
+    unit: str = Field(description="how the screen shows the period: days or years")
+    note: str
+    size_bytes: int | None = Field(description="None when it cannot be measured")
+
+
 class RetentionOut(BaseModel):
-    raw_months: int = Field(description="samples, scores and sensor outputs (NFR-DATA-01)")
+    raw_months: int = Field(description="samples (NFR-DATA-01)")
     aggregate_months: int = Field(description="hourly aggregates (ARC §6.3)")
     last_run_at: datetime | None
     last_result: str | None
+    last_removed: int | None = Field(description="rows and files the last clean-up removed")
+    next_run_at: datetime
+    database_bytes: int
+    raw_samples: int | None = Field(description="approximate number of raw samples kept")
+    items: list[RetentionItemOut]
 
 
 class RetentionIn(BaseModel):
-    raw_months: int = Field(ge=1, le=600)
-    aggregate_months: int = Field(ge=1, le=1200)
+    raw_months: int | None = Field(default=None, ge=1, le=600)
+    aggregate_months: int | None = Field(default=None, ge=1, le=1200)
+    days: dict[str, int] | None = Field(default=None, description="days per kind of data")
 
 
-def _retention_out(policy: RetentionPolicy) -> RetentionOut:
+def _retention_out(session: Session, request: Request, policy: RetentionPolicy) -> RetentionOut:
+    plan = retention_plan(settings_of(request).artefact_dir)
+    sizes, database, raw = retention_sizes(
+        session, plan.tables, plan.scores, plan.records, plan.files
+    )
+    now = datetime.now(UTC)
     return RetentionOut(
         raw_months=policy.raw_months,
         aggregate_months=policy.aggregate_months,
         last_run_at=policy.last_run_at,
         last_result=policy.last_result,
+        last_removed=policy.last_removed,
+        next_run_at=max(now, policy.last_run_at + RUN_EVERY) if policy.last_run_at else now,
+        database_bytes=database,
+        raw_samples=raw,
+        items=[
+            RetentionItemOut(
+                kind=p.kind,
+                label=p.label,
+                days=policy.days[p.kind],
+                min_days=p.min_days,
+                unit=p.unit,
+                note=p.note,
+                size_bytes=sizes.get(p.kind),
+            )
+            for p in PERIODS
+        ],
     )
 
 
@@ -241,7 +284,8 @@ def _retention_out(policy: RetentionPolicy) -> RetentionOut:
 def get_retention_policy(request: Request, user: User) -> RetentionOut:
     authorize(user.actor, Permission.ADMINISTRATION, what="retention")
     with database_of(request).session() as session:
-        return _retention_out(get_retention(session, settings_of(request).retention_months))
+        policy = get_retention(session, settings_of(request).retention_months)
+        return _retention_out(session, request, policy)
 
 
 @router.put(
@@ -250,16 +294,21 @@ def get_retention_policy(request: Request, user: User) -> RetentionOut:
     summary="Change how long data is kept (applied by the worker's daily run)",
 )
 def put_retention_policy(request: Request, user: User, body: RetentionIn) -> RetentionOut:
+    default = settings_of(request).retention_months
     try:
         with database_of(request).session() as session:
-            return _retention_out(
-                set_retention(
+            if body.days is not None:
+                policy = set_retention_days(session, user.actor, body.days, default)
+            elif body.raw_months is not None and body.aggregate_months is not None:
+                policy = set_retention(
                     session,
                     user.actor,
                     raw_months=body.raw_months,
                     aggregate_months=body.aggregate_months,
-                    default_raw_months=settings_of(request).retention_months,
+                    default_raw_months=default,
                 )
-            )
+            else:
+                raise RetentionError("Give the days per kind, or raw and aggregate months")
+            return _retention_out(session, request, policy)
     except RetentionError as error:
         raise ProblemError(400, "invalid_retention", "Retention refused", str(error)) from None

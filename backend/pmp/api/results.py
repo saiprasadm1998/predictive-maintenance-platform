@@ -1,6 +1,8 @@
 """Results for plant systems (FR-API-02, ARC §7.2, plan 8.7).
 
 GET /api/v1/results/health?scope=<asset code>   current health of every model in service
+GET /api/v1/results/alerts?scope=&state=        open and recent alerts
+GET /api/v1/results/forecast?asset=<code>       the latest time to limit per model
 
 Authentication: a `results-read` API key only (ARC §8, conduit C1). One call returns
 every model, as of its latest cycle, so a gateway can write them back to the DCS.
@@ -21,7 +23,7 @@ from pmp.api.deps import authenticate_api_key, database_of
 from pmp.core import ApiKeyScope
 from pmp.ingestion import server_now
 from pmp.modelling import list_active_versions
-from pmp.prognostics import latest_for_alerts
+from pmp.prognostics import latest_for_alerts, list_forecasts
 from pmp.registry import RegistryError, list_subtree
 from pmp.scoring import get_runtime_statuses, model_healths
 
@@ -106,5 +108,137 @@ async def get_results_health(
     def read() -> HealthResults:
         with database_of(request).session() as session:
             return _results(session, scope)
+
+    return await run_in_threadpool(read)
+
+
+class AlertResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    id: int
+    asset: str
+    model_id: int = Field(alias="modelId")
+    kind: str = Field(description="di (the model's deviation) or sensor")
+    severity: str
+    priority: str | None
+    state: str
+    raised_at: datetime = Field(alias="raisedAt")
+    acknowledged_at: datetime | None = Field(alias="acknowledgedAt")
+    closed_at: datetime | None = Field(alias="closedAt")
+
+
+class AlertResults(BaseModel):
+    ts: datetime
+    alerts: list[AlertResult]
+
+
+class ForecastResult(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    asset: str
+    model_id: int = Field(alias="modelId")
+    at: datetime = Field(description="the forecast time; crossing times count from here")
+    target: str
+    threshold: float
+    valid: bool
+    reason: str | None = Field(description="why there is no trend to threshold")
+    median_h: float | None = Field(alias="medianHours")
+    lower_h: float | None = Field(alias="lowerHours", description="80 % interval, low end")
+    upper_h: float | None = Field(alias="upperHours", description="80 % interval, high end")
+    urgency: str
+
+
+class ForecastResults(BaseModel):
+    ts: datetime
+    forecasts: list[ForecastResult]
+
+
+def _scope(session: Session, scope: str | None) -> dict[int, str]:
+    """Model id -> asset code for the models at and beneath `scope`."""
+    try:
+        assets = {a.id: a.code for a in list_subtree(session, scope)}
+    except RegistryError:
+        raise not_found("Asset") from None
+    return {h.model_id: assets[h.asset_id] for h in model_healths(session) if h.asset_id in assets}
+
+
+@router.get(
+    "/alerts",
+    response_model=AlertResults,
+    response_model_by_alias=True,
+    summary="Open and recent alerts (results-read API key)",
+)
+async def get_results_alerts(
+    request: Request,
+    scope: str | None = Query(default=None, description="an asset code: it and beneath it"),
+    state: str = Query(default="open", pattern="^(open|all)$", description="open, or all"),
+) -> AlertResults:
+    await run_in_threadpool(authenticate_api_key, request, ApiKeyScope.RESULTS_READ)
+
+    def read() -> AlertResults:
+        with database_of(request).session() as session:
+            models = _scope(session, scope)
+            alerts = [
+                a for a in list_alerts(session, open_only=state == "open") if a.model_id in models
+            ]
+            return AlertResults(
+                ts=server_now(session),
+                alerts=[
+                    AlertResult(
+                        id=a.id,
+                        asset=models[a.model_id],
+                        model_id=a.model_id,
+                        kind=a.kind.value,
+                        severity=a.severity.value,
+                        priority=a.priority,
+                        state=a.state.value,
+                        raised_at=a.raised_at,
+                        acknowledged_at=a.ack_at,
+                        closed_at=a.closed_at,
+                    )
+                    for a in alerts[:1000]
+                ],
+            )
+
+    return await run_in_threadpool(read)
+
+
+@router.get(
+    "/forecast",
+    response_model=ForecastResults,
+    response_model_by_alias=True,
+    summary="The latest time to limit of each model of an asset (results-read API key)",
+)
+async def get_results_forecast(
+    request: Request,
+    asset: str = Query(description="an asset code: it and beneath it"),
+) -> ForecastResults:
+    await run_in_threadpool(authenticate_api_key, request, ApiKeyScope.RESULTS_READ)
+
+    def read() -> ForecastResults:
+        with database_of(request).session() as session:
+            models = _scope(session, asset)
+            out = []
+            for model_id, code in sorted(models.items(), key=lambda m: m[1]):
+                latest = list_forecasts(session, model_id=model_id, limit=1)
+                if not latest:
+                    continue
+                f = latest[0]
+                out.append(
+                    ForecastResult(
+                        asset=code,
+                        model_id=model_id,
+                        at=f.at,
+                        target=f.target.value,
+                        threshold=f.threshold,
+                        valid=f.valid,
+                        reason=f.reason,
+                        median_h=f.median_h,
+                        lower_h=f.lower_h,
+                        upper_h=f.upper_h,
+                        urgency=f.urgency,
+                    )
+                )
+            return ForecastResults(ts=server_now(session), forecasts=out)
 
     return await run_in_threadpool(read)

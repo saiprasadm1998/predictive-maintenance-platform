@@ -60,20 +60,20 @@ export function RulesTab() {
   });
 
   return (
-    <div className="registry-types">
-      <section className="panel" aria-labelledby="scope-title">
-        <h2 id="scope-title" className="panel-title">
-          Data-quality rules
+    <div className="side3" style={{ alignItems: "start" }}>
+      <section className="pnl" aria-labelledby="scope-title">
+        <h2 id="scope-title" className="pt">
+          Applies to
         </h2>
-        <p className="muted small">
+        <p className="sec s13">
           Rules apply everywhere unless an asset-type role or a tag has its own; the most specific
           wins. Bad source quality is always excluded and cannot be switched off.
           {!editable && " Model Engineers change the rules."}
         </p>
-        <div className="form-grid">
+        <div className="fg">
           <Field label="Applies to">
             <select
-              className="control"
+              className="in"
               value={kind}
               onChange={(e) => setKind(e.target.value as typeof kind)}
             >
@@ -84,11 +84,7 @@ export function RulesTab() {
           </Field>
           {kind === "role" && (
             <Field label="Role">
-              <select
-                className="control"
-                value={typeRole}
-                onChange={(e) => setTypeRole(e.target.value)}
-              >
+              <select className="in" value={typeRole} onChange={(e) => setTypeRole(e.target.value)}>
                 <option value="">Choose…</option>
                 {(types.data ?? []).flatMap((t) =>
                   t.roles.map((r) => (
@@ -102,7 +98,7 @@ export function RulesTab() {
           )}
           {kind === "tag" && (
             <Field label="Tag">
-              <select className="control" value={tagId} onChange={(e) => setTagId(e.target.value)}>
+              <select className="in" value={tagId} onChange={(e) => setTagId(e.target.value)}>
                 <option value="">Choose…</option>
                 {(tags.data ?? []).map((t) => (
                   <option key={t.id} value={t.id}>
@@ -160,17 +156,17 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
   const dirty = editable && JSON.stringify(form) !== JSON.stringify(ruleForm(rules.overrides));
 
   return (
-    <section className="panel" aria-labelledby="rules-title">
+    <section className="pnl" aria-labelledby="rules-title">
       <UnsavedChanges dirty={dirty} />
-      <h2 id="rules-title" className="panel-title">
+      <h2 id="rules-title" className="pt">
         {rules.scope === "global" ? "Everywhere" : rules.scope}:{" "}
         {rules.version
           ? `version ${rules.version}${rules.created_at ? `, ${formatDateTime(new Date(rules.created_at))}` : ""}`
           : "no rules of its own"}
       </h2>
-      {rules.comment && <p className="muted small">“{rules.comment}”</p>}
-      <table className="tree-table">
-        <caption className="visually-hidden">Rule parameters</caption>
+      {rules.comment && <p className="sec s13">“{rules.comment}”</p>}
+      <table className="tb">
+        <caption className="sr">Rule parameters</caption>
         <thead>
           <tr>
             <th scope="col">Rule</th>
@@ -187,7 +183,7 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
                 <td>
                   {p.kind === "switch" ? (
                     <select
-                      className="control"
+                      className="in"
                       aria-label={p.label}
                       disabled={!editable}
                       value={form[p.name]}
@@ -198,9 +194,9 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
                       <option value="false">Off</option>
                     </select>
                   ) : (
-                    <span className="field-inline">
+                    <span className="fld fld-inline">
                       <input
-                        className="control builder-number"
+                        className="in builder-number"
                         type="number"
                         step="any"
                         aria-label={p.label}
@@ -209,11 +205,11 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
                         value={form[p.name]}
                         onChange={(e) => set(p.name, e.target.value)}
                       />
-                      <span className="muted small">{p.unit}</span>
+                      <span className="sec s13">{p.unit}</span>
                     </span>
                   )}
                 </td>
-                <td className="muted">
+                <td className="sec">
                   {typeof fallback === "boolean"
                     ? fallback
                       ? "On"
@@ -227,17 +223,13 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
       </table>
       {editable && (
         <>
-          <div className="form-grid">
+          <div className="fg">
             <Field label="Why (kept with the version)">
-              <input
-                className="control"
-                value={comment}
-                onChange={(e) => setComment(e.target.value)}
-              />
+              <input className="in" value={comment} onChange={(e) => setComment(e.target.value)} />
             </Field>
             <Field label="Preview over the last">
               <select
-                className="control"
+                className="in"
                 value={days}
                 onChange={(e) => {
                   setDays(Number(e.target.value));
@@ -259,7 +251,7 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
           <div className="builder-buttons">
             <button
               type="button"
-              className="button"
+              className="btn btn-s"
               disabled={!!problems.length || preview.isPending}
               onClick={() => preview.mutate()}
             >
@@ -267,7 +259,7 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
             </button>
             <button
               type="button"
-              className="button button-primary"
+              className="btn btn-p"
               disabled={
                 !report || !!problems.length || (needsConfirm && !confirmed) || save.isPending
               }
@@ -284,8 +276,8 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
               </p>
               {needsConfirm && (
                 <div role="alert" className="key-once">
-                  <p>Some tags would lose more than 20 % of their data (UC-04).</p>
-                  <label className="field-inline">
+                  <p>Some tags would lose more than 20 % of their data.</p>
+                  <label className="fld fld-inline">
                     <input
                       type="checkbox"
                       checked={confirmed}
@@ -295,7 +287,7 @@ function RuleEditor({ rules, editable }: { rules: RuleSet; editable: boolean }) 
                   </label>
                 </div>
               )}
-              <table className="tree-table">
+              <table className="tb">
                 <caption>Tags most affected</caption>
                 <thead>
                   <tr>

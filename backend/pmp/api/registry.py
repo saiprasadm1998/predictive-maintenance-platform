@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import shutil
 import tempfile
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -25,7 +26,7 @@ from pmp.api.common import MAX_LIMIT, Page, can_see, not_found, page
 from pmp.api.deps import SignedIn, database_of, signed_in
 from pmp.api.problems import ProblemError
 from pmp.core import Permission, authorize
-from pmp.ingestion import list_unmapped_tags, promote_unmapped_tag
+from pmp.ingestion import list_unmapped_tags, promote_unmapped_tag, tag_coverage, tag_trend
 from pmp.registry import (
     AssetLevel,
     AssetSpec,
@@ -38,6 +39,8 @@ from pmp.registry import (
     get_asset_by_id,
     get_tags,
     import_files,
+    list_subtree,
+    list_tags,
     upsert_asset,
     upsert_asset_type,
     upsert_role,
@@ -362,6 +365,66 @@ def get_unmapped(
         ],
         next_cursor=next_cursor,
     )
+
+
+class CoverageOut(BaseModel):
+    tag_id: int
+    first_ts: str
+    last_ts: str
+    samples: int
+    gaps: int = Field(description="gaps longer than an hour with no sample")
+
+
+@router.get(
+    "/tags/coverage",
+    response_model=list[CoverageOut],
+    summary="Stored data per tag: first and last sample and count",
+)
+def get_tag_coverage(request: Request, user: User) -> list[CoverageOut]:
+    with database_of(request).session() as session:
+        paths = {a.id: a.path for a in list_subtree(session)}
+        visible = {t.id for t in list_tags(session) if can_see(user, paths.get(t.asset_id))}
+        rows = tag_coverage(session)
+    return [
+        CoverageOut(
+            tag_id=r.tag_id,
+            first_ts=r.first_ts.isoformat(),
+            last_ts=r.last_ts.isoformat(),
+            samples=r.samples,
+            gaps=r.gaps,
+        )
+        for r in rows
+        if r.tag_id in visible
+    ]
+
+
+class TrendOut(BaseModel):
+    ts: list[str]
+    mean: list[float]
+
+
+@router.get(
+    "/tags/{tag_id}/trend",
+    response_model=TrendOut,
+    summary="A tag's stored values as hourly (or coarser) means, for period charts",
+)
+def get_tag_trend(
+    request: Request,
+    user: User,
+    tag_id: int,
+    start: datetime,
+    end: datetime,
+    points: Annotated[int, Query(ge=10, le=2000)] = 400,
+) -> TrendOut:
+    if end <= start:
+        raise ProblemError(400, "invalid_period", "The period ends before it starts")
+    with database_of(request).session() as session:
+        paths = {a.id: a.path for a in list_subtree(session)}
+        tag = next((t for t in list_tags(session) if t.id == tag_id), None)
+        if tag is None or not can_see(user, paths.get(tag.asset_id)):
+            raise not_found("Tag")
+        rows = tag_trend(session, tag_id, start, end, points)
+    return TrendOut(ts=[t.isoformat() for t, _ in rows], mean=[v for _, v in rows])
 
 
 @router.post(

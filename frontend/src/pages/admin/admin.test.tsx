@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN, ASSETS, type Call, fakeApi, sessionRoutes } from "../../test/fakeApi";
+import { TREE as SCOPE_TREE } from "../../test/fakeApi";
 import { renderApp } from "../../test/renderApp";
 import {
   changedFields,
@@ -87,20 +88,21 @@ describe("SCR-14 administration", () => {
     routes["POST /users"] = (call) => ({ status: 201, body: { id: 9, ...(call.body as object) } });
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin");
+    renderApp("/system/users");
 
-    await user.click(await screen.findByRole("button", { name: "Add a user" }));
-    const form = screen.getByRole("region", { name: "Add a user" });
-    await user.type(within(form).getByLabelText("Username"), "vera");
-    await user.type(within(form).getByLabelText("Password"), "vera-password-1");
+    await user.click(await screen.findByRole("button", { name: "Add user" }));
+    const form = await screen.findByRole("dialog", { name: "Add user" });
+    await user.type(within(form).getByLabelText("Name"), "vera");
+    await user.type(within(form).getByLabelText("User name"), "vera");
+    await user.type(within(form).getByLabelText(/Temporary password/), "vera-password-1");
     await user.click(within(form).getByRole("button", { name: "Add user" }));
     expect(
       await within(form).findByText("The password may not contain the username"),
     ).toBeInTheDocument();
-    await user.clear(within(form).getByLabelText("Password"));
-    await user.type(within(form).getByLabelText("Password"), "correct horse battery");
-    await user.selectOptions(within(form).getByLabelText("Role 1"), "analyst");
-    await user.selectOptions(within(form).getByLabelText("Where role 1 applies"), "5");
+    await user.clear(within(form).getByLabelText(/Temporary password/));
+    await user.type(within(form).getByLabelText(/Temporary password/), "correct horse battery");
+    await user.selectOptions(within(form).getByLabelText("Role"), "analyst");
+    await user.selectOptions(within(form).getByLabelText("Scope"), "5");
     await user.click(within(form).getByRole("button", { name: "Add user" }));
     await waitFor(() =>
       expect(calls.find((c: Call) => c.method === "POST" && c.path === "/users")?.body).toEqual({
@@ -133,16 +135,18 @@ describe("SCR-14 administration", () => {
     };
     fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin?tab=keys");
+    renderApp("/system/users?tab=keys");
 
-    await user.type(await screen.findByLabelText("Name"), "gateway A");
-    await user.click(screen.getByRole("button", { name: "Issue key" }));
-    expect(await screen.findByLabelText("The new key")).toHaveTextContent("pmp_abc123_secret");
+    await user.click(await screen.findByRole("button", { name: "Issue a key" }));
+    const dialog = await screen.findByRole("dialog", { name: "Issue an API key" });
+    await user.type(within(dialog).getByLabelText("Name"), "gateway A");
+    await user.click(within(dialog).getByRole("button", { name: "Issue key" }));
+    expect(await screen.findByLabelText("API key")).toHaveValue("pmp_abc123_secret");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByDisplayValue("pmp_abc123_secret")).not.toBeInTheDocument();
     const table = await screen.findByRole("table", { name: "API keys" });
     expect(within(table).getByText("abc123…")).toBeInTheDocument();
     expect(within(table).queryByText(/secret/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "I have stored it" }));
-    expect(screen.queryByText("pmp_abc123_secret")).not.toBeInTheDocument();
   });
 
   it("previews a data-quality change and asks to confirm when a tag would lose over 20 %", async () => {
@@ -185,10 +189,8 @@ describe("SCR-14 administration", () => {
     });
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin");
+    renderApp("/setup/data-quality");
 
-    // A Model Engineer sees only the rules, not the administrator's tabs.
-    expect(screen.queryByRole("link", { name: "Users and roles" })).not.toBeInTheDocument();
     await user.type(await screen.findByLabelText("Spike above"), "5");
     const save = screen.getByRole("button", { name: "Save" });
     expect(save).toBeDisabled(); // preview first
@@ -228,7 +230,10 @@ describe("notifications", () => {
     let subs: object[] = [];
     routes["GET /notifications/events"] = () => ({ status: 200, body: EVENTS });
     routes["GET /notifications/subscriptions"] = () => ({ status: 200, body: subs });
-    routes["GET /assets"] = () => ({ status: 200, body: { items: ASSETS, next_cursor: null } });
+    routes["GET /assets"] = (call) =>
+      call.query.get("tree") === "true"
+        ? { status: 200, body: SCOPE_TREE }
+        : { status: 200, body: { items: ASSETS, next_cursor: null } };
     routes["POST /notifications/subscriptions"] = (call) => {
       subs = [
         {
@@ -244,32 +249,41 @@ describe("notifications", () => {
     };
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin?tab=notifications");
+    routes["GET /notifications/preferences"] = () => ({
+      status: 200,
+      body: {
+        quiet_start: null,
+        quiet_end: null,
+        per_alert_minutes: 30,
+        time_zone: "Asia/Dubai",
+        digest_hour: 7,
+      },
+    });
+    renderApp("/system/notifications");
 
-    expect(await screen.findByText(/You have no subscriptions/)).toBeInTheDocument();
-    expect(screen.getByText(/E-mails go to ana@plant.test/)).toBeInTheDocument();
+    expect(await screen.findByText(/No subscriptions/)).toBeInTheDocument();
+    expect(screen.getByText(/Sent to ana@plant.test/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Add a subscription" }));
-    const form = screen.getByRole("form", { name: "New subscription" });
+    const form = await screen.findByRole("dialog", { name: "Add a subscription" });
     // model engineers' and administrators' events are not offered to an analyst
     expect(within(form).queryByLabelText(/False alert to review/)).toBeNull();
     expect(within(form).queryByLabelText(/Data source stale/)).toBeNull();
-    await user.selectOptions(within(form).getByLabelText("Minimum priority"), "P1");
+    await user.selectOptions(within(form).getByLabelText("Lowest priority"), "P1");
     await user.click(within(form).getByLabelText("Case assigned to me"));
-    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await user.click(within(form).getByRole("button", { name: "Add subscription" }));
     await waitFor(() =>
       expect(calls.find((c: Call) => c.method === "POST")?.body).toEqual({
         scope_asset_id: null,
         min_priority: "P1",
         events: ["alert_raised", "alert_escalated", "case_assigned"],
         enabled: true,
+        delivery: "immediate",
       }),
     );
     expect(
-      await screen.findByText(
-        "P1 only · K-101 · Alert raised, Alert escalated to Alert, Case assigned to me",
-      ),
+      await screen.findByText("Alert raised, Alert escalated to Alert, Case assigned to me"),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Notification log" })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /Notification log/ })).toBeNull();
   });
 
   it("shows administrators the delivery log and sends a test e-mail", async () => {
@@ -335,6 +349,18 @@ describe("ingestion health (FR-ING-07)", () => {
       status: 200,
       body: {
         checked_at: "2026-10-29T12:00:00Z",
+        broker: {
+          configured: true,
+          url: "mqtts://broker.test:8883",
+          topic: "pmp/v1/+/samples",
+          connected: true,
+          last_message_at: "2026-10-29T11:59:00Z",
+          last_error: null,
+          updated_at: "2026-10-29T11:59:00Z",
+        },
+        topic_prefix: "pmp/v1",
+        accepted_24h: 2385,
+        rejected_24h: 2,
         sources: [
           {
             ...source,
@@ -379,7 +405,7 @@ describe("ingestion health (FR-ING-07)", () => {
     });
     fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin?tab=ingestion");
+    renderApp("/system/ingestion");
 
     const sources = await screen.findByRole("table", { name: "Gateway sources" });
     expect(screen.getByText("2 sources need attention.", { exact: false })).toBeInTheDocument();
@@ -409,7 +435,7 @@ describe("operational alerts (ARC §10.3)", () => {
           severity: "critical",
           text: "Source gw-1 has sent nothing for 12 min.",
           since: "2026-11-02T10:00:00Z",
-          link: "/admin?tab=ingestion",
+          link: "/system/ingestion",
         },
         {
           kind: "job_queue",
@@ -421,14 +447,14 @@ describe("operational alerts (ARC §10.3)", () => {
       ],
     });
     fakeApi(routes);
-    renderApp("/admin?tab=retention");
+    renderApp("/system/ingestion");
 
     const panel = await screen.findByRole("region", { name: "Operational alerts" });
     expect(within(panel).getByText(/Source gw-1 has sent nothing/)).toBeInTheDocument();
     expect(within(panel).getByText(/2 jobs waiting/)).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Open" })).toHaveAttribute(
       "href",
-      "/admin?tab=ingestion",
+      "/system/ingestion",
     );
   });
 });

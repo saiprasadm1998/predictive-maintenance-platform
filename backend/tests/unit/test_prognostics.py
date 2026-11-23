@@ -82,6 +82,21 @@ def test_already_beyond_the_threshold_and_rising_is_immediate() -> None:
     assert f.urgency is Urgency.IMMEDIATE
 
 
+def test_already_beyond_the_threshold_with_a_noisy_trend_is_still_immediate() -> None:
+    f = forecast(T, 60 + noise(8.0), 45, direction=1)  # flat, very noisy, above the limit
+    assert f.fit is not None
+    assert f.fit.r2 < 0.5
+    assert f.valid
+    assert (f.median_h, f.lower_h, f.upper_h) == (0.0, 0.0, 0.0)
+    assert f.urgency is Urgency.IMMEDIATE
+
+
+def test_below_the_threshold_with_a_noisy_trend_has_no_trend() -> None:
+    f = forecast(T, 30 + noise(8.0), 45, direction=1)
+    assert not f.valid
+    assert f.urgency is Urgency.NONE
+
+
 def test_the_bootstrap_is_repeatable_with_its_seed() -> None:
     y = 50 + 2.0 * T + noise(3.0)
     assert forecast(T, y, 80) == forecast(T, y, 80)

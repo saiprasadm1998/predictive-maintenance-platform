@@ -21,15 +21,15 @@ export function NotificationLogTab() {
   return (
     <>
       <TestEmail />
-      <section className="panel" aria-labelledby="log-title">
-        <div className="panel-head">
-          <h2 id="log-title" className="panel-title">
+      <section className="pnl" aria-labelledby="log-title">
+        <div className="pnlh">
+          <h2 id="log-title" className="pt">
             Notification log
           </h2>
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <span>Status</span>
             <select
-              className="control"
+              className="in"
               value={status}
               onChange={(e) => setStatus(e.target.value as Delivery["status"] | "")}
             >
@@ -47,10 +47,10 @@ export function NotificationLogTab() {
         ) : log.isError ? (
           <p role="alert">The log could not be loaded: {log.error.message}</p>
         ) : log.data.length === 0 ? (
-          <p className="muted">No notification yet.</p>
+          <p className="sec">No notification yet.</p>
         ) : (
-          <table className="tree-table">
-            <caption className="visually-hidden">Notifications, newest first</caption>
+          <table className="tb">
+            <caption className="sr">Notifications, newest first</caption>
             <thead>
               <tr>
                 <th scope="col">Queued</th>
@@ -84,7 +84,7 @@ export function NotificationLogTab() {
                         ? `next ${formatDateTime(new Date(d.next_attempt_at))}`
                         : "—"}
                   </td>
-                  <td className="muted small">{d.last_error ?? ""}</td>
+                  <td className="sec s13">{d.last_error ?? ""}</td>
                 </tr>
               ))}
             </tbody>
@@ -102,8 +102,8 @@ function TestEmail() {
   const [error, setError] = useState<unknown>(null);
   const [done, setDone] = useState<string | null>(null);
   return (
-    <section className="panel" aria-labelledby="test-title">
-      <h2 id="test-title" className="panel-title">
+    <section className="pnl" aria-labelledby="test-title">
+      <h2 id="test-title" className="pt">
         Test the e-mail relay
       </h2>
       <form
@@ -124,21 +124,21 @@ function TestEmail() {
           }
         }}
       >
-        <label className="field-inline">
+        <label className="fld fld-inline">
           <span>To</span>
           <input
-            className="control"
+            className="in"
             type="email"
             value={to}
             required
             onChange={(e) => setTo(e.target.value)}
           />
         </label>
-        <button type="submit" className="button" disabled={busy || !to.trim()}>
+        <button type="submit" className="btn btn-s" disabled={busy || !to.trim()}>
           Send test e-mail
         </button>
         {done && (
-          <span role="status" className="muted">
+          <span role="status" className="sec">
             {done}
           </span>
         )}

@@ -14,7 +14,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
-from sqlalchemy import BigInteger, DateTime, Integer, String, func, select, text
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    Identity,
+    Integer,
+    String,
+    Text,
+    func,
+    select,
+    text,
+)
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from pmp.core import Actor, Base, Permission, audit_change, authorize
@@ -49,6 +61,148 @@ class IngestSource(Base):
     accepted_total: Mapped[int] = mapped_column(BigInteger)
     rejected_total: Mapped[int] = mapped_column(BigInteger)
     grace_s: Mapped[int | None] = mapped_column(Integer, nullable=True)  # None: the default
+
+
+class RejectLogRow(Base):
+    """A sample or message ingestion refused, with the reason (nothing is dropped silently)."""
+
+    __tablename__ = "reject_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source: Mapped[str] = mapped_column(String(100))
+    transport: Mapped[str] = mapped_column(String(10))
+    tag: Mapped[str | None] = mapped_column(String(200))
+    sample_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    value: Mapped[float | None] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(30))
+    detail: Mapped[str | None] = mapped_column(Text)
+
+
+class IngestTransportRow(Base):
+    """The state of a subscribed transport (the MQTT broker), written by its subscriber."""
+
+    __tablename__ = "ingest_transport"
+
+    name: Mapped[str] = mapped_column(String(20), primary_key=True)
+    url: Mapped[str] = mapped_column(Text)
+    topic: Mapped[str] = mapped_column(Text)
+    connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+@dataclass(frozen=True)
+class RejectView:
+    received_at: datetime
+    source: str
+    transport: str
+    tag: str | None
+    sample_ts: datetime | None
+    value: float | None
+    reason: str
+    detail: str | None
+
+
+@dataclass(frozen=True)
+class TransportView:
+    name: str
+    url: str
+    topic: str
+    connected: bool
+    last_message_at: datetime | None
+    last_error: str | None
+    updated_at: datetime
+
+
+def log_rejection(
+    session: Session,
+    *,
+    source: str,
+    transport: str,
+    reason: str,
+    now: datetime,
+    tag: str | None = None,
+    sample_ts: datetime | None = None,
+    value: float | None = None,
+    detail: str | None = None,
+) -> None:
+    """Keep one refused sample or message in the reject log."""
+    session.add(
+        RejectLogRow(
+            received_at=now,
+            source=source[:100],
+            transport=transport,
+            tag=tag[:200] if tag else None,
+            sample_ts=sample_ts,
+            value=value,
+            reason=reason[:30],
+            detail=detail,
+        )
+    )
+
+
+def list_rejections(session: Session, limit: int = 100) -> list[RejectView]:
+    """The newest refusals first."""
+    rows = session.scalars(
+        select(RejectLogRow)
+        .order_by(RejectLogRow.received_at.desc(), RejectLogRow.id.desc())
+        .limit(limit)
+    ).all()
+    return [
+        RejectView(
+            r.received_at, r.source, r.transport, r.tag, r.sample_ts, r.value, r.reason, r.detail
+        )
+        for r in rows
+    ]
+
+
+def count_rejections(session: Session, since: datetime) -> int:
+    return int(
+        session.scalar(
+            select(func.count()).select_from(RejectLogRow).where(RejectLogRow.received_at >= since)
+        )
+        or 0
+    )
+
+
+def set_transport_state(
+    session: Session,
+    name: str,
+    *,
+    url: str,
+    topic: str,
+    connected: bool,
+    now: datetime,
+    error: str | None = None,
+    message_at: datetime | None = None,
+) -> None:
+    """Record the subscriber's connection state (one row per transport)."""
+    row = session.get(IngestTransportRow, name)
+    if row is None:
+        row = IngestTransportRow(name=name, url=url, topic=topic)
+        session.add(row)
+    row.url, row.topic, row.connected, row.updated_at = url, topic, connected, now
+    if error is not None or not connected:
+        row.last_error = error
+    if message_at is not None:
+        row.last_message_at = message_at
+
+
+def get_transport(session: Session, name: str) -> TransportView | None:
+    row = session.get(IngestTransportRow, name)
+    if row is None:
+        return None
+    return TransportView(
+        row.name,
+        row.url,
+        row.topic,
+        row.connected,
+        row.last_message_at,
+        row.last_error,
+        row.updated_at,
+    )
 
 
 @dataclass(frozen=True)
@@ -97,9 +251,15 @@ class SourceStats:
 
 
 def ingest_batch(
-    session: Session, batch: BatchIn, *, now: datetime, late_window: timedelta
+    session: Session,
+    batch: BatchIn,
+    *,
+    now: datetime,
+    late_window: timedelta,
+    transport: str = "rest",
 ) -> IngestResult:
-    """Map, check and store one batch. Writes in the caller's transaction."""
+    """Map, check and store one batch; every refused sample goes to the reject log. Writes
+    in the caller's transaction."""
     result = IngestResult()
     tag_ids = resolve_tag_ids(session, batch.source, (s.tag for s in batch.samples))
     rows: dict[tuple[int, datetime], SampleRow] = {}
@@ -124,6 +284,18 @@ def ingest_batch(
         rows[(tag_id, ts)] = SampleRow(tag_id, ts, sample.v, quality, code)
         result.accepted += 1
 
+    for rejection in result.rejected:
+        sample = batch.samples[rejection.index]
+        log_rejection(
+            session,
+            source=batch.source,
+            transport=transport,
+            reason=rejection.reason.value,
+            now=now,
+            tag=sample.tag,
+            sample_ts=to_utc(sample.ts),
+            value=sample.v,
+        )
     write_samples(session, rows.values())
     _record_unmapped(session, batch.source, unmapped, now)
     _update_source_stats(session, batch.source, result, rows.values(), now)
@@ -308,6 +480,13 @@ def read_last_samples_many(
     return result
 
 
+def samples_since(session: Session, since: datetime) -> int:
+    """Samples whose timestamp is at or after `since` (what arrived live in that span)."""
+    return int(
+        session.scalar(text("SELECT count(*) FROM sample WHERE ts >= :t"), {"t": since}) or 0
+    )
+
+
 def count_samples(session: Session, tag_ids: Iterable[int] | None = None) -> int:
     if tag_ids is None:
         return session.scalar(text("SELECT count(*) FROM sample")) or 0
@@ -333,6 +512,50 @@ def list_unmapped_tags(session: Session, source: str | None = None) -> list[Unma
         for row in rows
         if (row.source, row.source_name) not in registered
     ]
+
+
+@dataclass(frozen=True)
+class TagCoverage:
+    """How much stored data one tag has: the span, the number of samples and the gaps
+    longer than an hour (whole hours with no sample, such as a shutdown or an outage)."""
+
+    tag_id: int
+    first_ts: datetime
+    last_ts: datetime
+    samples: int
+    gaps: int
+
+
+def tag_trend(
+    session: Session, tag_id: int, start: datetime, end: datetime, points: int = 400
+) -> list[tuple[datetime, float]]:
+    """A tag's stored values between `start` and `end` as at most `points` means, read from
+    the hourly roll-up (the model builder's period chart)."""
+    hours = max(1, int((end - start).total_seconds() // 3600 // max(points, 1)) + 1)
+    rows = session.execute(
+        text(
+            "SELECT date_bin(make_interval(hours => :h), bucket, TIMESTAMPTZ '2000-01-01') AS t, "
+            "sum(value_mean * n) / nullif(sum(n), 0) FROM sample_1h "
+            "WHERE tag_id = :tag AND bucket >= :start AND bucket < :end GROUP BY t ORDER BY t"
+        ),
+        {"h": hours, "tag": tag_id, "start": start, "end": end},
+    ).all()
+    return [(r[0], float(r[1])) for r in rows if r[1] is not None]
+
+
+def tag_coverage(session: Session) -> list[TagCoverage]:
+    """Stored data per tag, for the historical-data and register screens. Read from the
+    hourly roll-up, so it stays quick however much history is stored."""
+    rows = session.execute(
+        text(
+            "SELECT tag_id, min(bucket), max(bucket) + interval '1 hour', sum(n), "
+            "count(*) FILTER (WHERE gap > interval '1 hour') FROM ("
+            "  SELECT tag_id, bucket, n, bucket - lag(bucket) OVER "
+            "  (PARTITION BY tag_id ORDER BY bucket) - interval '1 hour' AS gap "
+            "  FROM sample_1h) AS hours GROUP BY tag_id"
+        )
+    ).all()
+    return [TagCoverage(int(r[0]), r[1], r[2], int(r[3]), int(r[4])) for r in rows]
 
 
 def promote_unmapped_tag(

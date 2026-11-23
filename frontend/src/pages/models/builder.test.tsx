@@ -276,7 +276,7 @@ describe("SCR-06 model builder", () => {
     await user.click(screen.getByRole("checkbox", { name: "K101.TI1.PV required" }));
     await user.click(next);
 
-    await screen.findByRole("group", { name: "Validation period (hold-out)" });
+    await screen.findByLabelText("Validation from");
     await user.click(screen.getByRole("button", { name: "Next →" }));
 
     const summary = await screen.findByRole("table", { name: "Training data summary" });
@@ -350,6 +350,6 @@ describe("SCR-06 model builder", () => {
     expect(order.indexOf("PUT /models/9/alert-rules")).toBeLessThan(
       order.indexOf("POST /versions/4/deploy"),
     );
-    expect(await screen.findByRole("heading", { level: 1, name: "v2" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: /v2$/ })).toBeInTheDocument();
   });
 });

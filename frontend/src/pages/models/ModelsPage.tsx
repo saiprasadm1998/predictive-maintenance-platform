@@ -5,13 +5,12 @@ import { Link, useSearchParams } from "react-router-dom";
 import { fetchModels } from "../../api/models";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { formatDateTime, formatDi, formatIso } from "../../app/format";
+import { Pill } from "../../components/ui";
 import { StatusChip } from "../../components/StatusChip";
 import { Skeleton } from "../fleet/FleetPage";
 import { LifecycleActions } from "./LifecycleActions";
 import { alertRate } from "./modelsModel";
 import { useRowKeys } from "../../components/tableKeys";
-import { useMe } from "../../app/session";
-import { isModelEngineer } from "../admin/adminModel";
 import { ApplyTemplate } from "./ApplyTemplate";
 
 /**
@@ -24,7 +23,6 @@ export function ModelsPage() {
   const [params, setParams] = useSearchParams();
   const status = params.get("status");
   const applying = params.get("apply") === "template";
-  const me = useMe();
   const models = useQuery({
     queryKey: ["models", "list"],
     queryFn: ({ signal }) => fetchModels(signal),
@@ -53,35 +51,15 @@ export function ModelsPage() {
           }
         />
       )}
-      <section className="panel" aria-labelledby="models-title">
-        <div className="panel-head">
-          <h2 id="models-title" className="panel-title">
+      <section className="pnl" aria-labelledby="models-title">
+        <div className="pnlh">
+          <h2 id="models-title" className="pt">
             Models ({rows.length})
           </h2>
-          <Link className="button button-primary" to="/models/new/build/1">
-            New model
-          </Link>
-          {isModelEngineer(me.data) && (
-            <button
-              type="button"
-              className="button"
-              aria-pressed={applying}
-              onClick={() =>
-                setParams((c) => {
-                  const p = new URLSearchParams(c);
-                  if (applying) p.delete("apply");
-                  else p.set("apply", "template");
-                  return p;
-                })
-              }
-            >
-              Apply template…
-            </button>
-          )}
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <span>Runtime status</span>
             <select
-              className="control"
+              className="in"
               value={status ?? ""}
               onChange={(e) =>
                 setParams((c) => {
@@ -106,12 +84,11 @@ export function ModelsPage() {
         ) : models.isError ? (
           <p role="alert">{models.error.message}</p>
         ) : rows.length === 0 ? (
-          <p className="muted">
-            No models{status ? ` with status ${status}` : ""}. New models are built with the model
-            builder (next step of this phase).
+          <p className="sec">
+            No models{status ? ` with status ${status}` : ""}. Use New model to build one.
           </p>
         ) : (
-          <table ref={rowKeys} className="tree-table models-table">
+          <table ref={rowKeys} className="tb tb">
             <thead>
               <tr>
                 <th scope="col">Asset / model</th>
@@ -137,7 +114,10 @@ export function ModelsPage() {
                 return (
                   <tr key={m.id}>
                     <td>
-                      <Link to={`/models/${m.id}/versions/${current?.version ?? m.latest.version}`}>
+                      <Link
+                        className="mono"
+                        to={`/models/${m.id}/versions/${current?.version ?? m.latest.version}`}
+                      >
                         {m.asset_code} / {m.name}
                       </Link>
                     </td>
@@ -145,10 +125,14 @@ export function ModelsPage() {
                       {current ? (
                         `v${current.version} · ${current.algorithm} · ${current.status}`
                       ) : (
-                        <span className="muted">none</span>
+                        <span className="sec">none</span>
                       )}
                     </td>
-                    <td>{m.runtime?.status ?? <span className="muted">Not scored yet</span>}</td>
+                    <td>
+                      <Pill tone={m.runtime?.status === "Running" ? "info" : "unknown"}>
+                        {m.runtime?.status ?? "Not scored yet"}
+                      </Pill>
+                    </td>
                     <td>
                       {m.runtime ? <StatusChip kind="band" value={m.runtime.band} size="s" /> : "—"}
                     </td>
@@ -171,7 +155,7 @@ export function ModelsPage() {
                           v{m.latest.version} · {m.latest.status}
                         </Link>
                       ) : (
-                        <span className="muted">—</span>
+                        <span className="sec">—</span>
                       )}
                     </td>
                     <td>

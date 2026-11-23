@@ -109,9 +109,11 @@ from pmp.ingestion import (
     MAX_GRACE_S,
     BackfillError,
     BackfillOptions,
+    BrokerConfig,
     IngestError,
     Layout,
     OverlapMode,
+    Subscriber,
     make_backfill_handler,
     run_backfill,
     set_source_grace,
@@ -140,7 +142,7 @@ from pmp.modelling import (
     start_training,
     template_from_dict,
 )
-from pmp.notifications import NotificationError, Notifier, SmtpSender, send_test
+from pmp.notifications import NotificationError, Notifier, SmtpSender, configure_tuning, send_test
 from pmp.prognostics import (
     DEFAULT_WINDOW_DAYS,
     ForecastError,
@@ -162,9 +164,9 @@ from pmp.registry import (
     import_files,
     list_tags,
 )
+from pmp.retained import retention_plan
 from pmp.scoring import (
     RESCORE_JOB,
-    RETAINED_TABLES,
     Band,
     CycleResult,
     NodeHealth,
@@ -660,12 +662,25 @@ def _run_restore(settings: Settings, args: argparse.Namespace) -> int:
     return 0
 
 
+def broker_config(settings: Settings) -> BrokerConfig:
+    return BrokerConfig(
+        url=settings.mqtt_url or "",
+        topic_prefix=settings.mqtt_topic_prefix,
+        username=settings.mqtt_username,
+        password=settings.mqtt_password.get_secret_value() if settings.mqtt_password else None,
+        ca_file=settings.mqtt_ca_file,
+        client_id=settings.mqtt_client_id,
+    )
+
+
 def _run_worker(settings: Settings) -> None:
     database = Database(settings.database_url.get_secret_value())
     registry = JobRegistry()
     uploads = Path(settings.artefact_dir) / "uploads"
     registry.register(BACKFILL_JOB, make_backfill_handler(database, uploads))
-    registry.register(RETENTION_JOB, make_retention_handler(database))
+    registry.register(
+        RETENTION_JOB, make_retention_handler(database, retention_plan(settings.artefact_dir))
+    )
     registry.register(RESCORE_JOB, make_rescore_handler(database))
     registry.register(
         TRAIN_JOB,
@@ -683,6 +698,17 @@ def _run_worker(settings: Settings) -> None:
         )
     else:
         logger.info("Notifications are off: no SMTP host (PMP_SMTP_HOST)")
+    configure_tuning(settings.notify_per_alert_minutes, settings.plant_timezone)
+    subscriber = None
+    if settings.mqtt_url:
+        subscriber = Subscriber(
+            database,
+            broker_config(settings),
+            late_window=timedelta(days=settings.late_data_days),
+        )
+        threads.append(threading.Thread(target=subscriber.run, name="mqtt", daemon=True))
+    else:
+        logger.info("Live MQTT subscription is off: no broker (PMP_MQTT_URL)")
     scheduler = Scheduler(
         database, grace_s=settings.scoring_grace_s, retention_months=settings.retention_months
     )
@@ -703,6 +729,8 @@ def _run_worker(settings: Settings) -> None:
         Worker(database, registry).run_forever(stop)
     finally:
         stop.set()
+        if subscriber is not None:
+            subscriber.stop()
         scheduler_thread.join(timeout=30)
         for thread in threads:
             thread.join(timeout=30)
@@ -841,7 +869,18 @@ def _run_retention(settings: Settings, args: argparse.Namespace) -> int:
                     default_raw_months=default,
                 )
             elif args.retention_command == "run":
-                print(apply_retention(session, datetime.now(UTC), default, RETAINED_TABLES))
+                plan = retention_plan(settings.artefact_dir)
+                print(
+                    apply_retention(
+                        session,
+                        datetime.now(UTC),
+                        default,
+                        plan.tables,
+                        scores=plan.scores,
+                        records=plan.records,
+                        files=plan.files,
+                    )
+                )
             policy = get_retention(session, default)
         last = f"{policy.last_run_at:%Y-%m-%d %H:%M} UTC" if policy.last_run_at else "never"
         print(

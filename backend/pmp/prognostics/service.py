@@ -22,7 +22,15 @@ from sqlalchemy.orm import Session
 
 from pmp.alerting import AlertError, RuleKind, get_alert, list_alert_rules, list_alerts
 from pmp.core import Actor, Permission, authorize
-from pmp.modelling import ModelError, ModelView, VersionStatus, asset_path, get_model_by_id
+from pmp.modelling import (
+    ArtefactError,
+    ModelError,
+    ModelView,
+    VersionStatus,
+    asset_path,
+    get_model_by_id,
+    load_version,
+)
 from pmp.prognostics.domain import Forecast, ForecastError, UrgencyBands, forecast
 from pmp.prognostics.models import ForecastRow
 from pmp.scoring import latest_cycle, quarter_hour_means
@@ -36,6 +44,9 @@ class Target(StrEnum):
     DI = "di"
     ACTUAL = "actual"
     RESIDUAL = "residual"
+    # Load-corrected value x - x_hat + x_ref (PHI-001 §12.1): the sensor at the reference
+    # operating point, x_ref being its training median. The daily load swing drops out.
+    CORRECTED = "corrected"
 
 
 class ThresholdKind(StrEnum):
@@ -206,7 +217,17 @@ def run_forecast(
     alert_id = _alert_for(session, request)
 
     start = at - timedelta(days=request.window_days)
-    means = quarter_hour_means(session, version_id, request.target.value, start, at, request.tag_id)
+    if request.target is Target.CORRECTED:
+        try:
+            reference = load_version(session, version_id).medians[source_name or ""]
+        except (ArtefactError, KeyError):
+            raise ForecastError("The version has no training statistics for this sensor") from None
+        residuals = quarter_hour_means(session, version_id, "residual", start, at, request.tag_id)
+        means = [(ts, value + reference) for ts, value in residuals]
+    else:
+        means = quarter_hour_means(
+            session, version_id, request.target.value, start, at, request.tag_id
+        )
     times = [ts + BIN / 2 for ts, _ in means]  # a mean stands for its quarter hour's middle
     t_days = np.array([(ts - at).total_seconds() / 86_400 for ts in times])
     values = np.array([v for _, v in means])

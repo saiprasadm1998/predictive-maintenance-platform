@@ -22,6 +22,7 @@ from pmp.notifications.service import (
     collect_overdue,
     collect_stale_sources,
     deliver,
+    send_digests,
     summarise,
 )
 
@@ -65,6 +66,8 @@ class Notifier:
             result.queued += collect_stale_sources(session, now, self.public_url)
         with self.database.session() as session:
             result.summaries = summarise(session, now, self.public_url)
+        with self.database.session() as session:
+            result.summaries += send_digests(session, now, self.public_url)
         with self.database.session() as session:
             result.sent, result.failed = deliver(session, self.sender, now)
         return result

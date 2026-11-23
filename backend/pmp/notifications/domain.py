@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 
+DELIVERIES = ("immediate", "daily")
+DIGEST_HOUR = 7  # the daily digest goes out at 07:00 plant time
 PER_ALERT = timedelta(minutes=30)  # no more than one notification per alert per 30 minutes
 PER_HOUR = 20  # at most 20 per user per hour, after which a summary is sent
 HISTORY_LAG = timedelta(minutes=10)  # an event older than this is re-scored history
@@ -47,7 +49,8 @@ class Status(StrEnum):
     PENDING = "pending"
     SENT = "sent"
     FAILED = "failed"  # gave up after an hour of retries
-    HELD = "held"  # over the hourly cap: goes out in the next summary
+    HELD = "held"  # over the hourly cap or in quiet hours: goes out in the next summary
+    DIGEST = "digest"  # a daily-digest subscription: goes out in the next daily digest
     SUMMARISED = "summarised"  # went out in a summary
 
 
@@ -63,6 +66,7 @@ class SubscriptionSpec:
     events: tuple[EventKind, ...]
     scope_asset_id: int | None = None  # None: everything the user may see
     enabled: bool = True
+    delivery: str = "immediate"  # or "daily": one digest a day at DIGEST_HOUR
 
     def check(self) -> None:
         if self.min_priority not in PRIORITIES:
@@ -71,6 +75,8 @@ class SubscriptionSpec:
             raise NotificationError("Choose at least one event")
         if EventKind.SUMMARY in self.events:
             raise NotificationError("The summary is not an event to subscribe to")
+        if self.delivery not in DELIVERIES:
+            raise NotificationError(f"Delivery is one of {', '.join(DELIVERIES)}")
 
 
 def priority_reaches(priority: str | None, minimum: str) -> bool:
@@ -98,14 +104,22 @@ def matches(
     return priority_reaches(priority, subscription.min_priority)
 
 
+def in_quiet_hours(local_hour: int, start: int | None, end: int | None) -> bool:
+    """Quiet from `start` to `end` (plant-time hours, 0-23; may wrap past midnight)."""
+    if start is None or end is None or start == end:
+        return False
+    return start <= local_hour < end if start < end else local_hour >= start or local_hour < end
+
+
 def decide(
     now: datetime,
     last_for_alert: datetime | None,
     recent_count: int,
+    per_alert: timedelta = PER_ALERT,
 ) -> Decision:
     """UCS §6.10 throttling for one user: `last_for_alert` is when this alert was last
     notified to them, `recent_count` how many they were sent (or will be) this hour."""
-    if last_for_alert is not None and now - last_for_alert < PER_ALERT:
+    if last_for_alert is not None and now - last_for_alert < per_alert:
         return Decision.SKIP
     if recent_count >= PER_HOUR:
         return Decision.HOLD

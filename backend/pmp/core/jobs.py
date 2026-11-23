@@ -265,8 +265,18 @@ class JobStatusView:
 
 def get_job(session: Session, job_id: int) -> JobStatusView | None:
     job = session.get(Job, job_id)
-    if job is None:
-        return None
+    return None if job is None else _view(job)
+
+
+def list_jobs(session: Session, job_type: str, limit: int = 20) -> list[JobStatusView]:
+    """The newest jobs of one type, newest first."""
+    jobs = session.scalars(
+        select(Job).where(Job.type == job_type).order_by(Job.created_at.desc()).limit(limit)
+    ).all()
+    return [_view(job) for job in jobs]
+
+
+def _view(job: Job) -> JobStatusView:
     result = job.result
     progress = None
     if job.status == JobStatus.RUNNING and result is not None:

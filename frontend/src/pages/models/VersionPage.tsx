@@ -12,6 +12,7 @@ import { TrendChart } from "../../components/TrendChart";
 import { excludedPeriods, linePoints, sensorLabel } from "../asset/assetModel";
 import { Skeleton } from "../fleet/FleetPage";
 import { isModelEngineer } from "../admin/adminModel";
+import { PageHeader, Pill } from "../../components/ui";
 import { LifecycleActions } from "./LifecycleActions";
 import { canRescore } from "./modelsModel";
 import { RescorePanel } from "./RescorePanel";
@@ -72,14 +73,14 @@ export function VersionPage() {
 
   if (model.isError)
     return (
-      <section className="panel" role="alert">
+      <section className="pnl" role="alert">
         {model.error.message}
       </section>
     );
   if (!m) return <Skeleton rows={8} />;
   if (!version) {
     return (
-      <section className="panel" role="alert">
+      <section className="pnl" role="alert">
         {m.asset_code} / {m.name} has no version {number}.{" "}
         <Link to="/models">Back to the models</Link>.
       </section>
@@ -88,180 +89,186 @@ export function VersionPage() {
   const di = m.alert_rules.find((r) => r.kind === "di");
   const tagNames = new Map(version.sensors.map((s) => [s.tag_id, sensorLabel(s)]));
 
+  const inService = m.in_service?.id === version.id;
   return (
-    <div className="version">
-      <section className="panel version-head" aria-label="Version summary">
-        <div>
-          <div className="unit-title">
-            {m.asset_code} / {m.name} · v{version.version}
-          </div>
-          <div className="muted">
-            {version.algorithm} · {version.status}
-            {version.status_changed_at
-              ? ` since ${formatDateTime(new Date(version.status_changed_at))}`
-              : ""}{" "}
-            · created {formatDateTime(new Date(version.created_at))}
-          </div>
-          {version.error && (
-            <p role="alert" className="form-error">
-              {version.error}
+    <>
+      <PageHeader
+        crumbs={[
+          { label: "Models", to: "/models" },
+          { label: `${m.asset_code} / ${m.name}` },
+          { label: `v${version.version}` },
+        ]}
+        title={`${m.asset_code} / ${m.name} · v${version.version}`}
+        sub={`${version.algorithm.toUpperCase()}. ${version.status}${
+          version.status_changed_at
+            ? ` since ${formatDateTime(new Date(version.status_changed_at))}`
+            : ""
+        }, created ${formatDateTime(new Date(version.created_at))}.`}
+        actions={
+          <>
+            {inService && <Pill tone="info">In service</Pill>}
+            <VersionPicker model={m} current={number} />
+            <LifecycleActions model={m} />
+            <Link className="btn btn-p" to={`/models/${m.id}/build/1`}>
+              {["Draft", "Training", "Failed", "Validated"].includes(m.latest.status)
+                ? `Version ${m.latest.version} in the builder`
+                : "New version"}
+            </Link>
+          </>
+        }
+      />
+      {version.error && (
+        <p className="notice" role="alert">
+          {version.error}
+        </p>
+      )}
+      <div className="version legacy">
+        {isModelEngineer(me.data) && canRescore(version) && (
+          <RescorePanel key={version.id} model={m} version={version} />
+        )}
+
+        <div className="version-grid">
+          <section className="pnl" aria-labelledby="config-title">
+            <h2 id="config-title" className="pt">
+              Configuration and training definition
+            </h2>
+            <table className="tb">
+              <tbody>
+                <tr>
+                  <th scope="row">Algorithm</th>
+                  <td>{version.algorithm}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Parameters</th>
+                  <td>
+                    {Object.entries(version.params)
+                      .map(([k, v]) => `${k} ${String(v)}`)
+                      .join(" · ") || "—"}
+                  </td>
+                </tr>
+                <tr>
+                  <th scope="row">Training periods</th>
+                  <td>{(version.training_periods ?? []).map(period).join("; ") || "—"}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Validation period</th>
+                  <td>{version.validation_period ? period(version.validation_period) : "—"}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Operating mode</th>
+                  <td>{(version.mode_filters ?? []).join(" and ") || "always"}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Artefact</th>
+                  <td className="mono">
+                    {version.artefact_sha256
+                      ? `SHA-256 ${version.artefact_sha256.slice(0, 16)}…`
+                      : "not trained"}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <h3 className="pt">Sensors ({version.sensors.length})</h3>
+            <ul className="plain-list">
+              {version.sensors.map((s) => (
+                <li key={s.tag_id}>
+                  {sensorLabel(s)}
+                  {s.required ? <b> · required</b> : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+
+          <section className="pnl" aria-labelledby="metrics-title">
+            <h2 id="metrics-title" className="pt">
+              Training and validation
+            </h2>
+            <MetricsAndReport version={version} />
+            <h3 className="pt">Alert limits (active)</h3>
+            <table className="tb">
+              <thead>
+                <tr>
+                  <th scope="col">Rule</th>
+                  <th scope="col" className="num">
+                    Warning
+                  </th>
+                  <th scope="col" className="num">
+                    Alert
+                  </th>
+                  <th scope="col">Persistence</th>
+                  <th scope="col">State</th>
+                </tr>
+              </thead>
+              <tbody>
+                {m.alert_rules.map((r) => (
+                  <tr key={r.id}>
+                    <td>
+                      {r.kind === "di"
+                        ? "Deviation Index (%)"
+                        : `|z| of ${tagNames.get(r.tag_id ?? -1) ?? r.tag_id}`}
+                    </td>
+                    <td className="num">{r.warning}</td>
+                    <td className="num">{r.alert}</td>
+                    <td>
+                      {r.persistence_n !== undefined
+                        ? `${r.persistence_n} of ${r.persistence_m}`
+                        : "—"}
+                    </td>
+                    <td>{STATE_TEXT[r.state] ?? r.state}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="sec s13">
+              The limits the validation proposed are in its report above; these are the ones in
+              force.
+            </p>
+          </section>
+        </div>
+
+        <section className="pnl" aria-label="Playback">
+          {playable ? (
+            <TrendChart
+              title={`Playback: Deviation Index scored by v${version.version} (%)`}
+              data={{
+                actual: scores.data ? linePoints(scores.data, "di") : [],
+                limits: di ? { warning: [di.warning], alert: [di.alert] } : undefined,
+                excluded: excludedPeriods(periods.data ?? [], null, range.to.getTime()),
+              }}
+              settings={{
+                from: range.from.getTime(),
+                to: range.to.getTime(),
+                unit: "%",
+                actualName: "DI",
+              }}
+              height={200}
+              loading={scores.isPending}
+            />
+          ) : (
+            <p className="sec">
+              v{version.version} has not been in service, so there is nothing to play back yet.
             </p>
           )}
-        </div>
-        <div className="field-inline">
-          <VersionPicker model={m} current={number} />
-          <LifecycleActions model={m} />
-          <Link className="button" to={`/models/${m.id}/build/1`}>
-            {["Draft", "Training", "Failed", "Validated"].includes(m.latest.status)
-              ? `Version ${m.latest.version} in the builder`
-              : "New version"}
-          </Link>
-        </div>
-      </section>
-      {isModelEngineer(me.data) && canRescore(version) && (
-        <RescorePanel key={version.id} model={m} version={version} />
-      )}
-
-      <div className="version-grid">
-        <section className="panel" aria-labelledby="config-title">
-          <h2 id="config-title" className="panel-title">
-            Configuration and training definition
-          </h2>
-          <table className="summary-table">
-            <tbody>
-              <tr>
-                <th scope="row">Algorithm</th>
-                <td>{version.algorithm}</td>
-              </tr>
-              <tr>
-                <th scope="row">Parameters</th>
-                <td>
-                  {Object.entries(version.params)
-                    .map(([k, v]) => `${k} ${String(v)}`)
-                    .join(" · ") || "—"}
-                </td>
-              </tr>
-              <tr>
-                <th scope="row">Training periods</th>
-                <td>{(version.training_periods ?? []).map(period).join("; ") || "—"}</td>
-              </tr>
-              <tr>
-                <th scope="row">Validation period</th>
-                <td>{version.validation_period ? period(version.validation_period) : "—"}</td>
-              </tr>
-              <tr>
-                <th scope="row">Operating mode</th>
-                <td>{(version.mode_filters ?? []).join(" and ") || "always"}</td>
-              </tr>
-              <tr>
-                <th scope="row">Artefact</th>
-                <td className="mono">
-                  {version.artefact_sha256
-                    ? `SHA-256 ${version.artefact_sha256.slice(0, 16)}…`
-                    : "not trained"}
-                </td>
-              </tr>
-            </tbody>
-          </table>
-          <h3 className="panel-title">Sensors ({version.sensors.length})</h3>
-          <ul className="plain-list">
-            {version.sensors.map((s) => (
-              <li key={s.tag_id}>
-                {sensorLabel(s)}
-                {s.required ? <b> · required</b> : null}
-              </li>
-            ))}
-          </ul>
         </section>
 
-        <section className="panel" aria-labelledby="metrics-title">
-          <h2 id="metrics-title" className="panel-title">
-            Training and validation
+        <section className="pnl" aria-labelledby="audit-title">
+          <h2 id="audit-title" className="pt">
+            Audit history
           </h2>
-          <MetricsAndReport version={version} />
-          <h3 className="panel-title">Alert limits (active)</h3>
-          <table className="tree-table">
-            <thead>
-              <tr>
-                <th scope="col">Rule</th>
-                <th scope="col" className="num">
-                  Warning
-                </th>
-                <th scope="col" className="num">
-                  Alert
-                </th>
-                <th scope="col">Persistence</th>
-                <th scope="col">State</th>
-              </tr>
-            </thead>
-            <tbody>
-              {m.alert_rules.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    {r.kind === "di"
-                      ? "Deviation Index (%)"
-                      : `|z| of ${tagNames.get(r.tag_id ?? -1) ?? r.tag_id}`}
-                  </td>
-                  <td className="num">{r.warning}</td>
-                  <td className="num">{r.alert}</td>
-                  <td>
-                    {r.persistence_n !== undefined
-                      ? `${r.persistence_n} of ${r.persistence_m}`
-                      : "—"}
-                  </td>
-                  <td>{STATE_TEXT[r.state] ?? r.state}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="muted small">
-            The limits the validation proposed are in its report above; these are the ones in force.
-          </p>
+          {audit.isPending ? (
+            <Skeleton rows={4} />
+          ) : audit.isError ? (
+            <p className="sec">
+              {audit.error instanceof ApiError && audit.error.status === 403
+                ? "The audit history is shown to administrators."
+                : audit.error.message}
+            </p>
+          ) : (
+            <AuditList entries={audit.data} />
+          )}
         </section>
       </div>
-
-      <section className="panel" aria-label="Playback">
-        {playable ? (
-          <TrendChart
-            title={`Playback: Deviation Index scored by v${version.version} (%)`}
-            data={{
-              actual: scores.data ? linePoints(scores.data, "di") : [],
-              limits: di ? { warning: [di.warning], alert: [di.alert] } : undefined,
-              excluded: excludedPeriods(periods.data ?? [], null, range.to.getTime()),
-            }}
-            settings={{
-              from: range.from.getTime(),
-              to: range.to.getTime(),
-              unit: "%",
-              actualName: "DI",
-            }}
-            height={200}
-            loading={scores.isPending}
-          />
-        ) : (
-          <p className="muted">
-            v{version.version} has not been in service, so there is nothing to play back yet.
-          </p>
-        )}
-      </section>
-
-      <section className="panel" aria-labelledby="audit-title">
-        <h2 id="audit-title" className="panel-title">
-          Audit history
-        </h2>
-        {audit.isPending ? (
-          <Skeleton rows={4} />
-        ) : audit.isError ? (
-          <p className="muted">
-            {audit.error instanceof ApiError && audit.error.status === 403
-              ? "The audit history is shown to administrators."
-              : audit.error.message}
-          </p>
-        ) : (
-          <AuditList entries={audit.data} />
-        )}
-      </section>
-    </div>
+    </>
   );
 }
 
@@ -277,7 +284,7 @@ function period(p: { start: string; end: string }): string {
 
 function VersionPicker({ model, current }: { model: ModelDetail; current: number }) {
   return (
-    <nav aria-label="Versions" className="field-inline">
+    <nav aria-label="Versions" className="fld fld-inline">
       {model.versions.map((v) =>
         v.version === current ? (
           <b key={v.id} aria-current="page">
@@ -300,9 +307,9 @@ function Metrics({ version }: { version: VersionDetail }) {
   const floored = Array.isArray(metrics.floored_sensors)
     ? (metrics.floored_sensors as string[])
     : [];
-  if (!version.metrics) return <p className="muted">Not trained yet.</p>;
+  if (!version.metrics) return <p className="sec">Not trained yet.</p>;
   return (
-    <table className="summary-table">
+    <table className="tb">
       <tbody>
         <tr>
           <th scope="row">Training cycles kept</th>
@@ -333,7 +340,7 @@ function MetricsAndReport({ version }: { version: VersionDetail }) {
       {report ? (
         <ValidationReportTable report={report} />
       ) : version.metrics ? (
-        <p className="muted small">Trained before validation reports were kept (plan 7.3).</p>
+        <p className="sec s13">This version was trained before validation reports were kept.</p>
       ) : null}
     </>
   );
@@ -350,7 +357,7 @@ const AUDIT_ACTIONS: Record<string, string> = {
 };
 
 function AuditList({ entries }: { entries: AuditEntry[] }) {
-  if (!entries.length) return <p className="muted">No changes recorded.</p>;
+  if (!entries.length) return <p className="sec">No changes recorded.</p>;
   return (
     <ol className="history">
       {entries.map((e) => (
@@ -362,7 +369,7 @@ function AuditList({ entries }: { entries: AuditEntry[] }) {
           {e.entity.replace("_", " ")} {e.entity_id} ·{" "}
           {e.actor_type === "system" ? "system" : `user ${e.user_id ?? "?"}`}
           {e.after && "status" in e.after ? (
-            <span className="muted"> → {String(e.after.status)}</span>
+            <span className="sec"> → {String(e.after.status)}</span>
           ) : null}
         </li>
       ))}

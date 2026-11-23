@@ -35,6 +35,7 @@ class CaseRow(Base):
     asset_id: Mapped[int] = mapped_column(ForeignKey("asset.id", ondelete="CASCADE"))
     assignee_id: Mapped[int | None] = mapped_column(ForeignKey("app_user.id", ondelete="SET NULL"))
     due: Mapped[date | None] = mapped_column(Date)
+    work_order: Mapped[str | None] = mapped_column(String(40))
     outcome: Mapped[str | None] = mapped_column(String(20))
     confirmed_mode_id: Mapped[int | None] = mapped_column(
         ForeignKey("failure_mode.id", ondelete="SET NULL")

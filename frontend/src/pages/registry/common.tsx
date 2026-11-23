@@ -7,7 +7,7 @@ export function Problems({ problems, error }: { problems?: string[]; error?: unk
   const shown = [...(problems ?? []), ...errorMessages(error)];
   if (!shown.length) return null;
   return (
-    <ul role="alert" className="form-error builder-problems">
+    <ul role="alert" className="err builder-problems">
       {shown.map((p) => (
         <li key={p}>{p}</li>
       ))}
@@ -25,7 +25,7 @@ export function Field({
   wide?: boolean;
 }) {
   return (
-    <label className={`field${wide ? " builder-wide" : ""}`}>
+    <label className={`fld${wide ? " builder-wide" : ""}`}>
       <span>{label}</span>
       {children}
     </label>

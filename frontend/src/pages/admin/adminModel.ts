@@ -8,9 +8,9 @@ export function isAdministrator(user: User | null | undefined): boolean {
   return !!user?.roles.some((r) => r.role === "administrator");
 }
 
-/** ARC §9.2: data-quality rules are changed by Model Engineers. */
+/** Data-quality rules and models: Model Engineers and Administrators. */
 export function isModelEngineer(user: User | null | undefined): boolean {
-  return !!user?.roles.some((r) => r.role === "model_engineer");
+  return !!user?.roles.some((r) => r.role === "model_engineer" || r.role === "administrator");
 }
 
 export function roleLabel(role: string): string {

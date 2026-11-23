@@ -321,6 +321,7 @@ export interface ValidationReport {
   alerts: number;
   alerts_per_week: number;
   warning: string | null;
+  histogram?: { top: number; counts: number[] } | null;
   sensors?: Record<string, { nrmse: number; bias: number }>;
 }
 

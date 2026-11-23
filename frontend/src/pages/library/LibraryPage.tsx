@@ -65,15 +65,15 @@ export function LibraryPage() {
 
   return (
     <div className="registry-split">
-      <section className="panel" aria-labelledby="library-title">
-        <div className="panel-head">
-          <h2 id="library-title" className="panel-title">
+      <section className="pnl" aria-labelledby="library-title">
+        <div className="pnlh">
+          <h2 id="library-title" className="pt">
             Failure modes
           </h2>
           {may && type && (
             <button
               type="button"
-              className="button button-small"
+              className="btn btn-s btn-sm"
               onClick={() => setEditing({ kind: "new" })}
             >
               Add a failure mode
@@ -81,10 +81,10 @@ export function LibraryPage() {
           )}
         </div>
         <div className="filter-bar">
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <span>Asset type</span>
             <select
-              className="control"
+              className="in"
               value={typeCode ?? ""}
               onChange={(e) => set("type", e.target.value)}
             >
@@ -95,7 +95,7 @@ export function LibraryPage() {
               ))}
             </select>
           </label>
-          <label className="field-inline">
+          <label className="fld fld-inline">
             <input
               type="checkbox"
               checked={showRetired}
@@ -109,7 +109,7 @@ export function LibraryPage() {
         ) : modes.isError ? (
           <p role="alert">The library could not be loaded: {modes.error.message}</p>
         ) : modes.data.length === 0 ? (
-          <p className="muted">No failure modes for this asset type yet.</p>
+          <p className="sec">No failure modes for this asset type yet.</p>
         ) : (
           <ul className="library-list">
             {modes.data.map((m) => (
@@ -160,33 +160,29 @@ function ModeCard({
   const role = (code: string) => type?.roles.find((r) => r.code === code)?.name ?? code;
   return (
     <article className="mode-card" aria-labelledby={`mode-${m.id}`}>
-      <div className="panel-head">
-        <h3 id={`mode-${m.id}`} className="panel-title">
+      <div className="pnlh">
+        <h3 id={`mode-${m.id}`} className="pt">
           {m.name}
-          {m.iso_code && <span className="muted small"> · ISO 14224 {m.iso_code}</span>}
-          <span className="muted small"> · v{m.version}</span>
-          {m.retired_at && <span className="muted small"> · retired</span>}
+          {m.iso_code && <span className="sec s13"> · ISO 14224 {m.iso_code}</span>}
+          <span className="sec s13"> · v{m.version}</span>
+          {m.retired_at && <span className="sec s13"> · retired</span>}
         </h3>
         {may && (
           <span className="lifecycle">
-            <button type="button" className="button button-small" onClick={onEdit}>
+            <button type="button" className="btn btn-s btn-sm" onClick={onEdit}>
               Edit
             </button>
             {!m.retired_at && (
-              <button
-                type="button"
-                className="button button-small button-danger-outline"
-                onClick={() => setRetiring(true)}
-              >
+              <button type="button" className="btn btn-d btn-sm" onClick={() => setRetiring(true)}>
                 Retire
               </button>
             )}
           </span>
         )}
       </div>
-      {m.description && <p className="muted">{m.description}</p>}
-      <table className="tree-table">
-        <caption className="visually-hidden">Symptoms of {m.name}</caption>
+      {m.description && <p className="sec">{m.description}</p>}
+      <table className="tb">
+        <caption className="sr">Symptoms of {m.name}</caption>
         <thead>
           <tr>
             <th scope="col">Symptom (role)</th>
@@ -208,7 +204,7 @@ function ModeCard({
       </table>
       {m.tasks.length > 0 && (
         <>
-          <h4 className="small">Recommended tasks</h4>
+          <h4 className="s13">Recommended tasks</h4>
           <ul className="task-list">
             {m.tasks.map((t) => (
               <li key={t}>{t}</li>
@@ -255,7 +251,7 @@ interface SymptomRow {
   weight: string;
 }
 
-function ModeForm({
+export function ModeForm({
   type,
   mode,
   onDone,
@@ -317,15 +313,15 @@ function ModeForm({
     !save.isSuccess && JSON.stringify({ name, iso, description, symptoms, tasks }) !== initial;
 
   return (
-    <section className="panel registry-form" aria-labelledby="mode-form-title">
+    <section className="pnl registry-form" aria-labelledby="mode-form-title">
       <UnsavedChanges dirty={dirty} />
-      <h2 id="mode-form-title" className="panel-title">
+      <h2 id="mode-form-title" className="pt">
         {mode
           ? `Edit ${mode.name} (saves version ${mode.version + 1})`
           : `New failure mode · ${type.name}`}
       </h2>
       <form
-        className="form-grid"
+        className="fg"
         onSubmit={(e) => {
           e.preventDefault();
           setTried(true);
@@ -333,11 +329,11 @@ function ModeForm({
         }}
       >
         <Field label="Name">
-          <input className="control" value={name} onChange={(e) => setName(e.target.value)} />
+          <input className="in" value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
         <Field label="ISO 14224 code">
           <input
-            className="control"
+            className="in"
             value={iso}
             placeholder="e.g. BRD, VIB, OHE"
             onChange={(e) => setIso(e.target.value)}
@@ -345,7 +341,7 @@ function ModeForm({
         </Field>
         <Field label="Description">
           <input
-            className="control"
+            className="in"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
@@ -354,10 +350,10 @@ function ModeForm({
           <legend>Symptoms</legend>
           {symptoms.map((s, i) => (
             <div key={i} className="builder-row">
-              <label className="field-inline">
+              <label className="fld fld-inline">
                 <span>Role {i + 1}</span>
                 <select
-                  className="control"
+                  className="in"
                   value={s.role}
                   onChange={(e) =>
                     setSymptoms(
@@ -372,10 +368,10 @@ function ModeForm({
                   ))}
                 </select>
               </label>
-              <label className="field-inline">
+              <label className="fld fld-inline">
                 <span>Expected</span>
                 <select
-                  className="control"
+                  className="in"
                   aria-label={`Expected direction of symptom ${i + 1}`}
                   value={s.direction}
                   onChange={(e) =>
@@ -391,10 +387,10 @@ function ModeForm({
                   <option value="any">any</option>
                 </select>
               </label>
-              <label className="field-inline">
+              <label className="fld fld-inline">
                 <span>Weight</span>
                 <input
-                  className="control control-narrow"
+                  className="in control-narrow"
                   aria-label={`Weight of symptom ${i + 1}`}
                   inputMode="decimal"
                   value={s.weight}
@@ -407,7 +403,7 @@ function ModeForm({
               </label>
               <button
                 type="button"
-                className="button button-small"
+                className="btn btn-s btn-sm"
                 onClick={() => setSymptoms(symptoms.filter((_, j) => j !== i))}
               >
                 Remove symptom {i + 1}
@@ -416,7 +412,7 @@ function ModeForm({
           ))}
           <button
             type="button"
-            className="button button-small"
+            className="btn btn-s btn-sm"
             onClick={() =>
               setSymptoms([
                 ...symptoms,
@@ -433,22 +429,22 @@ function ModeForm({
         </fieldset>
         <Field label="Recommended tasks (one per line)">
           <textarea
-            className="control"
+            className="in"
             rows={4}
             value={tasks}
             onChange={(e) => setTasks(e.target.value)}
           />
         </Field>
         <Field label="Comment (kept with the version)">
-          <input className="control" value={comment} onChange={(e) => setComment(e.target.value)} />
+          <input className="in" value={comment} onChange={(e) => setComment(e.target.value)} />
         </Field>
         <div className="builder-wide">
           <Problems problems={tried ? problems : []} error={save.error} />
           <div className="builder-buttons">
-            <button type="button" className="button" onClick={onDone}>
+            <button type="button" className="btn btn-s" onClick={onDone}>
               Cancel
             </button>
-            <button type="submit" className="button button-primary" disabled={save.isPending}>
+            <button type="submit" className="btn btn-p" disabled={save.isPending}>
               Save
             </button>
           </div>

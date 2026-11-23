@@ -72,7 +72,7 @@ def operational_alerts(session: Session, now: datetime) -> list[OpsAlert]:
                     text=f"Source {source.source} has sent nothing for "
                     f"{_minutes(now - source.last_received_at)}.",
                     since=source.last_received_at,
-                    link="/admin?tab=ingestion",
+                    link="/system/ingestion",
                 )
             )
     scoring = read_state(session, SCORING_STATE)

@@ -53,8 +53,13 @@ from pmp.cases.service import (
     take_snapshot,
     update_case,
 )
+from pmp.core import RetainedRecords
+
+# Closed and cancelled cases past their period, with their activity and attachments.
+CASE_RECORDS = RetainedRecords("cases", "case", "closed_at")
 
 __all__ = [
+    "CASE_RECORDS",
     "CLOSABLE",
     "MAX_ATTACHMENT_BYTES",
     "PRIORITIES",

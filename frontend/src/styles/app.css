@@ -1,0 +1,383 @@
+/* Additions to tpm.css for behaviour the static design does not show: menus, the search
+   results list, the collapsed sidebar, notices and focus targets. Tokens only. */
+html,
+body {
+  margin: 0;
+  background: var(--traverse-surface-page);
+}
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -48px;
+  z-index: 100;
+  padding: 8px 12px;
+  background: var(--traverse-surface-panel);
+  border: 1px solid var(--traverse-border-strong);
+  border-radius: 6px;
+}
+.skip-link:focus {
+  top: 8px;
+}
+#main:focus {
+  outline: none;
+}
+.hd .iconbtn {
+  text-decoration: none;
+}
+.search-pop {
+  top: 46px;
+  width: 380px;
+  gap: 2px;
+  padding: 8px;
+}
+.search-pop .sel-btn {
+  justify-content: flex-start;
+  gap: 12px;
+  min-height: 36px;
+}
+.sb button.sbi {
+  width: 100%;
+  border-top: 0;
+  border-right: 0;
+  border-bottom: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.sb-collapsed {
+  width: 64px;
+}
+.sb-collapsed .sbg,
+.sb-collapsed .sbl,
+.sb-collapsed .cnt {
+  display: none;
+}
+.sb-collapsed .sbi {
+  justify-content: center;
+  padding: 0;
+}
+.sb {
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
+  height: calc(100vh - 64px);
+  overflow-y: auto;
+}
+.menu {
+  min-width: 200px;
+  padding: 6px;
+  background: var(--traverse-surface-panel);
+  border: 1px solid var(--traverse-border-subtle);
+  border-radius: 8px;
+  font-family: var(--app-font);
+  font-size: 14px;
+  color: var(--traverse-text-primary);
+  z-index: 60;
+}
+.menu-label {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 10px;
+}
+.menu-sep {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--traverse-border-subtle);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  outline: none;
+}
+.menu-item[data-highlighted] {
+  background: var(--traverse-surface-hover);
+}
+.notice.ok {
+  border-left-color: var(--traverse-status-success-fg);
+}
+.notice.warn {
+  border-left-color: var(--traverse-status-warning-fg);
+}
+.notice.bad {
+  border-left-color: var(--traverse-status-danger-fg);
+}
+.scroll-list {
+  overflow: auto;
+}
+.tb tr.click:focus-visible td {
+  background: var(--traverse-surface-hover);
+}
+.link-btn {
+  border: 0;
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: var(--traverse-action-primary);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.link-btn:hover {
+  color: var(--traverse-action-hover);
+}
+.sb .sbi,
+.sb .sbg,
+.sb .sbfoot {
+  flex: none;
+}
+.pill.trunc {
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  vertical-align: middle;
+}
+.pill.trunc .d {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: middle;
+}
+
+/* Page layouts from the design package */
+/* Alerts.dc.html */
+.alw {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+.alw.det {
+  grid-template-columns: minmax(0, 1fr) 360px;
+}
+@media (max-width: 1100px) {
+  .alw.det {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.hist {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+}
+/* Asset.dc.html */
+.twor {
+  display: grid;
+  grid-template-columns: minmax(0, 0.7fr) minmax(0, 1.4fr);
+  gap: 16px;
+  align-items: stretch;
+}
+@media (max-width: 1100px) {
+  .twor {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.bigh {
+  font-size: 40px;
+  line-height: 1;
+  font-weight: 700;
+}
+.mspark path {
+  fill: none;
+  stroke: var(--traverse-chart-series-1);
+  stroke-width: 1.4;
+}
+/* Configuration.dc.html */
+.k6 {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+@media (max-width: 1280px) {
+  .k6 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (max-width: 640px) {
+  .k6 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* NewModel.dc.html */
+.prog {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--traverse-surface-raised);
+  overflow: hidden;
+}
+.prog i {
+  display: block;
+  height: 100%;
+  background: var(--traverse-action-primary);
+}
+/* ResultsAPI.dc.html */
+.code {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: var(--traverse-surface-raised);
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12.5px;
+  line-height: 1.55;
+  white-space: pre;
+  overflow: auto;
+  color: var(--traverse-text-primary);
+}
+/* UnitView.dc.html */
+.uc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-decoration: none;
+  color: inherit;
+}
+.uc:hover .pt {
+  text-decoration: underline;
+}
+.uc .row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.spk {
+  width: 100%;
+  height: 56px;
+  display: block;
+}
+.spk path {
+  fill: none;
+  stroke: var(--traverse-chart-pv);
+  stroke-width: 1.6;
+}
+.spk line {
+  stroke: var(--traverse-status-danger-fg);
+  stroke-width: 1;
+  stroke-dasharray: 4 3;
+}
+.lg i.hp {
+  border-top-color: var(--traverse-chart-series-4);
+}
+.hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--traverse-hatch-ground) 0 4px,
+    var(--traverse-hatch-stripe) 4px 6px
+  );
+  border-radius: 2px;
+}
+.app h2.pt {
+  font-size: 14.7px;
+  line-height: 22px;
+  font-weight: 700;
+}
+.fld-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+textarea.in {
+  height: 88px;
+  padding: 8px 10px;
+  resize: vertical;
+}
+.legacy .builder-foot,
+.legacy .builder-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.legacy .builder-foot {
+  flex-direction: column;
+  align-items: stretch;
+  border-top: 1px solid var(--traverse-border-subtle);
+  padding-top: 16px;
+  margin-top: 8px;
+}
+.legacy .btn-p,
+.legacy .btn-d {
+  color: var(--traverse-action-on);
+}
+.legacy .btn-s {
+  color: var(--traverse-text-primary);
+}
+.legacy fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.legacy legend {
+  font-size: 12.25px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--traverse-text-secondary);
+  padding: 0;
+}
+.tb th[scope="row"],
+.legacy th[scope="row"] {
+  height: auto;
+  padding: 8px 12px 8px 0;
+  font-size: 14px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--traverse-text-secondary);
+  border-bottom: 1px solid var(--traverse-border-subtle);
+  white-space: nowrap;
+}
+.app .legacy .builder-cleanse {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 0.7fr);
+  gap: 16px;
+  align-items: start;
+}
+.app .legacy .builder-wide {
+  min-width: 0;
+}
+.app .legacy .builder-cleanse td {
+  white-space: normal;
+}
+.app .legacy fieldset.builder-filters {
+  border: 1px solid var(--traverse-border-subtle);
+  border-radius: 8px;
+  padding: 12px 16px 16px;
+  margin: 0 0 16px;
+}
+.app .legacy fieldset.builder-filters > legend {
+  padding: 0 4px;
+}
+.app .legacy .builder-cleanse td.num {
+  white-space: nowrap;
+}
+.app .legacy fieldset.builder-filters > .btn {
+  align-self: flex-start;
+}
+.app .legacy .fld-inline > span {
+  white-space: nowrap;
+}
+.in,
+.sl,
+.ta {
+  box-sizing: border-box;
+}
+.dlg {
+  width: min(600px, 100%);
+}
+.dlgb {
+  padding: 20px 24px;
+  gap: 16px;
+}
+.dlgb .fg {
+  gap: 16px;
+}
+.dlgf {
+  padding: 0 24px 24px;
+}

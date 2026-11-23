@@ -17,10 +17,10 @@ function parts(date: Date, timeZone: string): Record<string, string> {
   return Object.fromEntries(formatter.formatToParts(date).map((p) => [p.type, p.value]));
 }
 
-/** "21-Oct 14:05" in the display time zone. */
+/** "21 Oct 14:05" in the display time zone. */
 export function formatDateTime(date: Date, timeZone = displayTimeZone()): string {
   const p = parts(date, timeZone);
-  return `${p.day}-${MONTHS[Number(p.month) - 1]} ${p.hour}:${p.minute}`;
+  return `${p.day} ${MONTHS[Number(p.month) - 1]} ${p.hour}:${p.minute}`;
 }
 
 /** "14:05" in the display time zone. */

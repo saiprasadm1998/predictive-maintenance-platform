@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { Asset } from "../../api/assets";
 import type { User } from "../../api/auth";
 import { ADMIN, ASSETS, type Call, fakeApi, sessionRoutes } from "../../test/fakeApi";
+import { TREE as SCOPE_TREE } from "../../test/fakeApi";
 import { renderApp } from "../../test/renderApp";
 import {
   canEditRegistry,
@@ -59,7 +60,10 @@ describe("registry rules", () => {
 
 function registryRoutes() {
   const routes = sessionRoutes(true);
-  routes["GET /assets"] = () => ({ status: 200, body: { items: TREE, next_cursor: null } });
+  routes["GET /assets"] = (call) =>
+    call.query.get("tree") === "true"
+      ? { status: 200, body: SCOPE_TREE }
+      : { status: 200, body: { items: TREE, next_cursor: null } };
   routes["GET /asset-types"] = () => ({
     status: 200,
     body: [
@@ -84,13 +88,11 @@ describe("SCR-13 registry and import", () => {
     });
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin/registry");
+    renderApp("/setup/hierarchy?node=7");
 
-    await user.click(await screen.findByRole("button", { name: "Edit P-104A" }));
-    const form = screen.getByRole("region", { name: "Edit P-104A" });
-    await user.selectOptions(within(form).getByLabelText("Criticality"), "A");
-    await user.selectOptions(within(form).getByLabelText("Asset type"), "centrifugal_pump");
-    await user.click(within(form).getByRole("button", { name: "Save" }));
+    await user.selectOptions(await screen.findByLabelText("Criticality"), "A");
+    await user.selectOptions(screen.getByLabelText("Equipment type"), "centrifugal_pump");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(calls.some((c) => c.method === "PATCH")).toBe(true));
     const patch = calls.find((c: Call) => c.method === "PATCH")!;
     expect(patch.body).toMatchObject({
@@ -128,7 +130,7 @@ describe("SCR-13 registry and import", () => {
     };
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin/registry?tab=import");
+    renderApp("/setup/hierarchy?import=1");
 
     const input = await screen.findByLabelText("Files");
     await user.upload(input, new File(["code,name\n"], "tags.csv", { type: "text/csv" }));
@@ -173,16 +175,15 @@ describe("SCR-13 registry and import", () => {
     });
     const { calls } = fakeApi(routes);
     const user = userEvent.setup();
-    renderApp("/admin/registry?tab=unmapped");
+    renderApp("/setup/tags");
 
-    await user.click(await screen.findByRole("button", { name: "Register K101.NEW.PV" }));
-    const form = screen.getByRole("region", { name: "Register an unmapped tag" });
-    expect(within(form).getByLabelText("Source name")).toHaveValue("K101.NEW.PV");
-    await user.click(within(form).getByRole("button", { name: "Register" }));
-    expect(await within(form).findByText("Choose the asset")).toBeInTheDocument();
-    await user.selectOptions(within(form).getByLabelText("Asset"), "K-101");
-    await user.type(within(form).getByLabelText("Unit"), "°C");
-    await user.click(within(form).getByRole("button", { name: "Register" }));
+    await user.click(await screen.findByRole("button", { name: "Register and map" }));
+    const dialog = await screen.findByRole("dialog", { name: "Register and map a tag" });
+    const register = within(dialog).getByRole("button", { name: "Register tag" });
+    expect(register).toBeDisabled();
+    await user.selectOptions(within(dialog).getByLabelText("Equipment"), "K-101");
+    await user.type(within(dialog).getByLabelText("Unit"), "°C");
+    await user.click(register);
     await waitFor(() =>
       expect(calls.find((c) => c.path === "/unmapped-tags/promote")?.body).toMatchObject({
         source: "gw-1",
@@ -203,7 +204,7 @@ describe("SCR-13 registry and import", () => {
       },
     });
     fakeApi(routes);
-    renderApp("/admin/registry");
+    renderApp("/setup/hierarchy");
     expect(await screen.findByText(/You can look at the registry/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Edit/ })).not.toBeInTheDocument();
   });

@@ -56,6 +56,7 @@ from pmp.scoring.runtime import (
 from pmp.scoring.scheduler import (
     OVERRUN_SHARE,
     RETAINED_TABLES,
+    SCORE_TABLES,
     Scheduler,
     latest_due_cycle,
     make_retention_handler,
@@ -85,6 +86,7 @@ __all__ = [
     "RANGE_FLOOR",
     "RESCORE_JOB",
     "RETAINED_TABLES",
+    "SCORE_TABLES",
     "SIGMA_FLOOR",
     "Band",
     "CycleResult",

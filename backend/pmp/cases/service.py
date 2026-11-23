@@ -116,6 +116,7 @@ class CaseSummary:
     asset_path: str
     assignee_id: int | None
     due: date | None
+    work_order: str | None
     outcome: Outcome | None
     review_requested: bool
     alert_ids: tuple[int, ...]
@@ -594,9 +595,11 @@ def update_case(
     priority: str | None = UNSET,
     assignee_id: int | None = UNSET,
     due: date | None = UNSET,
+    work_order: str | None = UNSET,
     now: datetime | None = None,
 ) -> CaseDetail:
-    """UC-12 step 2: title, priority (editable, UCS §6.9), assignee and due date. Assigning
+    """UC-12 step 2: title, priority (editable, UCS §6.9), assignee, due date and the work
+    order reference. Assigning
     an Open case starts its investigation (Figure 7)."""
     now = _now(now)
     row = _load(session, case_id, actor, Permission.MANAGE_CASES)
@@ -620,6 +623,11 @@ def update_case(
         before["due"] = row.due.isoformat() if row.due else None
         after["due"] = due.isoformat() if due else None
         row.due = due
+    if work_order is not UNSET:
+        reference = (work_order or "").strip()[:40] or None
+        if reference != row.work_order:
+            before["work_order"], after["work_order"] = row.work_order, reference
+            row.work_order = reference
     if after:
         _activity(
             session,
@@ -955,6 +963,7 @@ def _summaries(session: Session, rows: list[CaseRow]) -> list[CaseSummary]:
             asset_path=assets[r.asset_id].path,
             assignee_id=r.assignee_id,
             due=r.due,
+            work_order=r.work_order,
             outcome=Outcome(r.outcome) if r.outcome else None,
             review_requested=r.review_requested,
             alert_ids=alerts[r.id],

@@ -1,6 +1,6 @@
 """Roles and permissions (FR-SEC-01, -02, ARC §9.2, PRD §4).
 
-The permission matrix below is ARC-001 §9.2 row by row. Authorisation is checked in the
+The permission matrix is defined in MATRIX. Authorisation is checked in the
 application services, not only at the router (ARC §9.2), with `authorize`. Tests are
 generated from MATRIX.
 
@@ -79,18 +79,18 @@ _V, _AN, _MA, _ME, _AD = (
 _ALL = (_V, _AN, _MA, _ME, _AD)
 Y, A = Grant.YES, Grant.ASSIGNED
 
-# ARC-001 §9.2, verbatim: function -> role -> grant (no entry: not allowed)
+# function -> role -> grant (no entry: not allowed)
 MATRIX: Mapping[Permission, Mapping[Role, Grant]] = {
     Permission.VIEW: dict.fromkeys(_ALL, Y),
-    Permission.ALERT_ACTIONS: {_AN: Y, _ME: Y},
-    Permission.RUN_FORECASTS: {_AN: Y, _ME: Y},
-    Permission.MANAGE_CASES: {_AN: Y, _MA: A, _ME: Y},
-    Permission.WORK_ON_CASES: {_AN: Y, _MA: A, _ME: Y},
-    Permission.SENSOR_EXCLUSION: {_AN: Y, _ME: Y},
+    Permission.ALERT_ACTIONS: {_AN: Y, _ME: Y, _AD: Y},
+    Permission.RUN_FORECASTS: {_AN: Y, _ME: Y, _AD: Y},
+    Permission.MANAGE_CASES: {_AN: Y, _MA: A, _ME: Y, _AD: Y},
+    Permission.WORK_ON_CASES: {_AN: Y, _MA: A, _ME: Y, _AD: Y},
+    Permission.SENSOR_EXCLUSION: {_AN: Y, _ME: Y, _AD: Y},
     Permission.REGISTRY: {_ME: Y, _AD: Y},
-    Permission.DATA_QUALITY_RULES: {_ME: Y},
-    Permission.MODELS: {_ME: Y},
-    Permission.FAILURE_MODES: {_ME: Y},
+    Permission.DATA_QUALITY_RULES: {_ME: Y, _AD: Y},
+    Permission.MODELS: {_ME: Y, _AD: Y},
+    Permission.FAILURE_MODES: {_ME: Y, _AD: Y},
     Permission.ADMINISTRATION: {_AD: Y},
     Permission.AUDIT_LOG: {_AD: Y},
     Permission.OWN_SUBSCRIPTIONS: dict.fromkeys(_ALL, Y),

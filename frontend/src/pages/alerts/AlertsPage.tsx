@@ -1,665 +1,804 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { Fragment, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 
-import {
-  acknowledgeAlerts,
-  fetchAlertSettings,
-  fetchAllAlerts,
-  fetchPriorityMatrix,
-  shelveAlerts,
-  unshelveAlerts,
-} from "../../api/alerts";
-import { fetchAllAssets } from "../../api/assets";
-import type { Alert } from "../../api/types";
-import { formatDi, formatHealth, formatIso } from "../../app/format";
-import { useAnnounce } from "../../app/liveContext";
+import { fetchAlert, fetchAllAlerts, fetchPriorityMatrix, unshelveAlerts } from "../../api/alerts";
+import type { Alert, AlertDetail } from "../../api/types";
+import { formatDateTime, formatDuration } from "../../app/format";
+import { useScope } from "../../app/scope";
 import { useMe } from "../../app/session";
-import { timeRangeParams } from "../../app/timeRange";
-import { AlertStateChip } from "../../components/AlertStateChip";
-import { ConfirmDialog } from "../../components/ConfirmDialog";
-import { StatusShape } from "../../components/StatusShape";
-import { type AlertState, severityLook } from "../../components/status";
-import { Skeleton } from "../fleet/FleetPage";
-import { age } from "../fleet/fleetModel";
-import { AlertDetailPanel } from "./AlertDetailPanel";
+import { alertState } from "../../app/words";
 import {
-  KINDS,
-  CASE_LINKS,
+  Badge,
+  Empty,
+  HowTo,
+  Icon,
+  ICONS,
+  IdChip,
+  Kpis,
+  PageHeader,
+  Pill,
+} from "../../components/ui";
+import { AckDialog, CaseDialog, ShelveDialog } from "./AlertDialogs";
+import {
   PRIORITIES,
-  SEVERITIES,
   SORTS,
-  STATES,
-  type SavedFilter,
-  type Sort,
+  URGENCIES,
   allowed,
   filterQuery,
-  liveView,
   loadSaved,
-  URGENCIES,
-  menuLabel,
   modelText,
   persistenceText,
   readFilter,
-  shelveChoices,
   storeSaved,
   toApiFilter,
   writeFilter,
+  type ListFilter,
 } from "./alertsModel";
-import { FilterMenu } from "./FilterMenu";
-import { useRowKeys } from "../../components/tableKeys";
-import { CreateCaseButton } from "../cases/CreateCase";
-import { urgencyText } from "../diagnostics/forecastModel";
 
-const ROW_HEIGHT = 40;
-const SORT_TEXT: Record<Sort, string> = {
-  default: "unacknowledged first, then priority, then age",
-  newest: "newest first",
-  oldest: "oldest first",
-  priority: "by priority, then age",
-  severity: "by severity, then age",
-  urgency: "most urgent forecast first",
-  persistence: "most persistent first",
-  case: "with a case first, by case number",
-};
-const STATE_LABELS = new Map<string, string>(STATES.map(([v, l]) => [v, l]));
-const KIND_LABELS = new Map<string, string>(KINDS.map(([v, l]) => [v, l]));
-const CASE_LABELS = new Map<string, string>(CASE_LINKS.map(([v, l]) => [v, l]));
+const STATE_OPTIONS = [
+  ["", "All open"],
+  ["Active-Unacknowledged", "Unacknowledged"],
+  ["Active-Acknowledged", "Acknowledged"],
+  ["RTN-Unacknowledged", "Returned"],
+  ["Shelved", "Shelved"],
+  ["Out of service", "Out of service"],
+] as const;
 
-/**
- * SCR-02 Alert list (PDS §4.2, UC-10, FR-ALM-02, -03): the prioritised work queue across
- * the hierarchy. Unacknowledged first, then priority, then age (the server's order); filters
- * and the open alert live in the URL; bulk acknowledge, shelve and unshelve; live updates
- * never re-sort under the user, a "new alerts" button does.
- */
+type Quick = "all" | "unack" | "p1" | "shelved" | "case";
+
+function age(from: string): string {
+  return formatDuration(Date.now() - Date.parse(from));
+}
+
+function stateText(a: Alert): string {
+  if (a.state === "Shelved" && a.shelved_until)
+    return `Shelved, ${formatDuration(Date.parse(a.shelved_until) - Date.now())} left`;
+  return alertState(a.state).label;
+}
+
+function urgencyText(a: Alert): string {
+  if (!a.forecast_urgency) return "Not run";
+  if (a.forecast_urgency === "None") return "No crossing";
+  return a.forecast_upper_h !== null &&
+    a.forecast_upper_h !== undefined &&
+    a.forecast_lower_h !== null &&
+    a.forecast_lower_h !== undefined
+    ? `${a.forecast_urgency}, ${Math.round(a.forecast_lower_h)} to ${Math.round(a.forecast_upper_h)} h`
+    : a.forecast_urgency;
+}
+
+/** A sensor alert that re-raised three or more times in a day is chattering (ISA-18.2). */
+function chattering(a: Alert, all: readonly Alert[]): boolean {
+  const day = Date.parse(a.raised_at) - 86_400_000;
+  return (
+    all.filter(
+      (b) => b.model_id === a.model_id && b.tag_id === a.tag_id && Date.parse(b.raised_at) > day,
+    ).length >= 3
+  );
+}
+
 export function AlertsPage() {
-  const rowKeys = useRowKeys();
-  const [params, setParams] = useSearchParams();
-  const location = useLocation();
-  const carried = timeRangeParams(new URLSearchParams(location.search)).toString();
-  const filter = useMemo(() => readFilter(params), [params]);
-  const apiFilter = useMemo(() => toApiFilter(filter), [filter]);
-  const client = useQueryClient();
-  const announce = useAnnounce();
+  const scope = useScope();
   const me = useMe();
-  const username = me.data?.username ?? "";
+  const client = useQueryClient();
+  const [params, setParams] = useSearchParams();
+  const filter = readFilter(params);
+  const quick =
+    (params.get("q") as Quick | null) ?? (params.get("tab") === "shelved" ? "shelved" : "all");
+  const detailId = params.get("alert") ? Number(params.get("alert")) : null;
+  const grouped = params.get("group") !== "off";
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [dialog, setDialog] = useState<"ack" | "shelve" | "case" | null>(null);
+  const [matrix, setMatrix] = useState(false);
+  const [saved, setSaved] = useState(() => loadSaved(me.data?.username ?? ""));
 
   const list = useQuery({
-    queryKey: ["alerts", "list", apiFilter],
-    queryFn: ({ signal }) => fetchAllAlerts(apiFilter, signal),
+    queryKey: ["alerts", "list", filterQuery(filter)],
+    queryFn: async ({ signal }) => (await fetchAllAlerts(toApiFilter(filter), signal)).items,
   });
-  const assets = useQuery({
-    queryKey: ["assets", "all"],
-    queryFn: ({ signal }) => fetchAllAssets(signal),
+  const inScope = (list.data ?? []).filter((a) => scope.ids === null || scope.ids.has(a.asset_id));
+  const needsAck = (a: Alert) =>
+    a.state === "Active-Unacknowledged" || a.state === "RTN-Unacknowledged";
+  const open = inScope.filter((a) => !a.closed_at);
+  const quickRows = inScope.filter((a) => {
+    switch (quick) {
+      case "unack":
+        return needsAck(a);
+      case "p1":
+        return a.priority === "P1";
+      case "shelved":
+        return a.state === "Shelved";
+      case "case":
+        return !!a.case_id;
+      default:
+        return true;
+    }
   });
 
-  // What the user is looking at keeps its order until they ask for the new list.
-  const [accepted, setAccepted] = useState<number[] | null>(null);
-  const filterKey = filterQuery(filter);
-  const [acceptedFor, setAcceptedFor] = useState(filterKey);
-  if (acceptedFor !== filterKey) {
-    setAcceptedFor(filterKey);
-    setAccepted(null);
-  }
-  const fresh = list.data?.items;
-  useEffect(() => {
-    if (fresh && accepted === null) setAccepted(fresh.map((a) => a.id));
-  }, [fresh, accepted]);
-  const shown = liveView(fresh ?? [], accepted);
-
-  const [selected, setSelected] = useState<Set<number>>(new Set());
-  const selection = shown.rows.filter((a) => selected.has(a.id));
-  const can = allowed(selection);
-
-  function update(next: Partial<typeof filter>) {
-    setParams((current) => writeFilter(current, { ...filter, ...next }));
-    setSelected(new Set());
-  }
-
-  function refreshAll() {
-    void client.invalidateQueries({
-      predicate: (q) => ["alerts", "assets", "fleet", "models"].includes(String(q.queryKey[0])),
+  // Group: the equipment's DI alert (or its most urgent alert) leads; the rest sit under it.
+  const groups = (() => {
+    const byAsset = new Map<number, Alert[]>();
+    quickRows.forEach((a) => byAsset.set(a.asset_id, [...(byAsset.get(a.asset_id) ?? []), a]));
+    const out: { lead: Alert; rest: Alert[] }[] = [];
+    const seen = new Set<number>();
+    quickRows.forEach((a) => {
+      if (seen.has(a.asset_id)) return;
+      seen.add(a.asset_id);
+      const all = byAsset.get(a.asset_id)!;
+      const lead = all.find((x) => x.kind === "di") ?? all[0]!;
+      out.push({ lead, rest: all.filter((x) => x.id !== lead.id) });
     });
-  }
+    return out;
+  })();
 
-  const act = useMutation({
-    mutationFn: async (action: () => Promise<Alert[]>) => action(),
-    onSuccess: (done) => {
+  const chosen = inScope.filter((a) => selected.has(a.id));
+  const can = allowed(chosen);
+  const oneAsset = chosen.length > 0 && chosen.every((a) => a.asset_id === chosen[0]!.asset_id);
+  const unshelve = useMutation({
+    mutationFn: () => unshelveAlerts(chosen.map((a) => a.id)),
+    onSuccess: () => {
       setSelected(new Set());
-      announce(`${done.length} alert${done.length === 1 ? "" : "s"} updated`);
-      refreshAll();
+      void client.invalidateQueries({ queryKey: ["alerts"] });
     },
   });
-  const [dialog, setDialog] = useState<null | "ack" | "shelve" | "unshelve">(null);
-  const [minutes, setMinutes] = useState<number>(8 * 60);
-  const settings = useQuery({
-    queryKey: ["alerts", "settings"],
-    queryFn: ({ signal }) => fetchAlertSettings(signal),
-    staleTime: Infinity,
+
+  function setFilter(next: Partial<ListFilter>) {
+    setParams(writeFilter(params, { ...filter, ...next }), { replace: true });
+  }
+  function setParam(key: string, value: string | null) {
+    if (value === null) params.delete(key);
+    else params.set(key, value);
+    setParams(params, { replace: true });
+  }
+  function toggle(id: number) {
+    const next = new Set(selected);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelected(next);
+  }
+
+  const chip = (
+    key: Quick,
+    label: string,
+    n: number,
+    icon: string,
+    tone?: "warning" | "danger" | "neutral" | "info",
+  ) => ({
+    label,
+    value: n,
+    icon,
+    tone,
+    pressed: quick === key,
+    onClick: () => setParam("q", quick === key || key === "all" ? null : key),
   });
-  const choices = shelveChoices(settings.data?.max_shelve_days ?? 7);
 
-  // saved filters
-  const [saved, setSaved] = useState<SavedFilter[]>([]);
-  useEffect(() => {
-    if (username) setSaved(loadSaved(username));
-  }, [username]);
-  const [naming, setNaming] = useState<string | null>(null);
-  function saveCurrent(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const name = naming?.trim();
-    if (!name) return;
-    const next = [...saved.filter((f) => f.name !== name), { name, query: filterKey }];
-    setSaved(next);
-    storeSaved(username, next);
-    setNaming(null);
-    announce(`Filter "${name}" saved`);
-  }
-  function deleteSaved(name: string) {
-    const next = saved.filter((f) => f.name !== name);
-    setSaved(next);
-    storeSaved(username, next);
-  }
-
-  const openId = Number(params.get("alert")) || null;
-  function openDetail(id: number | null) {
-    setParams((current) => {
-      const p = new URLSearchParams(current);
-      if (id) p.set("alert", String(id));
-      else p.delete("alert");
-      return p;
-    });
-  }
-
-  const scroller = useRef<HTMLDivElement>(null);
-  // The virtualiser returns new functions each render; this app does not use the React
-  // Compiler, so the rule's memoisation concern does not apply.
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const virtual = useVirtualizer({
-    count: shown.rows.length,
-    getScrollElement: () => scroller.current,
-    estimateSize: () => ROW_HEIGHT,
-    overscan: 12,
-    initialRect: { width: 1200, height: 600 },
-  });
-  const items = virtual.getVirtualItems();
-  const padTop = items[0]?.start ?? 0;
-  const padBottom = items.length ? virtual.getTotalSize() - (items.at(-1)?.end ?? 0) : 0;
-
-  const allChecked = shown.rows.length > 0 && shown.rows.every((a) => selected.has(a.id));
-  const scopeOptions = assets.data ?? [];
+  const row = (a: Alert, child: boolean, rest: number) => {
+    const st = alertState(a.state);
+    const isOpen = expanded.has(a.id);
+    return (
+      <tr key={a.id} className={`${child ? "sub " : ""}${detailId === a.id ? "sel" : ""}`}>
+        <td>
+          <input
+            type="checkbox"
+            checked={selected.has(a.id)}
+            onChange={() => toggle(a.id)}
+            aria-label={`Select alert A-${a.id}`}
+          />
+        </td>
+        <td>
+          {!child && rest > 0 && (
+            <button
+              className="iconbtn"
+              type="button"
+              style={{ width: 32, height: 32 }}
+              aria-expanded={isOpen}
+              aria-label={`${isOpen ? "Hide" : "Show"} ${rest} related alerts`}
+              onClick={() => {
+                const next = new Set(expanded);
+                if (isOpen) next.delete(a.id);
+                else next.add(a.id);
+                setExpanded(next);
+              }}
+            >
+              <Icon d={isOpen ? "M6 9l6 6 6-6" : "M9 6l6 6-6 6"} size={16} />
+            </button>
+          )}
+        </td>
+        <td>
+          <Pill>{a.priority ?? "—"}</Pill>
+        </td>
+        <td>
+          <Pill tone={st.tone}>{stateText(a)}</Pill>
+        </td>
+        <td>
+          <IdChip to={`/assets/${a.asset_id}?alert=${a.id}`}>{a.asset_code}</IdChip>
+        </td>
+        <td className="mono">
+          {modelText(a)}
+          {a.kind === "sensor" && chattering(a, inScope) && (
+            <>
+              {" "}
+              <Badge tone="warning">Chattering</Badge>
+            </>
+          )}
+        </td>
+        <td>
+          <Badge tone={a.severity === "Alert" ? "danger" : "warning"}>{a.severity}</Badge>
+        </td>
+        <td className="r num">{a.di === null ? "—" : a.di.toFixed(1)}</td>
+        <td className="r num">{a.health === null ? "—" : Math.round(a.health)}</td>
+        <td className="num">{persistenceText(a)}</td>
+        <td className="r num">{age(a.raised_at)}</td>
+        <td>
+          <span className="sec">{urgencyText(a)}</span>
+        </td>
+        <td>
+          {a.case_id ? (
+            <Link className="idc" to={`/cases/${a.case_id}`}>
+              {a.case_number}
+            </Link>
+          ) : null}
+        </td>
+        <td className="r">
+          <button
+            className="btn btn-g btn-sm"
+            type="button"
+            onClick={() => setParam("alert", String(a.id))}
+          >
+            Details
+          </button>
+        </td>
+      </tr>
+    );
+  };
 
   return (
-    <div className={`alerts${openId ? " alerts-with-panel" : ""}`}>
-      <div className="alerts-main">
-        <section className="panel filter-bar" aria-label="Filters and actions">
-          <label className="field-inline">
-            <span className="visually-hidden">Scope</span>
-            <select
-              className="control"
-              aria-label="Scope"
-              value={filter.scope ?? ""}
-              onChange={(e) => update({ scope: e.target.value || null })}
+    <>
+      <PageHeader
+        title="Alerts"
+        sub={`${quickRows.length} alerts. Unacknowledged first, then priority, then age.`}
+        actions={
+          <>
+            <HowTo title="How to read this view">
+              Shape and text carry the state; colour only supports them. Related sensor alerts sit
+              under the equipment&apos;s main alert. The equipment opens its analysis on the
+              alert&apos;s time window. Opening an alert does not acknowledge it.
+            </HowTo>
+            <button
+              className="btn btn-s"
+              type="button"
+              disabled={!can.ack}
+              onClick={() => setDialog("ack")}
             >
-              <option value="">Scope: All</option>
-              {scopeOptions.map((a) => (
-                <option key={a.id} value={a.code}>
-                  Scope: {a.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <FilterMenu
-            name="State"
-            options={STATES}
-            chosen={filter.states}
-            label={menuLabel("State", filter.states, STATE_LABELS)}
-            onChange={(states) => update({ states })}
-          />
-          <FilterMenu
-            name="Priority"
-            options={PRIORITIES.map((p) => [p, p] as const)}
-            chosen={filter.priorities}
-            label={menuLabel("Priority", filter.priorities)}
-            onChange={(priorities) => update({ priorities })}
-          />
-          <FilterMenu
-            name="Severity"
-            options={SEVERITIES.map((s) => [s, s] as const)}
-            chosen={filter.severities}
-            label={menuLabel("Severity", filter.severities)}
-            onChange={(severities) => update({ severities })}
-          />
-          <FilterMenu
-            name="Rule"
-            options={KINDS}
-            chosen={filter.kind ? [filter.kind] : []}
-            label={menuLabel("Rule", filter.kind ? [filter.kind] : [], KIND_LABELS)}
-            onChange={(kinds) =>
-              update({ kind: (kinds.at(-1) as "di" | "sensor" | undefined) ?? null })
-            }
-          />
-          <FilterMenu
-            name="Urgency"
-            options={URGENCIES.map((u) => [u, u] as const)}
-            chosen={filter.urgencies}
-            label={menuLabel("Urgency", filter.urgencies)}
-            onChange={(urgencies) => update({ urgencies })}
-          />
-          <FilterMenu
-            name="Case"
-            options={CASE_LINKS}
-            chosen={filter.hasCase ? [filter.hasCase] : []}
-            label={menuLabel("Case", filter.hasCase ? [filter.hasCase] : [], CASE_LABELS)}
-            onChange={(links) =>
-              update({ hasCase: (links.at(-1) as "yes" | "no" | undefined) ?? null })
-            }
-          />
-          <label className="field-inline">
-            <span>Sort</span>
-            <select
-              className="control"
-              value={filter.sort}
-              onChange={(e) => update({ sort: e.target.value as Sort })}
+              Acknowledge
+            </button>
+            <button
+              className="btn btn-s"
+              type="button"
+              disabled={!can.shelve}
+              onClick={() => setDialog("shelve")}
             >
-              {SORTS.map(([v, label]) => (
-                <option key={v} value={v}>
-                  {label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="field-inline">
-            <input
-              type="checkbox"
-              checked={filter.closed}
-              onChange={(e) => update({ closed: e.target.checked })}
+              Shelve
+            </button>
+            <button
+              className="btn btn-s"
+              type="button"
+              disabled={!can.unshelve || unshelve.isPending}
+              onClick={() => unshelve.mutate()}
+            >
+              Unshelve
+            </button>
+            <button
+              className="btn btn-p"
+              type="button"
+              disabled={!oneAsset}
+              title={
+                chosen.length && !oneAsset ? "A case covers alerts of one equipment" : undefined
+              }
+              onClick={() => setDialog("case")}
+            >
+              Create case
+            </button>
+          </>
+        }
+      />
+      <Kpis
+        label="Alert filters"
+        items={[
+          chip("all", "Open alerts", open.length, ICONS.alert),
+          chip("unack", "Unacknowledged", open.filter(needsAck).length, ICONS.bell, "warning"),
+          chip(
+            "p1",
+            "Priority 1",
+            open.filter((a) => a.priority === "P1").length,
+            "M5 21V4h12l-2 4 2 4H5",
+            "danger",
+          ),
+          chip(
+            "shelved",
+            "Shelved",
+            open.filter((a) => a.state === "Shelved").length,
+            ICONS.shelve,
+            "neutral",
+          ),
+          chip(
+            "case",
+            "Linked to a case",
+            open.filter((a) => !!a.case_id).length,
+            ICONS.folder,
+            "info",
+          ),
+        ]}
+      />
+      <div className={`alw${detailId ? " det" : ""}`}>
+        <section className="pnl" aria-label="Alert queue">
+          <div className="filters" style={{ marginBottom: 8 }}>
+            <Select
+              id="f2"
+              label="State"
+              width={160}
+              value={filter.states[0] ?? ""}
+              options={STATE_OPTIONS}
+              onChange={(v) => setFilter({ states: v ? [v] : [] })}
             />
-            Include closed
-          </label>
-          <label className="field-inline">
-            <span className="visually-hidden">Saved filters</span>
-            <select
-              className="control"
-              aria-label="Saved filters"
-              value=""
-              onChange={(e) => {
-                const chosen = saved.find((f) => f.name === e.target.value);
-                if (chosen)
-                  setParams((c) => writeFilter(c, readFilter(new URLSearchParams(chosen.query))));
+            <Select
+              id="f3"
+              label="Priority"
+              width={110}
+              value={filter.priorities[0] ?? ""}
+              options={[["", "All"], ...PRIORITIES.map((p) => [p, p] as const)]}
+              onChange={(v) => setFilter({ priorities: v ? [v] : [] })}
+            />
+            <Select
+              id="f4"
+              label="Severity"
+              width={120}
+              value={filter.severities[0] ?? ""}
+              options={[
+                ["", "All"],
+                ["Alert", "Alert"],
+                ["Warning", "Warning"],
+              ]}
+              onChange={(v) => setFilter({ severities: v ? [v] : [] })}
+            />
+            <Select
+              id="f5"
+              label="Rule"
+              width={150}
+              value={filter.kind ?? ""}
+              options={[
+                ["", "All rules"],
+                ["di", "Deviation"],
+                ["sensor", "Sensor |z|"],
+              ]}
+              onChange={(v) => setFilter({ kind: (v || null) as ListFilter["kind"] })}
+            />
+            <Select
+              id="f6"
+              label="Urgency"
+              width={130}
+              value={filter.urgencies[0] ?? ""}
+              options={[["", "All"], ...URGENCIES.map((u) => [u, u] as const)]}
+              onChange={(v) => setFilter({ urgencies: v ? [v] : [] })}
+            />
+            <Select
+              id="f7"
+              label="Case"
+              width={130}
+              value={filter.hasCase ?? ""}
+              options={[
+                ["", "All"],
+                ["yes", "With case"],
+                ["no", "No case"],
+              ]}
+              onChange={(v) => setFilter({ hasCase: (v || null) as ListFilter["hasCase"] })}
+            />
+          </div>
+          <div className="filters" style={{ marginBottom: 12, justifyContent: "space-between" }}>
+            <div className="filters" style={{ alignItems: "center" }}>
+              <Select
+                id="f8"
+                label="Sort"
+                width={200}
+                value={filter.sort}
+                options={SORTS}
+                onChange={(v) => setFilter({ sort: v as ListFilter["sort"] })}
+              />
+              <Select
+                id="f9"
+                label="Saved filters"
+                width={200}
+                value=""
+                options={[
+                  ["", saved.length ? "Choose…" : "None"],
+                  ...saved.map((s) => [s.query, s.name] as const),
+                ]}
+                onChange={(v) => v && setParams(new URLSearchParams(v), { replace: true })}
+              />
+              <label className="chk" style={{ marginTop: 18 }}>
+                <input
+                  type="checkbox"
+                  checked={filter.closed}
+                  onChange={(e) => setFilter({ closed: e.target.checked })}
+                />
+                Include closed
+              </label>
+              <label className="chk" style={{ marginTop: 18 }}>
+                <input
+                  type="checkbox"
+                  checked={grouped}
+                  onChange={(e) => setParam("group", e.target.checked ? null : "off")}
+                />
+                Group by equipment
+              </label>
+            </div>
+            <button
+              className="btn btn-g"
+              type="button"
+              style={{ marginTop: 18 }}
+              onClick={() => {
+                const name = window.prompt("Name this filter");
+                if (!name || !me.data) return;
+                const next = [
+                  ...saved.filter((s) => s.name !== name),
+                  { name, query: filterQuery(filter) },
+                ];
+                storeSaved(me.data.username, next);
+                setSaved(next);
               }}
             >
-              <option value="">Saved filters…</option>
-              {saved.map((f) => (
-                <option key={f.name} value={f.name}>
-                  {f.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          {naming === null ? (
-            <button type="button" className="link-button" onClick={() => setNaming("")}>
               Save filter
             </button>
-          ) : (
-            <form className="field-inline" onSubmit={saveCurrent}>
-              <input
-                className="control"
-                aria-label="Name for this filter"
-                placeholder="Name"
-                value={naming}
-                onChange={(e) => setNaming(e.target.value)}
-              />
-              <button type="submit" className="link-button">
-                Save
-              </button>
-              <button type="button" className="link-button" onClick={() => setNaming(null)}>
-                Cancel
-              </button>
-            </form>
-          )}
-          {saved.length > 0 && (
-            <button
-              type="button"
-              className="link-button"
-              onClick={() => {
-                const current = saved.find((f) => f.query === filterKey);
-                if (current) deleteSaved(current.name);
-              }}
-              disabled={!saved.some((f) => f.query === filterKey)}
-            >
-              Forget this filter
-            </button>
-          )}
-          <span className="filter-spacer" />
-          <button
-            type="button"
-            className="button"
-            disabled={!can.ack}
-            onClick={() => setDialog("ack")}
-          >
-            Acknowledge
-          </button>
-          <button
-            type="button"
-            className="button"
-            disabled={!can.shelve}
-            onClick={() => setDialog("shelve")}
-          >
-            Shelve…
-          </button>
-          <button
-            type="button"
-            className="button"
-            disabled={!can.unshelve}
-            onClick={() => setDialog("unshelve")}
-          >
-            Unshelve
-          </button>
-          <CreateCaseButton alerts={selection} />
-        </section>
-
-        <section className="panel alerts-table-panel" aria-labelledby="alerts-title">
-          <div className="panel-head">
-            <h2 id="alerts-title" className="panel-title">
-              Alerts ({shown.rows.length}
-              {list.data?.truncated ? "+" : ""}) · {SORT_TEXT[filter.sort]}
-            </h2>
-            {shown.incoming > 0 && (
-              <button
-                type="button"
-                className="button new-items"
-                onClick={() => setAccepted(fresh?.map((a) => a.id) ?? null)}
-              >
-                {shown.incoming} new alert{shown.incoming === 1 ? "" : "s"} · show
-              </button>
+          </div>
+          <div className="tw">
+            <table className="tb">
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>
+                    <span className="sr">Select</span>
+                  </th>
+                  <th style={{ width: 40 }}>
+                    <span className="sr">Expand</span>
+                  </th>
+                  <th>Priority</th>
+                  <th>State</th>
+                  <th>Equipment</th>
+                  <th>Model · rule</th>
+                  <th>Severity</th>
+                  <th className="r">DI %</th>
+                  <th className="r">Health</th>
+                  <th>Persistence</th>
+                  <th className="r">Age</th>
+                  <th>Urgency</th>
+                  <th>Case</th>
+                  <th>
+                    <span className="sr">Details</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {grouped
+                  ? groups.map((g) => (
+                      <Fragment key={g.lead.id}>
+                        {row(g.lead, false, g.rest.length)}
+                        {expanded.has(g.lead.id) && g.rest.map((a) => row(a, true, 0))}
+                      </Fragment>
+                    ))
+                  : quickRows.map((a) => row(a, false, 0))}
+              </tbody>
+            </table>
+            {list.isPending && <p className="sec s13">Loading…</p>}
+            {list.isSuccess && quickRows.length === 0 && (
+              <Empty>No alerts match these filters.</Empty>
             )}
           </div>
-          {list.isPending ? (
-            <Skeleton rows={8} />
-          ) : list.isError ? (
-            <p role="alert">The alerts could not be loaded: {list.error.message}</p>
-          ) : shown.rows.length === 0 ? (
-            <p className="muted">No alerts match these filters.</p>
-          ) : (
-            <div ref={scroller} className="alerts-scroll">
-              <table
-                ref={rowKeys}
-                className="tree-table alerts-table"
-                aria-label="Alerts"
-                aria-rowcount={shown.rows.length + 1}
-              >
-                <thead>
-                  <tr aria-rowindex={1}>
-                    <th scope="col" className="check">
-                      <input
-                        type="checkbox"
-                        aria-label="Select all alerts shown"
-                        checked={allChecked}
-                        onChange={(e) =>
-                          setSelected(
-                            e.target.checked ? new Set(shown.rows.map((a) => a.id)) : new Set(),
-                          )
-                        }
-                      />
-                    </th>
-                    <th scope="col">Priority</th>
-                    <th scope="col">State</th>
-                    <th scope="col">Asset</th>
-                    <th scope="col">Model</th>
-                    <th scope="col">Severity</th>
-                    <th scope="col" className="num">
-                      DI %
-                    </th>
-                    <th scope="col" className="num">
-                      Health
-                    </th>
-                    <th scope="col">Persistence</th>
-                    <th scope="col">Age</th>
-                    <th scope="col">Forecast urgency</th>
-                    <th scope="col">Case</th>
-                    <th scope="col">
-                      <span className="visually-hidden">Details</span>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {padTop > 0 && (
-                    <tr aria-hidden="true">
-                      <td colSpan={13} style={{ height: padTop, padding: 0, border: 0 }} />
-                    </tr>
-                  )}
-                  {items.map((item) => {
-                    const a = shown.rows[item.index]!;
-                    return (
-                      <AlertRow
-                        key={a.id}
-                        alert={a}
-                        index={item.index}
-                        checked={selected.has(a.id)}
-                        open={openId === a.id}
-                        onCheck={(on) => {
-                          const next = new Set(selected);
-                          if (on) next.add(a.id);
-                          else next.delete(a.id);
-                          setSelected(next);
-                        }}
-                        onDetails={() => openDetail(a.id)}
-                      />
-                    );
-                  })}
-                  {padBottom > 0 && (
-                    <tr aria-hidden="true">
-                      <td colSpan={13} style={{ height: padBottom, padding: 0, border: 0 }} />
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-          <p className="muted small">
-            Shape and text carry the state; colour only supports them. The asset opens its analysis
-            on the alert&apos;s window. Forecast urgency and cases arrive in Release 2.
-          </p>
+          <button
+            className="btn btn-g"
+            type="button"
+            aria-expanded={matrix}
+            onClick={() => setMatrix(!matrix)}
+            style={{ alignSelf: "flex-start", marginTop: 12 }}
+          >
+            {matrix ? "Hide priority matrix" : "Show priority matrix (criticality × severity)"}
+          </button>
+          {matrix && <PriorityMatrix />}
         </section>
-
-        <PriorityMatrix />
+        {detailId && (
+          <AlertInspector
+            id={detailId}
+            onClose={() => setParam("alert", null)}
+            onAck={(a) => {
+              setSelected(new Set([a.id]));
+              setDialog("ack");
+            }}
+            onShelve={(a) => {
+              setSelected(new Set([a.id]));
+              setDialog("shelve");
+            }}
+            onCase={(a) => {
+              setSelected(new Set([a.id]));
+              setDialog("case");
+            }}
+          />
+        )}
       </div>
-
-      {openId && (
-        <AlertDetailPanel
-          id={openId}
-          carried={carried}
-          onClose={() => openDetail(null)}
-          onChanged={refreshAll}
+      {dialog === "ack" && (
+        <AckDialog
+          alerts={chosen}
+          onClose={(done) => {
+            setDialog(null);
+            if (done) setSelected(new Set());
+          }}
         />
       )}
+      {dialog === "shelve" && (
+        <ShelveDialog
+          alerts={chosen}
+          onClose={(done) => {
+            setDialog(null);
+            if (done) setSelected(new Set());
+          }}
+        />
+      )}
+      {dialog === "case" && chosen[0] && (
+        <CaseDialog
+          alerts={chosen}
+          assetId={chosen[0].asset_id}
+          assetLabel={chosen[0].asset_code}
+          onClose={(done) => {
+            setDialog(null);
+            if (done) setSelected(new Set());
+          }}
+        />
+      )}
+    </>
+  );
+}
 
-      <ConfirmDialog
-        open={dialog === "ack"}
-        onOpenChange={(o) => setDialog(o ? "ack" : null)}
-        title={`Acknowledge ${selection.length} alert${selection.length === 1 ? "" : "s"}`}
-        consequence="Acknowledging records that you have seen them; they stay active until the condition clears."
-        confirmLabel="Acknowledge"
-        reasonLabel="Comment"
-        reasonOptional
-        onConfirm={async (comment) => {
-          await act.mutateAsync(() =>
-            acknowledgeAlerts(
-              selection.map((a) => a.id),
-              comment,
-            ),
-          );
-        }}
-      />
-      <ConfirmDialog
-        open={dialog === "shelve"}
-        onOpenChange={(o) => setDialog(o ? "shelve" : null)}
-        title={`Shelve ${selection.length} alert${selection.length === 1 ? "" : "s"}`}
-        consequence="Shelved alerts stop showing as active and stop notifying until the shelf ends; then they return to whatever their condition is."
-        confirmLabel="Shelve"
-        reasonLabel="Reason"
-        onConfirm={async (reason) => {
-          await act.mutateAsync(() =>
-            shelveAlerts(
-              selection.map((a) => a.id),
-              reason,
-              minutes,
-            ),
-          );
-        }}
+function Select({
+  id,
+  label,
+  width,
+  value,
+  options,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  width: number;
+  value: string;
+  options: readonly (readonly [string, string])[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="fld">
+      <label htmlFor={id}>{label}</label>
+      <select
+        id={id}
+        className="sl"
+        style={{ width }}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
       >
-        <label className="field">
-          <span>For</span>
-          <select
-            className="control"
-            value={minutes}
-            onChange={(e) => setMinutes(Number(e.target.value))}
-          >
-            {choices.map(([m, text]) => (
-              <option key={m} value={m}>
-                {text}
-              </option>
-            ))}
-          </select>
-        </label>
-      </ConfirmDialog>
-      <ConfirmDialog
-        open={dialog === "unshelve"}
-        onOpenChange={(o) => setDialog(o ? "unshelve" : null)}
-        title={`Unshelve ${selection.length} alert${selection.length === 1 ? "" : "s"}`}
-        consequence="The shelf ends now; each alert returns to active or closes, depending on its condition."
-        confirmLabel="Unshelve"
-        onConfirm={async () => {
-          await act.mutateAsync(() => unshelveAlerts(selection.map((a) => a.id)));
-        }}
-      />
+        {options.map(([v, l]) => (
+          <option key={v} value={v}>
+            {l}
+          </option>
+        ))}
+      </select>
     </div>
   );
 }
 
-function AlertRow({
-  alert: a,
-  index,
-  checked,
-  open,
-  onCheck,
-  onDetails,
-}: {
-  alert: Alert;
-  index: number;
-  checked: boolean;
-  open: boolean;
-  onCheck: (on: boolean) => void;
-  onDetails: () => void;
-}) {
-  const look = severityLook(a.severity);
-  const oos = a.state === "Out of service";
-  const unack = a.state === "Active-Unacknowledged" || a.state === "RTN-Unacknowledged";
-  const raised = new Date(a.raised_at);
-  // No time range carried: the asset screen opens on the alert's own window.
-  const assetLink = `/assets/${a.asset_id}?alert=${a.id}`;
-  return (
-    <tr
-      aria-rowindex={index + 2}
-      aria-selected={checked}
-      className={`${unack ? "row-unack" : ""}${open ? " row-open" : ""}`}
-      style={{ height: ROW_HEIGHT }}
-    >
-      <td className="check">
-        <input
-          type="checkbox"
-          aria-label={`Select alert ${a.id} on ${a.asset_code}`}
-          checked={checked}
-          onChange={(e) => onCheck(e.target.checked)}
-        />
-      </td>
-      <td>
-        {oos ? (
-          <span className="chip chip-m tone-unknown">
-            <StatusShape shape="dashed-square" tone="unknown" />
-            <span>—</span>
-          </span>
-        ) : (
-          <span className={`chip chip-m tone-${look.tone}`}>
-            <StatusShape shape={look.shape} tone={look.tone} />
-            <span>{a.priority}</span>
-          </span>
-        )}
-      </td>
-      <td>
-        <AlertStateChip
-          state={a.state as AlertState}
-          severity={a.severity}
-          shelvedUntil={a.shelved_until ? new Date(a.shelved_until) : null}
-        />
-      </td>
-      <td>
-        <Link to={assetLink}>{a.asset_path}</Link>
-      </td>
-      <td className="muted">{modelText(a)}</td>
-      <td>{oos ? "—" : a.severity}</td>
-      <td className="num">{oos ? "—" : formatDi(a.di).replace(" %", "")}</td>
-      <td className="num">{oos ? "—" : formatHealth(a.health)}</td>
-      <td>{persistenceText(a)}</td>
-      <td>
-        <time dateTime={a.raised_at} title={formatIso(raised)}>
-          {age(raised)}
-        </time>
-      </td>
-      <td className={a.forecast_urgency ? undefined : "muted"}>
-        {urgencyText(a.forecast_urgency, a.forecast_lower_h, a.forecast_upper_h)}
-      </td>
-      <td className={a.case_number ? undefined : "muted"}>
-        {a.case_id && a.case_number ? <Link to={`/cases/${a.case_id}`}>{a.case_number}</Link> : "—"}
-      </td>
-      <td>
-        <button
-          type="button"
-          className="link-button"
-          aria-label={`Details of alert ${a.id}`}
-          aria-pressed={open}
-          onClick={onDetails}
-        >
-          Details
-        </button>
-      </td>
-    </tr>
-  );
-}
-
 function PriorityMatrix() {
-  const matrix = useQuery({
+  const cells = useQuery({
     queryKey: ["alerts", "matrix"],
     queryFn: ({ signal }) => fetchPriorityMatrix(signal),
   });
-  const cell = (c: string, s: string) =>
-    matrix.data?.find((m) => m.criticality === c && m.severity === s)?.priority ?? "—";
+  const label: Record<string, string> = { A: "A, critical", B: "B, important", C: "C, other" };
+  const p = (c: string, s: string) =>
+    cells.data?.find((x) => x.criticality === c && x.severity === s)?.priority ?? "—";
   return (
-    <details className="panel matrix">
-      <summary className="panel-title">Priority matrix (criticality × severity, UCS §6.6)</summary>
-      <table className="tree-table matrix-table">
+    <div className="tw" style={{ maxWidth: 520 }}>
+      <table className="tb">
         <thead>
           <tr>
-            <th scope="col">Asset criticality</th>
-            <th scope="col">Warning</th>
-            <th scope="col">Alert</th>
+            <th>Criticality</th>
+            <th>Alert</th>
+            <th>Warning</th>
           </tr>
         </thead>
         <tbody>
           {["A", "B", "C"].map((c) => (
             <tr key={c}>
-              <th scope="row">{c}</th>
-              <td>{cell(c, "Warning")}</td>
-              <td>{cell(c, "Alert")}</td>
+              <td>{label[c]}</td>
+              <td>
+                <Pill>{p(c, "Alert")}</Pill>
+              </td>
+              <td>
+                <Pill>{p(c, "Warning")}</Pill>
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="muted small">
-        Administrators change it under Administration; open alerts are re-prioritised at once.
-      </p>
-    </details>
+    </div>
+  );
+}
+
+interface Trace {
+  cycle?: string;
+  di?: number;
+  health?: number;
+  value?: number;
+  rule?: { kind?: string; warning?: number; alert?: number };
+  inputs?: Record<
+    string,
+    { dq?: string; value?: number | null; usable?: boolean; z?: number | null }
+  >;
+}
+
+const HISTORY: Record<string, string> = {
+  raise: "Raised",
+  escalate: "Escalated",
+  clear: "Condition cleared",
+  acknowledge: "Acknowledged",
+  shelve: "Shelved",
+  unshelve_active: "Shelf ended, still active",
+  unshelve_normal: "Shelf ended, closed",
+  out_of_service: "Out of service",
+  return_to_service: "Back in service",
+  rule_removed: "Closed: rule removed or switched off",
+};
+
+function historyText(h: AlertDetail["history"][number]): string {
+  const what = HISTORY[h.action] ?? h.action;
+  const states = h.from_state
+    ? `${alertState(h.from_state).label.toLowerCase()} to ${alertState(h.to_state).label.toLowerCase()}`
+    : alertState(h.to_state).label.toLowerCase();
+  const who = h.user ?? "System";
+  return `${what}: ${states}. ${h.priority} ${h.severity.toLowerCase()}. ${who}${h.comment ? `: "${h.comment}"` : "."}`;
+}
+
+export function AlertInspector({
+  id,
+  onClose,
+  onAck,
+  onShelve,
+  onCase,
+}: {
+  id: number;
+  onClose: () => void;
+  onAck: (a: Alert) => void;
+  onShelve: (a: Alert) => void;
+  onCase: (a: Alert) => void;
+}) {
+  const detail = useQuery({
+    queryKey: ["alerts", "detail", id],
+    queryFn: ({ signal }) => fetchAlert(id, signal),
+  });
+  const [inputs, setInputs] = useState(false);
+  const a = detail.data;
+  const trace = (a?.trace ?? {}) as Trace;
+  const ins = Object.entries(trace.inputs ?? {});
+  const can = a ? allowed([a]) : null;
+  const st = a ? alertState(a.state) : null;
+  return (
+    <aside className="pnl" aria-labelledby="dt-h">
+      <div className="pnlh">
+        <div className="t">
+          <span className="pt" id="dt-h">
+            Alert A-{id}
+          </span>
+          {st && <Pill tone={st.tone}>{st.label}</Pill>}
+        </div>
+        <button className="iconbtn" type="button" onClick={onClose} aria-label="Close details">
+          <Icon d={ICONS.close} />
+        </button>
+      </div>
+      {!a ? (
+        <p className="sec s13">{detail.isError ? detail.error.message : "Loading…"}</p>
+      ) : (
+        <>
+          <dl className="kvs">
+            <dt>Equipment</dt>
+            <dd>
+              <Link to={`/assets/${a.asset_id}?alert=${a.id}`}>{a.asset_path}</Link>
+            </dd>
+            <dt>Model and rule</dt>
+            <dd className="mono">{modelText(a)}</dd>
+            <dt>Priority</dt>
+            <dd>
+              {a.priority ?? "—"}, {a.severity}
+            </dd>
+            <dt>Raised</dt>
+            <dd>{formatDateTime(new Date(a.raised_at))}</dd>
+            {a.shelve_reason && (
+              <>
+                <dt>Shelved because</dt>
+                <dd>{a.shelve_reason}</dd>
+              </>
+            )}
+          </dl>
+          <div className="acts" style={{ margin: "12px 0" }}>
+            <button
+              className="btn btn-s btn-sm"
+              type="button"
+              disabled={!can?.ack}
+              onClick={() => onAck(a)}
+            >
+              Acknowledge
+            </button>
+            <button
+              className="btn btn-s btn-sm"
+              type="button"
+              disabled={!can?.shelve}
+              onClick={() => onShelve(a)}
+            >
+              Shelve
+            </button>
+            {a.case_id ? (
+              <Link className="btn btn-s btn-sm" to={`/cases/${a.case_id}`}>
+                Open {a.case_number}
+              </Link>
+            ) : (
+              <button
+                className="btn btn-p btn-sm"
+                type="button"
+                disabled={!!a.closed_at}
+                onClick={() => onCase(a)}
+              >
+                Create case
+              </button>
+            )}
+          </div>
+          <span className="cap">Based on</span>
+          <p className="s13" style={{ margin: "4px 0 8px" }}>
+            Cycle {trace.cycle ? formatDateTime(new Date(trace.cycle)) : "—"}:{" "}
+            {trace.rule?.kind === "di" ? "Deviation Index" : `|z| of ${a.tag ?? "the sensor"}`}{" "}
+            {typeof trace.value === "number" ? trace.value.toFixed(1) : "—"} against warning{" "}
+            {trace.rule?.warning ?? "—"} and alert {trace.rule?.alert ?? "—"}. Deviation{" "}
+            {typeof trace.di === "number" ? `${trace.di.toFixed(1)} %` : "—"}, health{" "}
+            {typeof trace.health === "number" ? Math.round(trace.health) : "—"}.
+          </p>
+          {ins.length > 0 && (
+            <button
+              className="btn btn-g btn-sm"
+              type="button"
+              aria-expanded={inputs}
+              onClick={() => setInputs(!inputs)}
+              style={{ alignSelf: "flex-start" }}
+            >
+              {inputs ? "Hide" : "Show"} inputs at that cycle ({ins.length})
+            </button>
+          )}
+          {inputs && (
+            <div style={{ margin: "4px 0 8px" }}>
+              {ins.map(([tag, v]) => (
+                <div key={tag} className="li" style={{ minHeight: 32, padding: "2px 0" }}>
+                  <span className="mono grow">{tag}</span>
+                  <span className="num s13">{v.value ?? "—"}</span>
+                  <span className="meta" style={{ width: 90, textAlign: "right" }}>
+                    {v.usable === false ? `not used${v.dq ? `, ${v.dq}` : ""}` : (v.dq ?? "")}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <span className="cap" style={{ marginTop: 8 }}>
+            History
+          </span>
+          <ol className="hist" style={{ marginTop: 6 }}>
+            {a.history.map((h, i) => (
+              <li key={i}>
+                <b>{formatDateTime(new Date(h.ts))}</b> {historyText(h)}
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </aside>
   );
 }

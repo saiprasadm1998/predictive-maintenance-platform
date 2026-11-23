@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     ingest_rate_limit: float = Field(default=50.0, gt=0)  # requests per second per API key
     backfill_max_mb: int = Field(default=2048, ge=1)  # largest history file accepted
     retention_months: int = Field(default=24, ge=1)
+    # Live data (PHI-001 §5.1): PMP subscribes to the plant's MQTT broker. mqtts://host:8883
+    # for TLS; no URL means the subscriber is not configured (REST ingest still works).
+    mqtt_url: str | None = None
+    mqtt_topic_prefix: str = "pmp/v1"
+    mqtt_username: str | None = None
+    mqtt_password: SecretStr | None = None
+    mqtt_ca_file: Path | None = None  # the broker's CA; the system's trust store if unset
+    mqtt_client_id: str = "pmp-subscriber"
     backup_dir: Path = Path("/data/backups")  # pg_dump files and artefact archives (9.1)
     backup_keep_daily: int = Field(default=14, ge=1)
     backup_keep_weekly: int = Field(default=8, ge=0)
@@ -51,6 +59,8 @@ class Settings(BaseSettings):
     smtp_password: SecretStr | None = None
     smtp_from: str = "pmp@localhost"
     smtp_starttls: bool = True  # port 587 STARTTLS (ARC §9.1 C3); off for a local catcher
+    notify_per_alert_minutes: int = Field(default=30, ge=1)  # one e-mail per alert per period
+    plant_timezone: str = "Asia/Dubai"  # quiet hours and the daily digest use plant time
     public_url: str = "http://localhost:8000"  # the base of deep links in notifications
     forecast_immediate_h: float = Field(default=24, gt=0)
     forecast_high_h: float = Field(default=24 * 7, gt=0)

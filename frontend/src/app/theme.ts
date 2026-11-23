@@ -1,12 +1,12 @@
-/** Light (default) or the dark control-room theme (PDS §3.1), remembered per browser. */
-export type Theme = "light" | "dark";
+/** Day (default) or Night, remembered per browser. */
+export type Theme = "day" | "night";
 const KEY = "pmp.theme";
 
 export function storedTheme(): Theme {
   try {
-    return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
+    return localStorage.getItem(KEY) === "night" ? "night" : "day";
   } catch {
-    return "light";
+    return "day";
   }
 }
 

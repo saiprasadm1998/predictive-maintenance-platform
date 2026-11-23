@@ -1,83 +1,60 @@
-import { type ReactNode, Suspense, lazy } from "react";
-import { Navigate, type RouteObject } from "react-router-dom";
+import { type ComponentType, type LazyExoticComponent, Suspense, lazy } from "react";
+import { Navigate, type RouteObject, useLocation } from "react-router-dom";
 
 import { AppShell } from "../layout/AppShell";
-import { FleetPage } from "../pages/fleet/FleetPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
-import { ScreenPlaceholder } from "../pages/ScreenPlaceholder";
+import { Placeholder } from "../pages/Placeholder";
 import { SignInPage } from "../pages/SignInPage";
 import { RequireAuth } from "./auth";
-import { SCREENS } from "./screens";
+import { REDIRECTS, SCREENS } from "./screens";
 
-// Screens with charts are loaded on demand, so the chart library stays out of the first load.
-const UnitPage = lazy(() =>
-  import("../pages/fleet/UnitPage").then((m) => ({ default: m.UnitPage })),
-);
+type Page = LazyExoticComponent<ComponentType>;
+const page = <K extends string>(load: () => Promise<Record<K, ComponentType>>, name: K): Page =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
 
-const AssetPage = lazy(() =>
-  import("../pages/asset/AssetPage").then((m) => ({ default: m.AssetPage })),
-);
-
-const AlertsPage = lazy(() =>
-  import("../pages/alerts/AlertsPage").then((m) => ({ default: m.AlertsPage })),
-);
-
-const ModelsPage = lazy(() =>
-  import("../pages/models/ModelsPage").then((m) => ({ default: m.ModelsPage })),
-);
-const VersionPage = lazy(() =>
-  import("../pages/models/VersionPage").then((m) => ({ default: m.VersionPage })),
-);
-
-const BuilderPage = lazy(() =>
-  import("../pages/models/BuilderPage").then((m) => ({ default: m.BuilderPage })),
-);
-
-const RegistryPage = lazy(() =>
-  import("../pages/registry/RegistryPage").then((m) => ({ default: m.RegistryPage })),
-);
-const AdminPage = lazy(() =>
-  import("../pages/admin/AdminPage").then((m) => ({ default: m.AdminPage })),
-);
-
-const DiagnosticsPage = lazy(() =>
-  import("../pages/diagnostics/DiagnosticsPage").then((m) => ({ default: m.DiagnosticsPage })),
-);
-const LibraryPage = lazy(() =>
-  import("../pages/library/LibraryPage").then((m) => ({ default: m.LibraryPage })),
-);
-const SensorHealthPage = lazy(() =>
-  import("../pages/sensors/SensorHealthPage").then((m) => ({ default: m.SensorHealthPage })),
-);
-
-const CasesPage = lazy(() =>
-  import("../pages/cases/CasesPage").then((m) => ({ default: m.CasesPage })),
-);
-const CasePage = lazy(() =>
-  import("../pages/cases/CasePage").then((m) => ({ default: m.CasePage })),
-);
-
-const BUILT: Record<string, ReactNode> = {
-  "SCR-09": <CasesPage />,
-  "SCR-05": <CasePage />,
-  "SCR-07": <SensorHealthPage />,
-  "SCR-04": <DiagnosticsPage />,
-  "SCR-12": <LibraryPage />,
-  "SCR-13": <RegistryPage />,
-  "SCR-14": <AdminPage />,
-  "SCR-06": <BuilderPage />,
-  "SCR-10": <ModelsPage />,
-  "SCR-11": <VersionPage />,
-  "SCR-02": <AlertsPage />,
-  "SCR-01": <FleetPage />,
-  "SCR-08": <UnitPage />,
-  "SCR-03": <AssetPage />,
+/** Screen id -> page component. Pages load on demand, so charts stay out of the first load. */
+const PAGES: Record<string, Page> = {
+  overview: page(() => import("../pages/find/OverviewPage"), "OverviewPage"),
+  units: page(() => import("../pages/find/UnitPage"), "UnitIndexPage"),
+  unit: page(() => import("../pages/find/UnitPage"), "UnitPage"),
+  equipment: page(() => import("../pages/find/EquipmentPage"), "EquipmentPage"),
+  alerts: page(() => import("../pages/alerts/AlertsPage"), "AlertsPage"),
+  "analysis-pick": page(() => import("../pages/check/AnalysisPage"), "AnalysisIndexPage"),
+  sensors: page(() => import("../pages/check/SensorHealthPage"), "SensorHealthPage"),
+  analysis: page(() => import("../pages/check/AnalysisPage"), "AnalysisPage"),
+  cases: page(() => import("../pages/act/CasesPage"), "CasesPage"),
+  case: page(() => import("../pages/act/CasePage"), "CasePage"),
+  setup: page(() => import("../pages/setup/SetupOverviewPage"), "SetupOverviewPage"),
+  register: page(() => import("../pages/setup/EquipmentRegisterPage"), "EquipmentRegisterPage"),
+  "add-equipment": page(() => import("../pages/setup/AddEquipmentPage"), "AddEquipmentPage"),
+  tags: page(() => import("../pages/setup/TagMappingPage"), "TagMappingPage"),
+  history: page(() => import("../pages/setup/HistoryPage"), "HistoryPage"),
+  upload: page(() => import("../pages/setup/HistoryPage"), "HistoryPage"),
+  hierarchy: page(() => import("../pages/setup/HierarchyPage"), "HierarchyPage"),
+  types: page(() => import("../pages/setup/TypesPage"), "TypesPage"),
+  coverage: page(() => import("../pages/system/CoveragePage"), "CoveragePage"),
+  models: page(() => import("../pages/Framed"), "ModelManagementPage"),
+  version: page(() => import("../pages/Framed"), "ModelVersionPage"),
+  builder: page(() => import("../pages/Framed"), "NewModelPage"),
+  library: page(() => import("../pages/setup/FailureModesPage"), "FailureModesPage"),
+  dq: page(() => import("../pages/Framed"), "DataQualityPage"),
+  ingestion: page(() => import("../pages/system/IngestionPage"), "IngestionPage"),
+  notifications: page(() => import("../pages/system/NotificationsPage"), "NotificationsPage"),
+  users: page(() => import("../pages/system/UsersPage"), "UsersPage"),
+  retention: page(() => import("../pages/system/RetentionPage"), "RetentionPage"),
+  audit: page(() => import("../pages/system/AuditPage"), "AuditPage"),
 };
 
-// Development only, and loaded on demand so its charts never reach the main bundle.
-const DesignPage = import.meta.env.DEV
-  ? lazy(() => import("../pages/DesignPage").then((m) => ({ default: m.DesignPage })))
-  : null;
+/** Old links (the previous navigation) open their new place. */
+function Redirector() {
+  const location = useLocation();
+  const exact = REDIRECTS[location.pathname + location.search];
+  const byPath = REDIRECTS[location.pathname];
+  const diagnostics = location.pathname.match(/^\/assets\/(\d+)\/diagnostics$/);
+  if (diagnostics) return <Navigate to={`/assets/${diagnostics[1]}?tab=diagnosis`} replace />;
+  if (exact ?? byPath) return <Navigate to={exact ?? byPath!} replace />;
+  return <NotFoundPage />;
+}
 
 export const routes: RouteObject[] = [
   { path: "/sign-in", element: <SignInPage /> },
@@ -89,27 +66,18 @@ export const routes: RouteObject[] = [
     ),
     children: [
       { index: true, element: <Navigate to="/fleet" replace /> },
-      ...SCREENS.filter((screen) => screen.id !== "DEV").map((screen) => ({
-        path: screen.path,
-        element: (
-          <Suspense fallback={<p className="muted">Loading…</p>}>
-            {BUILT[screen.id] ?? <ScreenPlaceholder key={screen.id} screen={screen} />}
-          </Suspense>
-        ),
-      })),
-      ...(DesignPage
-        ? [
-            {
-              path: "/design",
-              element: (
-                <Suspense fallback={<p className="muted">Loading…</p>}>
-                  <DesignPage />
-                </Suspense>
-              ),
-            },
-          ]
-        : []),
-      { path: "*", element: <NotFoundPage /> },
+      ...SCREENS.map((screen) => {
+        const Component = PAGES[screen.id];
+        return {
+          path: screen.path,
+          element: (
+            <Suspense fallback={<p className="sec s13">Loading…</p>}>
+              {Component ? <Component /> : <Placeholder title={screen.title} />}
+            </Suspense>
+          ),
+        };
+      }),
+      { path: "*", element: <Redirector /> },
     ],
   },
 ];

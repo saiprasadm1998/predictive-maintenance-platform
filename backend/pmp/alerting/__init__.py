@@ -53,8 +53,15 @@ from pmp.alerting.service import (
     set_alert_rules,
     template_rules_setter,
 )
+from pmp.core import RetainedRecords
+
+# Closed alerts past their period; alerts still in a case are kept with the case.
+ALERT_RECORDS = RetainedRecords(
+    "alerts", "alert", "closed_at", "id NOT IN (SELECT alert_id FROM case_alert)"
+)
 
 __all__ = [
+    "ALERT_RECORDS",
     "DEFAULT_SENSOR_ALERT",
     "DEFAULT_SENSOR_WARNING",
     "MAX_SHELVE",

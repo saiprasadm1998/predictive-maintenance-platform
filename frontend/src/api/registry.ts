@@ -113,6 +113,29 @@ export function importRegistry(files: readonly File[], dryRun: boolean): Promise
   });
 }
 
+/** Stored data per tag: first and last sample and count. */
+export interface Coverage {
+  tag_id: number;
+  first_ts: string;
+  last_ts: string;
+  samples: number;
+  gaps: number; // gaps over an hour with no sample
+}
+
+export function fetchCoverage(signal?: AbortSignal): Promise<Coverage[]> {
+  return api<Coverage[]>("/tags/coverage", { signal });
+}
+
+export function fetchTagTrend(
+  tagId: number,
+  start: string,
+  end: string,
+  points = 400,
+  signal?: AbortSignal,
+): Promise<{ ts: string[]; mean: number[] }> {
+  return api(`/tags/${tagId}/trend`, { query: { start, end, points }, signal });
+}
+
 export interface Unmapped {
   source: string;
   source_name: string;
@@ -183,6 +206,22 @@ export function uploadHistory(
 /** Import a file that was uploaded for a preview, without sending it again. */
 export function loadHistory(uploadId: string, options: HistoryOptions): Promise<QueuedJob> {
   return api<QueuedJob>(`/ingest/backfill/${uploadId}/load`, { method: "POST", body: options });
+}
+
+/** A history import that ran (previews are not listed). */
+export interface ImportRun {
+  job_id: number;
+  filename: string | null;
+  user_id: number | null;
+  status: "queued" | "running" | "succeeded" | "failed";
+  created_at: string;
+  finished_at: string | null;
+  result: Partial<HistoryReport> | null;
+  error: string | null;
+}
+
+export function fetchImports(signal?: AbortSignal): Promise<ImportRun[]> {
+  return api<ImportRun[]>("/ingest/backfill", { signal });
 }
 
 export type { Job };

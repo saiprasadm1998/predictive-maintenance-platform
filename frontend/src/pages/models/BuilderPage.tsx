@@ -7,6 +7,7 @@ import type { ModelDetail } from "../../api/types";
 import { useBreadcrumbs } from "../../app/breadcrumbs";
 import { useMe } from "../../app/session";
 import { ConfirmDialog } from "../../components/ConfirmDialog";
+import { PageHeader, Steps } from "../../components/ui";
 import { Skeleton } from "../fleet/FleetPage";
 import {
   type BuilderDraft,
@@ -116,82 +117,74 @@ function Builder({
     : "New model";
   const props = { draft, setDraft, model, go, saved, done };
 
+  const crumbs = [
+    { label: "Models", to: "/models" },
+    ...(model
+      ? [
+          {
+            label: `${model.asset_code} / ${model.name}`,
+            to: `/models/${model.id}/versions/${model.latest.version}`,
+          },
+        ]
+      : []),
+    { label: "Model builder" },
+  ];
   return (
-    <div className="builder">
-      <section className="panel builder-head" aria-labelledby="builder-title">
-        <div>
-          <h2 id="builder-title" className="panel-title">
-            {title}
-          </h2>
-          <p className="muted small">
-            Your changes are kept in this browser as you go; the model is saved when training
-            starts.
-          </p>
-        </div>
-        <button type="button" className="button" onClick={() => setDiscarding(true)}>
-          Discard draft
-        </button>
-      </section>
-      <nav aria-label="Model builder steps">
-        <ol className="stepper">
-          {STEPS.map((label, i) => {
-            const n = i + 1;
-            const text = (
-              <>
-                <span className="stepper-n">{n}</span> {label}
-              </>
-            );
-            return (
-              <li
-                key={label}
-                className={n === step ? "stepper-on" : n < step ? "stepper-done" : ""}
-              >
-                {n === step ? (
-                  <span aria-current="step">{text}</span>
-                ) : n <= reachable ? (
-                  <Link to={`${base}/${n}`}>{text}</Link>
-                ) : (
-                  <span className="muted">{text}</span>
-                )}
-              </li>
-            );
-          })}
-        </ol>
-      </nav>
-      {step > reachable ? (
-        <section className="panel">
-          <p>
-            Step {step} needs the steps before it.{" "}
-            <Link to={`${base}/${reachable}`}>
-              Continue at step {reachable}, {STEPS[reachable - 1]!.toLowerCase()}
-            </Link>
-          </p>
-        </section>
-      ) : step === 1 ? (
-        <StepAsset {...props} />
-      ) : step === 2 ? (
-        <StepPeriods {...props} />
-      ) : step === 3 ? (
-        <StepCleanse {...props} />
-      ) : step === 4 ? (
-        <StepTrain {...props} />
-      ) : step === 5 ? (
-        <StepLimits {...props} />
-      ) : (
-        <StepDeploy {...props} />
-      )}
-      <ConfirmDialog
-        open={discarding}
-        onOpenChange={setDiscarding}
-        title="Discard this draft?"
-        consequence="The changes kept in this browser are lost. Versions already saved, trained or deployed stay as they are."
-        confirmLabel="Discard"
-        danger
-        onConfirm={() => {
-          forgetDraft(userId, storeKey);
-          void navigate("/models");
-        }}
+    <>
+      <PageHeader
+        crumbs={crumbs}
+        title={title}
+        sub={`Your changes are kept as you go; the model is saved when training starts. Step ${step} of ${STEPS.length}.`}
+        actions={
+          <button type="button" className="btn btn-s" onClick={() => setDiscarding(true)}>
+            Discard draft
+          </button>
+        }
       />
-    </div>
+      <Steps
+        label="Builder steps"
+        steps={STEPS.map((label, i) => ({
+          label,
+          state: i + 1 === step ? "on" : i + 1 < step ? "done" : "todo",
+          onClick: i + 1 !== step && i + 1 <= reachable ? () => go(i + 1) : undefined,
+        }))}
+      />
+      <div className="legacy">
+        {step > reachable ? (
+          <section className="pnl">
+            <p>
+              Step {step} needs the steps before it.{" "}
+              <Link to={`${base}/${reachable}`}>
+                Continue at step {reachable}, {STEPS[reachable - 1]!.toLowerCase()}
+              </Link>
+            </p>
+          </section>
+        ) : step === 1 ? (
+          <StepAsset {...props} />
+        ) : step === 2 ? (
+          <StepPeriods {...props} />
+        ) : step === 3 ? (
+          <StepCleanse {...props} />
+        ) : step === 4 ? (
+          <StepTrain {...props} />
+        ) : step === 5 ? (
+          <StepLimits {...props} />
+        ) : (
+          <StepDeploy {...props} />
+        )}
+        <ConfirmDialog
+          open={discarding}
+          onOpenChange={setDiscarding}
+          title="Discard this draft?"
+          consequence="The changes kept in this browser are lost. Versions already saved, trained or deployed stay as they are."
+          confirmLabel="Discard"
+          danger
+          onConfirm={() => {
+            forgetDraft(userId, storeKey);
+            void navigate("/models");
+          }}
+        />
+      </div>
+    </>
   );
 }
