@@ -469,7 +469,13 @@ export function HistoryPage() {
       setParams(params);
     }
   };
-  if (loading) return <Loading what="historical data" />;
+  if (loading)
+    return (
+      <>
+        <Loading what="historical data" />
+        {upload && <UploadDialog key="upload" onClose={closeUpload} />}
+      </>
+    );
 
   const cov = coverage.data ?? [];
   const byTag = new Map(cov.map((c) => [c.tag_id, c]));
@@ -692,7 +698,7 @@ export function HistoryPage() {
           )}
         </Panel>
       </div>
-      {upload && <UploadDialog onClose={closeUpload} />}
+      {upload && <UploadDialog key="upload" onClose={closeUpload} />}
     </>
   );
 }

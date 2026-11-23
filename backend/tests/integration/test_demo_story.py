@@ -20,7 +20,13 @@ from pmp.registry import import_files
 
 pytestmark = pytest.mark.integration
 DATA = Path(__file__).resolve().parents[3] / "data" / "demo"
-ANCHOR = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+# A fixed day: the simulator's noise follows the calendar, so a moving anchor would test
+# different data every day.
+ANCHOR = datetime(2026, 11, 22, tzinfo=UTC)
+
+
+def at(days: int) -> str:
+    return (ANCHOR + timedelta(days=days)).isoformat()
 
 
 @pytest.fixture
@@ -30,7 +36,7 @@ def models_folder(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> Iterator[Path]:
-    """K-101 and P-205 with five days of history and shortened training periods."""
+    """K-101 and P-205 with twelve days of history and shortened training periods."""
     monkeypatch.setenv("PMP_DATABASE_URL", database_url)
     monkeypatch.setenv("PMP_SECRET_KEY", "k")
     monkeypatch.setenv("PMP_LOG_FORMAT", "text")
@@ -44,17 +50,17 @@ def models_folder(
         import_files(s, Actor.system(), [DATA / "registry" / "registry.xlsx"])
     with clean_models.session() as s:
         tags = [t for t in demo_tags(s) if t.asset_code in {"K-101", "P-205"}]
-    # Five days train a much rougher model than the demo's 110, so the excursion is made
+    # Ten days train a much rougher model than the demo's 110, so the excursion is made
     # big enough to stand out from its wider residual spread.
     monkeypatch.setattr(scenarios, "P205_EXCURSION", 60.0)
     simulator = PlantSimulator(tags, anchor=ANCHOR)
-    load_history(clean_models, simulator, days=5, work_dir=tmp_path / "work")
+    load_history(clean_models, simulator, days=12, work_dir=tmp_path / "work")
     folder = tmp_path / "models"
     folder.mkdir()
     for name in ("k101", "p205"):
         data = json.loads((DATA / "models" / f"{name}.json").read_text())
-        data["training_periods"] = [{"start": "-5d", "end": "-2d"}]
-        data["validation_period"] = {"start": "-2d", "end": "-1d"}
+        data["training_periods"] = [{"start": at(-12), "end": at(-2)}]
+        data["validation_period"] = {"start": at(-2), "end": at(-1)}
         (folder / f"{name}.json").write_text(json.dumps(data))
     yield folder
     get_settings.cache_clear()

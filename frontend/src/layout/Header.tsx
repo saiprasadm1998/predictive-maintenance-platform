@@ -190,8 +190,7 @@ export function Header() {
   return (
     <header className="hd">
       <Link className="brand" to="/fleet" aria-label="Traverse PM, overview">
-        <b>Traverse</b>
-        <span>PM</span>
+        <b>Traverse</b> <span>PM</span>
       </Link>
       <ScopePicker />
       <AssetSearch />

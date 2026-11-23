@@ -430,9 +430,18 @@ export function HierarchyPage() {
             onChange={(e) => setQ(e.target.value)}
             style={{ marginBottom: 8 }}
           />
-          <div role="tree" aria-label="Plant hierarchy" style={{ fontSize: 13 }}>
-            {renderTree(null, 0)}
-          </div>
+          {(() => {
+            const items = renderTree(null, 0);
+            return Array.isArray(items) && items.length === 0 ? (
+              <p className="sec s13">
+                {q.trim() ? "Nothing matches the search." : "No sites yet. Add one to start."}
+              </p>
+            ) : (
+              <div role="group" aria-label="Plant hierarchy" style={{ fontSize: 13 }}>
+                {items}
+              </div>
+            );
+          })()}
         </Panel>
         <div className="col">
           {selected && (

@@ -43,27 +43,31 @@ test.describe("SCR-14 administration", () => {
       return json(route, { id: 1, key: "pmp_a1b2c3d4_the-secret-part", prefix: "a1b2c3d4" }, 201);
     });
 
-    await page.goto("/admin");
-    await page.getByRole("link", { name: "API keys" }).click();
-    await page.getByRole("textbox", { name: "Name", exact: true }).fill("Gateway site A");
-    await page.getByRole("combobox", { name: "Scope" }).selectOption("ingest");
-    await page.getByRole("button", { name: "Issue key" }).click();
+    await page.goto("/system/users?tab=keys");
+    await page.getByRole("button", { name: "Issue a key" }).click();
+    const issue = page.getByRole("dialog", { name: "Issue an API key" });
+    await issue.getByLabel("Name").fill("Gateway site A");
+    await issue.getByLabel("Scope").selectOption("ingest");
+    await issue.getByRole("button", { name: "Issue key" }).click();
 
-    const once = page.getByRole("region", { name: /copy it now/ });
-    await expect(once.getByLabel("The new key")).toHaveText("pmp_a1b2c3d4_the-secret-part");
+    const once = page.getByRole("dialog", { name: "Key shown once" });
+    await expect(once.getByLabel("API key")).toHaveValue("pmp_a1b2c3d4_the-secret-part");
     await once.getByRole("button", { name: "Copy" }).click();
     await expect(once.getByRole("button", { name: "Copied" })).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
       "pmp_a1b2c3d4_the-secret-part",
     );
-    await once.getByRole("button", { name: "I have stored it" }).click();
+    await once.getByRole("button", { name: "Done" }).click();
     await expect(page.getByText("the-secret-part")).toHaveCount(0);
 
-    const table = page.getByRole("table", { name: "API keys" });
-    await expect(table).toContainText("a1b2c3d4…");
-    await table.getByRole("button", { name: "Revoke Gateway site A" }).click();
-    await page.getByRole("dialog").getByRole("button", { name: "Revoke" }).click();
-    await expect(table).toContainText("Revoked");
+    const row = page.getByRole("row", { name: /Gateway site A/ });
+    await expect(row).toContainText("a1b2c3d4");
+    await row.getByRole("button", { name: "Revoke" }).click();
+    await page
+      .getByRole("dialog", { name: "Revoke Gateway site A?" })
+      .getByRole("button", { name: "Revoke" })
+      .click();
+    await expect(row).toContainText("Revoked");
     expect(calls).toEqual(["POST /api-keys", "POST /api-keys/1/revoke"]);
   });
 });

@@ -36,27 +36,27 @@ test.describe("SCR-13 registry and import", () => {
       });
     });
 
-    await page.goto("/admin");
-    await page.getByRole("link", { name: "Registry and import" }).click();
-    await page.getByRole("link", { name: "Registry import" }).click();
-    const files = page.getByLabel("Files");
+    await page.goto("/setup/tags");
+    await page.getByRole("link", { name: "Import workbook" }).click();
+    const dialog = page.getByRole("dialog", { name: "Import the registry" });
+    const files = dialog.getByLabel("Files");
     await files.setInputFiles({ name: "tags.csv", mimeType: "text/csv", buffer: Buffer.from("x") });
-    await page.getByRole("button", { name: "Validate" }).click();
-    const report = page.getByRole("table", { name: "Validation report" });
+    await dialog.getByRole("button", { name: "Validate" }).click();
+    const report = dialog.getByRole("table", { name: "Validation report" });
     await expect(report).toContainText("asset 'X-9' does not exist");
-    await expect(page.getByRole("button", { name: "Import" })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Import" })).toBeDisabled();
 
     await files.setInputFiles({
       name: "assets.csv",
       mimeType: "text/csv",
       buffer: Buffer.from(ASSETS_CSV),
     });
-    await page.getByRole("button", { name: "Validate" }).click();
-    await expect(page.getByRole("table", { name: "Changes the import will make" })).toContainText(
+    await dialog.getByRole("button", { name: "Validate" }).click();
+    await expect(dialog.getByRole("table", { name: "Changes the import will make" })).toContainText(
       "2 created, 1 updated",
     );
-    await page.getByRole("button", { name: "Import" }).click();
-    await expect(page.getByText("Imported.")).toBeVisible();
+    await dialog.getByRole("button", { name: "Import" }).click();
+    await expect(dialog.getByText("Imported.")).toBeVisible();
     expect(sent).toEqual(["validate:tags", "validate:assets", "import:assets"]);
   });
 
@@ -80,8 +80,12 @@ test.describe("SCR-13 registry and import", () => {
     });
     const polls: Record<number, number> = {};
     const steps: string[] = [];
+    await page.route("**/api/v1/ingest/health", (route) =>
+      json(route, { sources: [{ source: "gw-site-a-01" }] }),
+    );
     await page.route("**/api/v1/ingest/backfill**", (route) => {
       const path = new URL(route.request().url()).pathname;
+      if (route.request().method() === "GET") return json(route, []);
       if (path.endsWith("/load")) {
         steps.push(`load ${path.split("/")[5]}`);
         return json(route, { job_id: 2, upload_id: "a".repeat(32), preview: false }, 202);
@@ -106,19 +110,24 @@ test.describe("SCR-13 registry and import", () => {
       });
     });
 
-    await page.goto("/admin/registry?tab=history");
-    await page.getByLabel("File", { exact: true }).setInputFiles({
+    await page.goto("/setup/history");
+    await page.getByRole("button", { name: "Upload history" }).first().click();
+    const dialog = page.getByRole("dialog", { name: "Upload history" });
+    await dialog.getByLabel(/^File/).setInputFiles({
       name: "history.csv",
       mimeType: "text/csv",
       buffer: Buffer.from("ts,tag,value\n"),
     });
-    await page.getByRole("combobox", { name: "Source (gateway)" }).fill("gw-site-a-01");
-    await page.getByRole("button", { name: "Preview" }).click();
-    await expect(page.getByRole("heading", { name: "Preview (nothing stored)" })).toBeVisible();
-    await expect(page.getByText("1,440 (0 already stored)")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/Timestamp not readable: 1/).first()).toBeVisible();
-    await page.getByRole("button", { name: "Import" }).click();
-    await expect(page.getByText("✔ yes")).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByLabel("Gateway the tags belong to")).toHaveValue("gw-site-a-01");
+    await dialog.getByRole("button", { name: "Continue" }).click();
+    await dialog.getByRole("button", { name: "Check the file" }).click();
+    await expect(dialog.getByText(/Timestamp not readable/).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await dialog.getByRole("button", { name: /^Import 1,440 samples/ }).click();
+    await expect(dialog.getByText("Counts reconcile")).toBeVisible({ timeout: 10_000 });
+    await dialog.getByRole("button", { name: "Done" }).click();
+    await expect(dialog).toBeHidden();
     expect(steps).toEqual(["upload", `load ${"a".repeat(32)}`]);
   });
 });

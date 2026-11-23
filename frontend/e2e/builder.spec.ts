@@ -186,7 +186,9 @@ test.describe("SCR-06 model builder", () => {
     await page.getByRole("button", { name: "Next →" }).click();
 
     // 2 Periods: the defaults (the last 120 to 30 days, then the last 30) are valid
-    await expect(page.getByRole("group", { name: "Training period 1" })).toBeVisible();
+    const periods = page.getByRole("region", { name: "2. Training period" });
+    await expect(periods.getByLabel("Training from")).not.toHaveValue("");
+    await expect(periods.getByLabel("Validation to")).not.toHaveValue("");
     await page.getByRole("button", { name: "Next →" }).click();
 
     // 3 Cleanse: the effect of each rule, then training starts

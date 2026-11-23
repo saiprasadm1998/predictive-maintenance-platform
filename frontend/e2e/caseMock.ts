@@ -139,7 +139,7 @@ export async function mockCases(page: Page, alerts: Alerts) {
                   actual: 88,
                   predicted: 80,
                   z: 2.5,
-                  contribution: 60,
+                  contribution: 0.6,
                   dq_status: "Good",
                   dq_rule: null,
                   used: true,

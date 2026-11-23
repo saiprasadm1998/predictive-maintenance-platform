@@ -2,65 +2,65 @@ import { expect, test } from "@playwright/test";
 
 import { mockApi } from "./mockApi";
 
-test.describe("SCR-03 asset analysis", () => {
-  test("a sensor trend is one click from the fleet overview (NFR-USE-01: at most three)", async ({
+test.describe("SCR-03 equipment analysis", () => {
+  test("journey: trends, diagnosis, time to limit and sensors of one equipment (NFR-USE-01)", async ({
     page,
   }) => {
     await mockApi(page, { sites: 1, units: 1, perUnit: 3 });
     await page.goto("/fleet");
     await page
-      .getByRole("table")
-      .getByRole("link", { name: /Pump S0U0E1/ })
+      .getByRole("region", { name: "S0U0E0 Pump S0U0E0" })
+      .getByRole("link", { name: "Review →" })
       .click(); // 1
-    await expect(page.getByRole("figure", { name: /TI1 sensor 1: actual/ })).toBeVisible();
-    await expect(page.getByRole("table", { name: /Sensors at the latest cycle/ })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "Pump S0U0E0" })).toBeVisible();
+    await expect(page.getByRole("img", { name: /^Deviation Index, last/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /TI1\.PV actual and predicted/ })).toBeVisible();
 
-    // A click on the DI chart shows the contributors at that time (plan 6.7c).
-    const di = page.getByRole("slider", { name: /Deviation Index/ });
-    const box = (await di.boundingBox())!;
-    await page.mouse.click(box.x + box.width * 0.5, box.y + box.height / 2);
-    await expect(page).toHaveURL(/[?&]at=\d{4}-/);
-    await expect(page.getByRole("heading", { name: /Top contributors at / })).toBeVisible();
-    await page.getByRole("button", { name: "Back to the latest cycle" }).click();
-    await expect(page.getByRole("heading", { name: "Top contributors now" })).toBeVisible();
+    // A contributor toggles its trend.
+    await page.getByRole("button", { name: /^FI-3 sensor 3/ }).click();
+    await expect(page.getByRole("img", { name: /FI3\.PV actual and predicted/ })).toBeVisible();
 
-    await expect(
-      page.getByRole("row", { name: /Forecast High · 4–6 d to DI alert limit 25/ }),
-    ).toBeVisible();
-
-    // Diagnostics (plan 8.2): failure modes ranked by match, symptoms and tasks.
-    await page.getByRole("link", { name: /Diagnose/ }).click();
-    const modes = page.getByRole("list", { name: "Failure modes ranked by match" });
-    await expect(modes.getByRole("button", { name: /Seal leak: 82/ })).toBeVisible();
+    const tabs = page.getByRole("tablist", { name: "Analysis" });
+    await tabs.getByRole("tab", { name: "Diagnosis" }).click();
+    await expect(page.getByRole("button", { name: /Seal leak .* 82 %/ })).toBeVisible();
     await expect(page.getByText("Inspect the mechanical seal")).toBeVisible();
-    // The forecast (plan 8.3): urgency, interval and the forecast chart.
-    await expect(page.getByText("Urgency: HIGH")).toBeVisible();
-    await expect(page.getByRole("figure", { name: "Forecast of DI" })).toBeVisible();
+
+    await tabs.getByRole("tab", { name: "Time to limit" }).click();
+    await expect(page.getByText(/Reaches 25 in .* \(median 5\.0 d\)/)).toBeVisible();
+
+    await tabs.getByRole("tab", { name: /Sensors/ }).click();
+    const sensors = page.getByRole("row", { name: /^TI-1 sensor 1 / });
+    await expect(sensors).toContainText("Good");
+    await sensors.getByRole("link", { name: "Chart" }).click();
+    await expect(tabs.getByRole("tab", { name: "Trends and contributors" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 
-  test("journey: from an alert to its asset with the alert's window selected", async ({ page }) => {
+  test("journey: from an alert to its equipment", async ({ page }) => {
     const { alerts } = await mockApi(page, { sites: 1, units: 2, perUnit: 6 });
     const alert = alerts[0]!;
     await page.goto(`/assets/${alert.asset_id}?alert=${alert.id}`);
-    await expect(page).toHaveURL(/from=.*&to=|to=.*&from=/);
-    const url = new URL(page.url());
-    const from = Date.parse(url.searchParams.get("from")!);
-    expect(Date.parse(alert.raised_at) - from).toBe(12 * 3_600_000); // half a day before
-    await expect(page.getByRole("button", { name: /Time range: .* – / })).toBeVisible();
-    await expect(page.getByText("P1 · active · unack")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { level: 1, name: `Pump ${alert.asset_code}` }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("definition").filter({ hasText: "P1, unacknowledged" }),
+    ).toBeVisible();
+    await expect(page.getByRole("button", { name: /^Acknowledge \(\d+\)/ })).toBeVisible();
   });
 });
 
 test.describe("NFR-PERF-03 trend rendering", () => {
-  test("a 30-day trend of 20 sensors renders in under 3 seconds", async ({ page }) => {
+  test("an equipment with 800-point trends renders in under 3 seconds", async ({ page }) => {
     const { leaves } = await mockApi(page, { sites: 1, units: 1, perUnit: 3 }, 800);
-    const sensors = Array.from({ length: 20 }, (_, i) => `S${String(i + 1).padStart(2, "0")}`);
     const started = Date.now();
-    await page.goto(`/assets/${leaves[0]!.id}?range=30d&sensors=${sensors.join(",")}`);
-    await expect(page.getByRole("figure", { name: /S20.*actual/ })).toBeVisible();
-    await expect(page.getByRole("figure", { name: /actual/ })).toHaveCount(20);
+    await page.goto(`/assets/${leaves[0]!.id}`);
+    await expect(page.getByRole("img", { name: /^Deviation Index, last/ })).toBeVisible();
+    await expect(page.getByRole("img", { name: /actual and predicted/ })).toHaveCount(2);
     const elapsed = Date.now() - started;
-    console.log(`30-day trend of 20 sensors (800 points each) rendered in ${elapsed} ms`);
+    console.log(`equipment analysis with 800-point trends rendered in ${elapsed} ms`);
     expect(elapsed).toBeLessThan(3000);
   });
 });

@@ -187,6 +187,8 @@ export async function mockApi(
       });
     }
     if (path === "/models") return json(route, models);
+    if (["/tags", "/tags/coverage", "/asset-types", "/model-templates", "/users"].includes(path))
+      return json(route, []);
     if (path === "/forecasts") {
       const at = Date.now();
       return json(route, [

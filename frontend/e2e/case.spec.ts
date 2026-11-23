@@ -9,51 +9,56 @@ test.describe("SCR-05 and SCR-09 cases", () => {
     await mockCases(page, alerts);
     const alert = alerts[0]!;
 
-    // Detect: the alert list shows the alert; its asset opens on the alert's window.
+    // Detect: the alert opens its equipment.
     await page.goto("/alerts");
-    const row = page.getByRole("row", { name: new RegExp(alert.asset_code) }).first();
-    await row.getByRole("link", { name: new RegExp(alert.asset_code) }).click();
-    await expect(page).toHaveURL(new RegExp(`/assets/${alert.asset_id}\\?.*alert=${alert.id}`));
+    await page
+      .getByRole("row", { name: /^Select alert A-1 / })
+      .getByRole("link", { name: new RegExp(alert.asset_code) })
+      .click();
+    await expect(page).toHaveURL(new RegExp(`/assets/${alert.asset_id}\\?alert=${alert.id}`));
 
-    // Diagnose: failure modes ranked by match and the forecast.
-    await page.getByRole("link", { name: /Diagnose/ }).click();
-    const modes = page.getByRole("list", { name: "Failure modes ranked by match" });
-    await expect(modes.getByRole("button", { name: /Seal leak: 82/ })).toBeVisible();
-    await expect(page.getByText("Urgency: HIGH")).toBeVisible();
+    // Diagnose: failure modes ranked by match and the time to limit.
+    const tabs = page.getByRole("tablist", { name: "Analysis" });
+    await tabs.getByRole("tab", { name: "Diagnosis" }).click();
+    await expect(page.getByRole("button", { name: /Seal leak .* 82 %/ })).toBeVisible();
+    await tabs.getByRole("tab", { name: "Time to limit" }).click();
+    await expect(page.getByText(/median 5\.0 d/)).toBeVisible();
 
-    // Act: a case from the asset's open alert, with its snapshot.
-    await page.getByRole("button", { name: "Create case…" }).click();
-    const dialog = page.getByRole("dialog");
-    await dialog.getByLabel(/Title/).fill("Seal leak suspected");
-    await dialog.getByRole("button", { name: "Create case" }).click();
-    await expect(page.getByRole("heading", { name: "C-0001 · Seal leak suspected" })).toBeVisible();
-    const snapshot = page.getByRole("region", { name: "Snapshot at creation" });
-    await expect(snapshot.getByText("82 %")).toBeVisible();
-    const stepper = page.getByRole("list", { name: "Case status" });
-    await expect(stepper.locator('[aria-current="step"]')).toHaveText("Open");
+    // Act: a case from the alert, with its frozen snapshot.
+    await page.goto("/alerts");
+    await page.getByRole("checkbox", { name: "Select alert A-1" }).check();
+    await page.getByRole("button", { name: "Create case", exact: true }).click();
+    const create = page.getByRole("dialog", { name: "Create case" });
+    await create.getByLabel("Title").fill("Seal leak suspected");
+    await create.getByRole("button", { name: "Create case" }).click();
+    await expect(
+      page.getByRole("heading", { level: 1, name: "C-0001 Seal leak suspected" }),
+    ).toBeVisible();
+    await expect(page.getByRole("definition").filter({ hasText: "Seal leak, 82 %" })).toBeVisible();
+    await expect(page.getByRole("definition").filter({ hasText: "TI-1 60 %" })).toBeVisible();
 
-    const assignee = page.getByLabel("Assignee");
-    await expect(assignee.locator("option", { hasText: "Max Maintenance" })).toBeAttached();
-    await assignee.selectOption({ label: "Max Maintenance" });
-    await expect(stepper.locator('[aria-current="step"]')).toHaveText("Investigating");
-    const add = page.getByRole("form", { name: "Add activity" });
-    await add.getByRole("radio", { name: "Action" }).check();
-    await add.getByLabel("What to do").fill("Replace the mechanical seal");
-    await add.getByLabel("Owner").selectOption({ label: "Max Maintenance" });
-    await add.getByRole("button", { name: "Add action" }).click();
-    await expect(stepper.locator('[aria-current="step"]')).toHaveText("Action required");
-    await page.getByRole("button", { name: "Mark done" }).click();
-    await expect(stepper.locator('[aria-current="step"]')).toHaveText("Monitoring");
+    const status = page.getByRole("list", { name: "Case status" });
+    await page.getByLabel("Assignee").selectOption({ label: "Max Maintenance" });
+    await page.getByRole("button", { name: "Save fields" }).click();
+    await expect(status.getByRole("listitem").first()).toHaveText(/✓\s*Open/);
+
+    const activity = page.getByRole("region", { name: "Activity" });
+    await activity.getByRole("tab", { name: "Action" }).click();
+    await activity.getByLabel("New entry").fill("Replace the mechanical seal");
+    await activity.getByLabel("Owner").selectOption({ label: "Max Maintenance" });
+    await activity.getByRole("button", { name: "Add" }).click();
+    const actions = page.getByRole("region", { name: "Actions" });
+    await expect(actions).toContainText("Replace the mechanical seal");
 
     // Close: a true finding with its confirmed failure mode.
-    const closure = page.getByRole("form", { name: "Close case" });
-    await closure.getByLabel("Outcome").selectOption("true_finding");
-    await expect(closure.getByRole("button", { name: "Close case" })).toBeDisabled();
-    await closure.getByLabel(/Confirmed mode/).selectOption({ label: "Seal leak" });
-    await closure.getByLabel(/Lessons learned/).fill("Seal wear shows in TI1 a week ahead");
-    await closure.getByRole("button", { name: "Close case" }).click();
-    await expect(stepper.locator('[aria-current="step"]')).toHaveText("Closed");
-    await expect(page.getByText("True finding", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close case" }).click();
+    const close = page.getByRole("dialog", { name: "Close case C-0001" });
+    await close.getByLabel(/Outcome/).selectOption("true_finding");
+    await close.getByLabel("Confirmed failure mode").selectOption({ label: "Seal leak" });
+    await close.getByLabel("Lessons learned").fill("Seal wear shows in TI1 a week ahead");
+    await close.getByRole("button", { name: "Close case" }).click();
+    await expect(close).toBeHidden();
+    await expect(status.getByRole("listitem").last()).toHaveText(/Closed/);
 
     // The case list keeps it, closed, with its outcome.
     await page.goto("/cases");
